@@ -1,5 +1,8 @@
 # pulled data (large, regenerate with fetch_sdfood.py)
 data/
+# generated dashboard data (regenerate with export_dashboard.py)
+dashboard_data.json
+_check.js
 # investigation/probe artifacts
 *.html
 ajax.js
