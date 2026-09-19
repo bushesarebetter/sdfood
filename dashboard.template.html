@@ -76,10 +76,10 @@ tbody tr:last-child td{border-bottom:none}
     <div class="card"><img src="IMG_DAYS" alt="Days earlier critical violations are found under risk ordering">
       <p><b>Critical violations found ~6 days earlier</b> within the monthly cycle (95% CI 5.8–6.5), 18 days within a quarter — while clean facilities wait under a day longer.</p></div>
   </div>
-  <div class="note"><b>Statistically checked:</b> model AUC is stable at 0.73–0.75 across three separate time cutoffs (rolling-origin backtest); every figure is from data after the training window; the days-earlier estimate has a bootstrap 95% CI. Full method &amp; code in the repo.</div>
+  <div class="note"><b>Trained</b> on routine inspections <b>Jan 2023 – Dec 2024</b>; <b>tested</b> on <b>Jan 2025 – Sep 2026</b> (36,543 inspections the model never saw). All figures above (AUC, gains, days-earlier) come from that held-out test window.<br><br><b>Statistically checked:</b> AUC is stable at 0.73–0.75 across three separate time cutoffs (rolling-origin backtest); the days-earlier estimate carries a bootstrap 95% CI. Full method &amp; code in the repo.</div>
 
   <h2>The worklist — who to inspect next, ranked by risk</h2>
-  <p style="font-size:13.5px;color:var(--ink-soft);margin:0 0 6px">Every currently-active facility, scored for its <b>next, not-yet-done</b> inspection using its full history to date — the forward-looking queue inspectors would actually work. Sort by risk, then weigh how long since the last visit. Facilities are anonymized; a named list runs internally. (The model's accuracy is validated out-of-sample in the evidence above; this queue uses a model trained on all data.)</p>
+  <p style="font-size:13.5px;color:var(--ink-soft);margin:0 0 6px">Every currently-active facility, scored for its <b>next, not-yet-done</b> inspection using its full history to date — the forward-looking queue inspectors would actually work. Sort by risk, then weigh how long since the last visit. Facilities are anonymized; a named list runs internally. <b>This queue uses a model fitted on all routine inspections Jan 2023 – Sep 2026, scoring each facility as of Sep 18, 2026</b> — the accuracy of that approach is validated out-of-sample in the evidence above.</p>
   <div class="controls">
     <label for="fcity">City</label><select id="fcity"><option value="">All</option></select>
     <label for="ftype">Type</label><select id="ftype"><option value="">All</option></select>

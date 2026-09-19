@@ -23,7 +23,8 @@ every facility with its full nested inspection + violation history.
 - **Features — strictly pre-inspection (no leakage):** business type, ZIP, facility age, month,
   and the facility's prior history (past scores, past violation & major rates, time since last,
   whether it failed last time).
-- **Forward-in-time test:** train ≤ 2024, test 2025+ (n = 36,543).
+- **Forward-in-time test:** trained on **Jan 2023 – Dec 2024**, tested on **Jan 2025 – Sep 2026** (n = 36,543 inspections the model never saw). Data spans 2023-01-03 → 2026-09-18.
+- **Live worklist (dashboard)** uses a separate *deploy* model fitted on **all** routine inspections (Jan 2023 – Sep 2026), scoring each active facility as of **Sep 18, 2026**. Validation above uses the held-out split; deployment uses all data — standard practice.
 - **Baseline that matters:** the facility's own prior major-violation rate (not just random).
 
 | | Model | Prior-rate baseline | Random |
