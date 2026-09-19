@@ -73,7 +73,7 @@ city={str(b["business_id"]):b.get("city") for b in json.load(open("data/sd_busin
 fwd["city"]=pd.Series(fwd.index.astype(str),index=fwd.index).map(city).fillna("").str.title()
 
 fwd=fwd.sort_values("risk",ascending=False)
-work=fwd.head(2500)
+work=fwd                                   # embed ALL active facilities, not just top 2500
 rows=[]
 for i,(_,r) in enumerate(work.iterrows(),1):
     rows.append({"id":f"F-{i:05d}","risk":r["risk"],"type":str(r["business_type"]),
