@@ -73,16 +73,16 @@ tbody tr:last-child td{border-bottom:none}
   </div>
   <div class="note"><b>Statistically checked:</b> model AUC is stable at 0.73–0.75 across three separate time cutoffs (rolling-origin backtest); every figure is from data after the training window; the days-earlier estimate has a bootstrap 95% CI. Full method &amp; code in the repo.</div>
 
-  <h2>The worklist — who to inspect first, and why</h2>
-  <p style="font-size:13.5px;color:var(--ink-soft);margin:0 0 6px">A sample of upcoming inspections ranked by the model. The <b>outcome</b> column shows what the inspection actually found (out-of-fold) — a live check that high-risk picks really do fail more. Facilities are anonymized; a named worklist runs internally.</p>
+  <h2>The worklist — who to inspect next, ranked by risk</h2>
+  <p style="font-size:13.5px;color:var(--ink-soft);margin:0 0 6px">Every currently-active facility, scored for its <b>next, not-yet-done</b> inspection using its full history to date — the forward-looking queue inspectors would actually work. Sort by risk, then weigh how long since the last visit. Facilities are anonymized; a named list runs internally. (The model's accuracy is validated out-of-sample in the evidence above; this queue uses a model trained on all data.)</p>
   <div class="controls">
     <label for="fcity">City</label><select id="fcity"><option value="">All</option></select>
     <label for="ftype">Type</label><select id="ftype"><option value="">All</option></select>
-    <label for="fout"><input type="checkbox" id="fout" style="vertical-align:-2px"> only actual critical</label>
+    <label for="fover"><input type="checkbox" id="fover" style="vertical-align:-2px"> overdue &gt; 12 mo</label>
     <span class="count" id="count"></span>
   </div>
   <div class="tbl-wrap"><table>
-    <thead><tr><th>Predicted risk</th><th>Facility</th><th>Type</th><th>City</th><th>History</th><th>Outcome</th></tr></thead>
+    <thead><tr><th>Predicted risk</th><th>Facility</th><th>Type</th><th>City</th><th>History</th><th>Since last visit</th></tr></thead>
     <tbody id="tbody"></tbody>
   </table></div>
 
@@ -109,23 +109,23 @@ function riskColor(r){ // 0..100 -> teal to red
   const m=s[i],n=s[i+1]; return `rgb(${m[0]+(n[0]-m[0])*f|0},${m[1]+(n[1]-m[1])*f|0},${m[2]+(n[2]-m[2])*f|0})`;
 }
 function render(){
-  const city=csel.value, type=tsel.value, onlyC=$("#fout").checked;
-  let rows=DATA.worklist.filter(r=>(!city||r.city===city)&&(!type||r.type===type)&&(!onlyC||r.outcome===1));
+  const city=csel.value, type=tsel.value, od=$("#fover").checked;
+  let rows=DATA.worklist.filter(r=>(!city||r.city===city)&&(!type||r.type===type)&&(!od||r.months_since>12));
   rows.sort((a,b)=>b.risk-a.risk);
   const shown=rows.slice(0,150);
   $("#count").textContent=`showing ${shown.length} of ${rows.length.toLocaleString()} matching`;
   $("#tbody").innerHTML=shown.map(r=>{
     const hist=[`${r.prior_n} prior insp.`, r.last_score!=null?`last score ${r.last_score}`:"first visit",
                 r.prior_major_pct!=null?`${r.prior_major_pct}% prior critical`:""].filter(Boolean).join(" · ");
-    const out=r.outcome? '<span class="chip crit">critical found</span>':'<span class="chip ok">none</span>';
+    const since=r.months_since>12?`<span class="chip crit">${r.months_since} mo ago</span>`:`<span class="hist">${r.months_since} mo ago</span>`;
     return `<tr><td><div class="rk"><div class="bar"><div class="fill" style="width:${Math.min(100,r.risk)}%;background:${riskColor(r.risk)}"></div></div><b>${r.risk.toFixed(0)}%</b></div></td>`+
-      `<td class="id">${r.id}</td><td>${r.type}</td><td>${r.city}</td><td class="hist">${hist}</td><td>${out}</td></tr>`;
+      `<td class="id">${r.id}</td><td>${r.type}</td><td>${r.city}</td><td class="hist">${hist}</td><td>${since}</td></tr>`;
   }).join("")||`<tr><td colspan="6" style="color:var(--ink-soft);padding:16px">No facilities match.</td></tr>`;
 }
-[csel,tsel,$("#fout")].forEach(el=>el.addEventListener("change",render));
+[csel,tsel,$("#fover")].forEach(el=>el.addEventListener("change",render));
 $("#foot").innerHTML="Source: San Diego County DEH inspection results via the public sdfoodinfo.org API "+
   `(${S.n_inspections?.toLocaleString()} inspections, ${S.n_facilities?.toLocaleString()} facilities, 2023–2026). `+
   "Risk = modeled probability of a critical violation, from facility type, location and prior history (no leakage). "+
-  "Worklist rows are a sample of out-of-fold 2025+ inspections, anonymized. Independent analysis — not an official County document.";
+  "Worklist scores each active facility for its next inspection (model trained on all data); its accuracy is validated out-of-sample in the evidence above. Anonymized. Independent analysis — not an official County document.";
 render();
 </script>
