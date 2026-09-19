@@ -87,26 +87,29 @@ for wlabel,wfreq in [("within-month","M"),("within-quarter","Q")]:
           f"n={len(de_major)}. Clean facilities: {np.mean(de_clean):+.1f} days (the tradeoff).")
     results.append((wlabel, de_major.mean(), lo, hi, np.mean(de_clean)))
 
-# ---- chart: days earlier (adoption slide) ----
+# ---- chart: days earlier (clean horizontal design) ----
 import matplotlib; matplotlib.use("Agg"); import matplotlib.pyplot as plt
-labs=[r[0].replace("within-","reorder within\n") for r in results]
-mean=[r[1] for r in results]; err=[[m-r[2] for m,r in zip(mean,results)],[r[3]-m for m,r in zip(mean,results)]]
-clean=[r[4] for r in results]
-fig,ax=plt.subplots(figsize=(7.6,5),dpi=150)
-x=np.arange(len(results))
-b=ax.bar(x-0.19,mean,0.36,yerr=err,capsize=5,color="#1d6a97",label="critical violations (found sooner)")
-ax.bar(x+0.19,clean,0.36,color="#c9741a",label="clean facilities (wait slightly longer)")
-for xi,m in zip(x-0.19,mean): ax.text(xi,m+0.6,f"+{m:.1f} d",ha="center",fontweight="bold",fontsize=10,color="#134d6e")
-for xi,c in zip(x+0.19,clean): ax.text(xi,c-1.3,f"{c:.1f} d",ha="center",fontsize=9,color="#a35a12")
-ax.axhline(0,color="#888",lw=.8); ax.set_xticks(x); ax.set_xticklabels(labs)
-ax.set_ylabel("average change in days to inspection")
-ax.set_title("Risk-order inspections catch critical violations sooner\n"
-             "San Diego 2025 routine inspections, out-of-fold (n=4,274 critical); 95% CI",
-             fontsize=12.5,fontweight="bold",loc="left")
-ax.legend(frameon=False,fontsize=9.5,loc="upper left")
-for sp in ["top","right"]: ax.spines[sp].set_visible(False)
-ax.grid(axis="y",color="#eee")
-fig.text(0.01,0.01,"Reorder is zero-sum in inspection-days: earliness concentrates on high-risk (critical) facilities, "
-         "small delay spreads over clean ones.",fontsize=7,color="#777")
-fig.tight_layout(rect=[0,0.03,1,1]); fig.savefig("food_days_earlier.png",bbox_inches="tight")
+labels=["Within the monthly cycle","Within the quarter"]
+mean=[r[1] for r in results]; clean=[r[4] for r in results]
+xerr=[[m-r[2] for m,r in zip(mean,results)],[r[3]-m for m,r in zip(mean,results)]]
+ypos=[1,0]                              # monthly on top
+fig,ax=plt.subplots(figsize=(8.2,3.7),dpi=150)
+ax.barh(ypos,mean,height=0.46,color="#1d6a97",
+        xerr=xerr,capsize=6,error_kw=dict(ecolor="#0d3a55",lw=1.6))
+for yi,m in zip(ypos,mean):
+    ax.text(m+0.45,yi,f"+{m:.1f} days earlier",va="center",ha="left",fontweight="bold",fontsize=12,color="#134d6e")
+ax.set_yticks(ypos); ax.set_yticklabels(labels,fontsize=11.5)
+ax.set_xlim(0,max(r[3] for r in results)*1.32); ax.set_ylim(-0.6,1.6)
+ax.set_xlabel("average days a critical violation is found earlier",fontsize=10)
+ax.text(0,1.24,"Risk-ordered inspections catch critical violations sooner",
+        transform=ax.transAxes,fontsize=14,fontweight="bold",va="bottom")
+ax.text(0,1.09,"San Diego 2025 routine inspections, out-of-fold · n=4,274 critical · 95% CI",
+        transform=ax.transAxes,fontsize=9,color="#5a6b78",va="bottom")
+for sp in ["top","right","left"]: ax.spines[sp].set_visible(False)
+ax.tick_params(left=False); ax.grid(axis="x",color="#eef1f3")
+ct=" · ".join(f"{abs(c):.1f} day{'s' if abs(c)>=1.5 else ''} ({l.split()[-1]})" for c,l in zip(clean,labels))
+fig.text(0.012,0.015,f"The tradeoff: clean facilities wait only {ct} longer. Reordering is zero-sum in inspector-days.",
+         fontsize=8.5,color="#7a8791")
+fig.subplots_adjust(left=0.24,right=0.97,top=0.80,bottom=0.20)
+fig.savefig("food_days_earlier.png",bbox_inches="tight")
 print("saved food_days_earlier.png")
