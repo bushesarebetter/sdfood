@@ -1,0 +1,16 @@
+# pulled data (large, regenerate with fetch_sdfood.py)
+data/
+# investigation/probe artifacts
+*.html
+ajax.js
+methods.js
+restaurant.js
+filter.js
+objects.js
+repo_list.csv
+repo_fetch.py
+search_test.json
+cookies.txt
+# python
+__pycache__/
+*.pyc
