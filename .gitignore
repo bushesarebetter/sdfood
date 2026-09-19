@@ -4,7 +4,9 @@ data/
 dashboard_data.json
 _check.js
 # investigation/probe artifacts
-*.html
+sdfoodinfo.html
+list_restaurants.html
+ffis.html
 ajax.js
 methods.js
 restaurant.js
