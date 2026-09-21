@@ -3,6 +3,8 @@ data/
 # generated dashboard data (regenerate with export_dashboard.py)
 dashboard_data.json
 _check.js
+# cached ACS lookup (regenerate with fairness_check.py)
+acs_cache.json
 # investigation/probe artifacts
 sdfoodinfo.html
 list_restaurants.html
