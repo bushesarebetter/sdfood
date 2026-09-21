@@ -103,7 +103,10 @@ Ayan Pendharkar
 ## If they ask the hard questions
 - **"Is it reliable?"** Tested out-of-sample; accuracy is stable (AUC 0.73–0.75) across three separate
   time periods, not one lucky split. Code and method are public.
-- **"Does it just target poor neighborhoods?"** It lifts accuracy *within* categories (e.g. within
-  restaurants), not just by sorting types, and any real deployment must audit outcomes by area and keep
-  some random inspections. That's in my write-up.
+- **"Does it just target poor or immigrant neighborhoods?"** I tested this directly against Census
+  income and ethnicity data. It does **not** — the model is calibrated across income and ethnicity
+  (predicted risk matches actual violation rate in every group), and it actually flags lower-income
+  ZIPs *less* often, because their real violation rates aren't higher. The one thing to manage is
+  equal *coverage*: keep baseline routine inspections everywhere so lower-scored areas aren't
+  neglected. Full numbers in FAIRNESS.md.
 - **"What do you want?"** A pilot on your data, and a fair test. That's it.
