@@ -38,18 +38,22 @@ I'm Ayan Pendharkar, a San Diego resident with a background in machine learning.
 Housing Division's own public inspection data, I built something I think could help your inspectors,
 and I'd like 15 minutes to show you.
 
-The division does roughly 21,000 routine inspections a year on a set schedule — a spotless bakery
-gets visited about as often as a repeat offender. I built a model that scores each facility by how
-likely it is to have a critical violation, so inspectors could take the riskiest ones first.
+The division already sets inspection frequency by facility category — but as far as I can tell from
+the public data, a facility's own violation history barely changes how often it's visited (the
+correlation is about 0.06). I built a model that scores each facility by how likely it is to have a
+critical violation, so inspectors could prioritize the riskiest ones *within* your existing schedule.
 
-I tested it the honest way — trained it on 2023–2024, then checked it against 2025 inspections it
+I tested it the honest way — trained it on 2023–2024, then checked it against 2025+ inspections it
 had never seen:
 
-- Inspecting the **top 20% by risk** would have surfaced about **45% of all critical violations**.
-- Reordering inspections by risk — same dates, same staff — would have caught critical violations
-  about **6 days sooner on average**, while low-risk facilities waited under a day longer.
+- Inspecting the **top 20% by risk** would have surfaced about **47% of all critical violations**.
+- Working a month's scheduled inspections in risk order — same dates, same staff — would have
+  surfaced critical violations about **6 days sooner on average** within that cycle, while low-risk
+  facilities waited under a day longer. (That's earlier *detection* within the schedule, not a
+  claim about prevented illness.)
 
-No new staff, no new system, no cost. It runs on data you already publish.
+No new staff, no new system, no cost — a prioritization aid, not a replacement for your required
+frequencies. It runs on data you already publish.
 
 I know a model built from the outside has real limits, so I'd want to validate it against your fuller
 internal records and add fairness checks before anything went live. This is a starting point, and I'm
@@ -66,8 +70,9 @@ Ayan Pendharkar
 ## Email 1 — follow-up bump (send ~1 week later, reply to the same thread)
 
 Hi [Name] — just floating this back up. Happy to make it a 15-minute call or just send a one-page
-summary, whichever is easier. The short version: risk-ranking your routine inspections would catch
-critical violations ~6 days sooner at no added cost, tested on your own 2025 data. — Ayan
+summary, whichever is easier. The short version: risk-ranking your routine inspections *within* your
+existing schedule would surface critical violations ~6 days sooner at no added cost, tested on your
+own 2025+ data. — Ayan
 
 ---
 
@@ -95,18 +100,23 @@ Ayan Pendharkar
 
 ## The 20-second version (for a call, a hallway, a comment)
 
-> "San Diego does about 21,000 food inspections a year on a fixed schedule. I built a model, on the
+> "San Diego does about 21,000 routine food inspections a year. You already tier by facility
+> category, but a facility's own track record barely changes its cadence. I built a model, on the
 > county's own public data, that ranks facilities by how likely they are to have a critical violation.
-> Tested on 2025 inspections it had never seen, going in that order would've caught critical violations
-> about six days sooner — same inspectors, same budget. I'd love to validate it on your internal data."
+> Tested on 2025+ inspections it had never seen, prioritizing in that order within your schedule
+> would've surfaced critical violations about six days sooner — same inspectors, same budget. I'd
+> love to validate it on your internal data."
 
 ## If they ask the hard questions
-- **"Is it reliable?"** Tested out-of-sample; accuracy is stable (AUC 0.73–0.75) across three separate
-  time periods, not one lucky split. Code and method are public.
+- **"Is it reliable?"** Tested out-of-sample; accuracy is stable (AUC 0.73–0.76) across three separate
+  time periods, not one lucky split. Precision is modest by design — about 3 in 4 flagged facilities
+  still turn out clean — which is fine because it *reorders* visits everyone already gets, it doesn't
+  skip anyone. Code and method are public.
 - **"Does it just target poor or immigrant neighborhoods?"** I tested this directly against Census
-  income and ethnicity data. It does **not** — the model is calibrated across income and ethnicity
-  (predicted risk matches actual violation rate in every group), and it actually flags lower-income
-  ZIPs *less* often, because their real violation rates aren't higher. The one thing to manage is
-  equal *coverage*: keep baseline routine inspections everywhere so lower-scored areas aren't
-  neglected. Full numbers in FAIRNESS.md.
+  income and ethnicity data. It does **not** — the model is calibrated across income and ethnicity,
+  and it actually flags lower-income ZIPs *less* often (0.64×), because their real violation rates
+  aren't higher. The one thing to manage is equal *coverage*: a single global cutoff catches a
+  smaller share of real violations in lower-scored areas (38% vs 54%), so keep baseline routine
+  inspections everywhere and monitor recall by group. I also ran a feedback-loop check. Full numbers
+  in FAIRNESS.md.
 - **"What do you want?"** A pilot on your data, and a fair test. That's it.
