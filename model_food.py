@@ -16,6 +16,9 @@ df["opened_date"]    = pd.to_datetime(df["opened_date"], errors="coerce")
 df["score"] = pd.to_numeric(df["score"], errors="coerce")
 df = df.dropna(subset=["completed_date"]).sort_values(["business_id","completed_date"])
 df["major"] = (df["n_major"] > 0).astype(int)
+# score is a "not-scored" sentinel (0) on 100% of non-routine inspections; null it so
+# score-based priors reflect only real routine scores, not re-inspection zeros.
+df.loc[df["insp_type"].astype(str) != "Routine", "score"] = np.nan
 print(f"inspections: {len(df):,}  businesses: {df['business_id'].nunique():,}")
 print("date range:", df['completed_date'].min().date(), "->", df['completed_date'].max().date())
 print("overall major-violation rate:", f"{df['major'].mean()*100:.1f}%")
@@ -24,7 +27,7 @@ print("overall major-violation rate:", f"{df['major'].mean()*100:.1f}%")
 g = df.groupby("business_id", sort=False)
 df["prior_n"]          = g.cumcount()
 df["days_since_last"]  = (df["completed_date"] - g["completed_date"].shift(1)).dt.days
-df["last_score"]       = g["score"].shift(1)
+df["last_score"]       = g["score"].transform(lambda s: s.shift().ffill())  # last real routine score
 df["last_major"]       = (g["n_major"].shift(1) > 0).astype("float")
 df["prior_major_rate"] = g["major"].transform(lambda s: s.shift().expanding().mean())
 df["prior_mean_score"] = g["score"].transform(lambda s: s.shift().expanding().mean())
