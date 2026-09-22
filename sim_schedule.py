@@ -1,10 +1,15 @@
-"""Scheduling simulation: if inspectors worked in model-risk order instead of the
-calendar, how many DAYS EARLIER would critical violations be found? Plus a
-rolling-origin backtest (AUC stability) and a bootstrap CI on days-earlier.
+"""Scheduling simulation: if inspectors worked a period's already-scheduled routine
+inspections in model-risk order instead of arbitrary order, how much sooner within
+that period would critical violations surface? This is a DETECTION-LATENCY figure,
+not prevented illness. Plus a rolling-origin backtest (AUC stability) and a bootstrap CI.
 
 All predictions are out-of-fold (model never trains on the inspection it scores).
 The reorder is zero-sum in inspection-days (same slots, same dates) — it just moves
-the earliness onto the criticals and the lateness onto the clean facilities."""
+earliness onto the criticals and lateness onto the clean facilities. IMPORTANT: the
+magnitude scales with the reorder window (month vs quarter), so it measures the
+reorder horizon, not a bigger real-world benefit. The month figure is the honest,
+operationally realistic one (inspectors already choose the order of a month's list);
+the quarter figure is shown only to make that window-dependence explicit."""
 import pandas as pd, numpy as np
 from sklearn.preprocessing import OrdinalEncoder
 from sklearn.ensemble import HistGradientBoostingClassifier
@@ -16,10 +21,11 @@ df["opened_date"]=pd.to_datetime(df["opened_date"],errors="coerce")
 df["score"]=pd.to_numeric(df["score"],errors="coerce")
 df=df.dropna(subset=["completed_date"]).sort_values(["business_id","completed_date"])
 df["major"]=(df["n_major"]>0).astype(int)
+df.loc[df["insp_type"].astype(str)!="Routine","score"]=np.nan  # 0 is a not-scored sentinel off-routine
 g=df.groupby("business_id",sort=False)
 df["prior_n"]=g.cumcount()
 df["days_since_last"]=(df["completed_date"]-g["completed_date"].shift(1)).dt.days
-df["last_score"]=g["score"].shift(1)
+df["last_score"]=g["score"].transform(lambda s:s.shift().ffill())  # last real routine score
 df["last_major"]=(g["n_major"].shift(1)>0).astype("float")
 df["prior_major_rate"]=g["major"].transform(lambda s:s.shift().expanding().mean())
 df["prior_mean_score"]=g["score"].transform(lambda s:s.shift().expanding().mean())
@@ -66,10 +72,11 @@ print(f"\nmain out-of-fold: test n={te.sum():,}  AUC={roc_auc_score(y[te],p):.3f
 
 # ---- scheduling simulation on the out-of-fold 2025+ set ----
 s=d.loc[te,["completed_date","major"]].copy(); s["p"]=p
-print("\n=== DAYS EARLIER a critical violation is found under risk-order ===")
-print("(reorder within each window; slots = the actual inspection dates)")
+print("\n=== DETECTION LATENCY: how much sooner criticals surface under risk-order ===")
+print("(reorder a period's scheduled inspections; slots = the actual inspection dates.")
+print(" month = operationally realistic; quarter = shows the number scales with window.)")
 rng=np.random.default_rng(0); results=[]
-for wlabel,wfreq in [("within-month","M"),("within-quarter","Q")]:
+for wlabel,wfreq in [("within-month (operational)","M"),("within-quarter (window-sensitivity)","Q")]:
     s2=s.copy(); s2["win"]=s2["completed_date"].dt.to_period(wfreq)
     de_major=[]; de_clean=[]
     for _,gp in s2.groupby("win"):
@@ -89,7 +96,7 @@ for wlabel,wfreq in [("within-month","M"),("within-quarter","Q")]:
 
 # ---- chart: days earlier (clean horizontal design) ----
 import matplotlib; matplotlib.use("Agg"); import matplotlib.pyplot as plt
-labels=["Within the monthly cycle","Within the quarter"]
+labels=["Within the monthly cycle\n(operational)","Within the quarter\n(wider reorder window)"]
 mean=[r[1] for r in results]; clean=[r[4] for r in results]
 xerr=[[m-r[2] for m,r in zip(mean,results)],[r[3]-m for m,r in zip(mean,results)]]
 ypos=[1,0]                              # monthly on top
@@ -101,15 +108,15 @@ for yi,m in zip(ypos,mean):
 ax.set_yticks(ypos); ax.set_yticklabels(labels,fontsize=11.5)
 ax.set_xlim(0,max(r[3] for r in results)*1.32); ax.set_ylim(-0.6,1.6)
 ax.set_xlabel("average days a critical violation is found earlier",fontsize=10)
-ax.text(0,1.24,"Risk-ordered inspections catch critical violations sooner",
-        transform=ax.transAxes,fontsize=14,fontweight="bold",va="bottom")
-ax.text(0,1.09,"San Diego 2025 routine inspections, out-of-fold · n=4,274 critical · 95% CI",
-        transform=ax.transAxes,fontsize=9,color="#5a6b78",va="bottom")
+ax.text(0,1.24,"Working a period's inspections in risk order surfaces criticals sooner",
+        transform=ax.transAxes,fontsize=13.5,fontweight="bold",va="bottom")
+ax.text(0,1.09,f"SD 2025+ routine inspections, out-of-fold · n={len(de_major):,} critical · 95% CI · detection latency, not prevented illness",
+        transform=ax.transAxes,fontsize=8.6,color="#5a6b78",va="bottom")
 for sp in ["top","right","left"]: ax.spines[sp].set_visible(False)
 ax.tick_params(left=False); ax.grid(axis="x",color="#eef1f3")
-ct=" · ".join(f"{abs(c):.1f} day{'s' if abs(c)>=1.5 else ''} ({l.split()[-1]})" for c,l in zip(clean,labels))
-fig.text(0.012,0.015,f"The tradeoff: clean facilities wait only {ct} longer. Reordering is zero-sum in inspector-days.",
-         fontsize=8.5,color="#7a8791")
+ct=" · ".join(f"{abs(c):.1f}d ({w})" for c,w in zip(clean,["month","quarter"]))
+fig.text(0.012,0.015,f"Zero-sum reorder: clean facilities wait only {ct} longer. Effect scales with the reorder window, so it is a latency lever, not prevented illness.",
+         fontsize=8.2,color="#7a8791")
 fig.subplots_adjust(left=0.24,right=0.97,top=0.80,bottom=0.20)
 fig.savefig("food_days_earlier.png",bbox_inches="tight")
 print("saved food_days_earlier.png")
