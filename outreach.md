@@ -119,4 +119,12 @@ Ayan Pendharkar
   smaller share of real violations in lower-scored areas (38% vs 54%), so keep baseline routine
   inspections everywhere and monitor recall by group. I also ran a feedback-loop check. Full numbers
   in FAIRNESS.md.
+- **"Has this been done anywhere real?"** Yes — the City of Chicago built and deployed a food-
+  inspection risk model on the same idea, with open code and a published evaluation showing critical
+  violations found earlier ([github.com/Chicago/food-inspections-evaluation](https://github.com/Chicago/food-inspections-evaluation)).
+  This is that, for San Diego.
 - **"What do you want?"** A pilot on your data, and a fair test. That's it.
+
+*Sources for every claim above — Chicago precedent, CalCode/inspection-frequency context, ACS data,
+and the fairness methods — are in `REFERENCES.md` in the repo. Keep them out of the cold email itself;
+bring them to the call.*

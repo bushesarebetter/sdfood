@@ -7,8 +7,10 @@ to lower-income or immigrant neighborhoods?** This is the check. Reproduce with
 ## Method
 
 - Out-of-fold predictions (train ≤ 2024, test 2025+, 36,543 inspections the model never saw).
-- Joined each facility to its ZIP's **median household income** and **% Hispanic** (ACS 5-yr via
-  Census Reporter; 100% of test inspections covered, 97/109 ZIPs matched).
+- Joined each facility to its ZIP's **median household income** and **% Hispanic** ([ACS](https://www.census.gov/programs-surveys/acs)
+  5-yr via [Census Reporter](https://censusreporter.org): tables [B19013](https://censusreporter.org/tables/B19013/)
+  income, [B03002](https://censusreporter.org/tables/B03002/) ethnicity; 100% of test inspections
+  covered, 97/109 ZIPs matched).
 - Grouped by income quartile and %-Hispanic tercile, and compared:
   - **actual** critical-violation rate vs the model's **flag rate** (top-20% risk) — is targeting
     driven by real risk or by income?
@@ -53,8 +55,9 @@ actual rates (12.7% → 10.7%).
 ## Closing the recall gap — what it costs (`threshold_tradeoff.py`)
 
 The recall gap above is at a *single global* top-20% cut. A global threshold can't equalize recall
-across groups with different score distributions — only per-group thresholds (equal-opportunity)
-can. `threshold_tradeoff.py` quantifies both:
+across groups with different score distributions — only per-group thresholds
+([equal-opportunity](https://arxiv.org/abs/1610.02413), Hardt et al. 2016) can. `threshold_tradeoff.py`
+quantifies both:
 
 | income group | global (top-20%) recall | equal-opportunity recall (per-group cut) |
 |---|---|---|
@@ -73,7 +76,8 @@ precision/recall/lift trade-off — AUC 0.745 caps it: even flagging 50% of faci
 
 ## Feedback loop
 
-Because inspections generate the very labels the model trains on, targeting can compound over time.
+Because inspections generate the very labels the model trains on, targeting can compound over time
+([runaway feedback loops](https://arxiv.org/abs/1706.09847), Ensign et al. 2018).
 `feedback_check.py` tests this: one round of "only label what we flagged" moves low-income recall
 by ~1 point and a 15% random baseline holds it steady — reassuring, but single-round, so live
 recall-by-group monitoring is still required.
@@ -86,3 +90,5 @@ recall-by-group monitoring is still required.
   that's exactly why this audit exists and must be re-run on the county's internal data.
 - ~3 years of data; rates could shift with more history.
 - Deployment should re-run this monitoring on the county's internal records on an ongoing basis.
+
+Full source list (data, methods, fairness papers): [REFERENCES.md](REFERENCES.md).
