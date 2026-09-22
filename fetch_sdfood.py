@@ -1,10 +1,18 @@
 """Pull the full San Diego County food-inspection dataset from sdfoodinfo.org's
 public JSON API (same endpoint the official search app uses). Public-record data.
-Robust: small pages, retries, checkpointing. Saves raw JSON + flat inspections CSV."""
+Robust: small pages, retries, checkpointing. Saves raw JSON + flat inspections CSV.
+
+Access ethics: this is public-record data and the host serves no robots.txt (HTTP 404),
+so nothing is crawler-disallowed -- but automated access can still run against a site's
+terms of use. We identify honestly (no spoofed browser UA), keep pages small, and
+rate-limit. For any production/pilot use, request the dataset officially from the county
+rather than scraping; if this honest UA gets blocked, treat that as a 'don't scrape' signal."""
 import requests, json, time, pathlib, pandas as pd
 
 BASE="https://www.sdfoodinfo.org"
-UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36"
+# Honest, identifying UA (add a real contact before running). The Referer/Origin headers
+# below are what the AJAX endpoint requires to respond -- functional, not disguise.
+UA="sdfood-inspection-research/1.0 (civic research; SD County public inspection records; contact: [add-your-email])"
 PAGE=400
 pathlib.Path("data").mkdir(exist_ok=True)
 
