@@ -3,7 +3,7 @@
 Predict which routine food-facility inspections will find a **critical (major) violation**,
 so the county can prioritize the riskiest places first — catching problems earlier with the
 same inspector-hours. This is the classic "help a public agency allocate a scarce resource"
-ML setup (cf. Chicago's deployed food-inspection model).
+ML setup (cf. Chicago's deployed [food-inspection model](https://github.com/Chicago/food-inspections-evaluation)).
 
 **By Ayan Pendharkar.** Built on public data. Independent analysis — not a County document.
 
@@ -15,6 +15,10 @@ median). What it does **not** do is move a facility up or down based on its *own
 across facilities, the correlation between a facility's historical major-violation rate and how
 often it's inspected is ~**0.06** — essentially zero. This model closes that gap. It is a way to
 **prioritize *within* the county's required schedule**, not a replacement for mandated frequencies.
+
+(CalCode is enforced by 62 local agencies that set risk-based frequency — it doesn't fix a statewide
+number; see [REFERENCES.md](REFERENCES.md). The ~0.06 figure is computed from the public data here,
+not a policy document, so treat it as "looks like" and let the county confirm.)
 
 ## Data
 
@@ -101,3 +105,14 @@ python threshold_tradeoff.py # global precision/recall trade + per-group equal-o
 python feedback_check.py   # feedback-loop stress test (needs acs_cache.json)
 python export_dashboard.py # de-identified, due-aware worklist -> dashboard.html
 ```
+
+## References
+
+Sources for every claim (precedent, CalCode/inspection-frequency context, ACS data, modeling &
+validation methods, fairness papers) are collected in **[REFERENCES.md](REFERENCES.md)**. Key ones:
+Chicago's deployed [food-inspection model](https://github.com/Chicago/food-inspections-evaluation);
+[CDPH Retail Food Program](https://www.cdph.ca.gov/Programs/CEH/DFDCS/Pages/FDBPrograms/FoodSafetyProgram/RetailFoodProgram.aspx)
+(CalCode is locally enforced); [ACS](https://www.census.gov/programs-surveys/acs) via
+[Census Reporter](https://censusreporter.org); Hardt et al. on
+[equal opportunity](https://arxiv.org/abs/1610.02413); and Ensign et al. on
+[feedback loops](https://arxiv.org/abs/1706.09847).
