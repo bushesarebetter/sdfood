@@ -17,9 +17,49 @@ identifying User-Agent (`fetch_sdfood.py`), pending an official extract from the
   **5.8 days sooner** than the order actually worked.
 - **The research model adds a little.** It reaches the same 48%, with AUC 0.76 against the
   rule's 0.74, and finds major violations **6.2 days sooner** (0.4 day more than the rule).
-- **Even coverage.** Both find 45% to 51% of the major violations in every ZIP-income quartile.
+- **Coverage by neighborhood income.** In the last run both found 45% to 51% of the major
+  violations in every ZIP-income quartile. With about 24 ZIPs per quartile, gaps of a few points
+  are within chance, so this shows no detectable disparity rather than proven evenness; the
+  rerun reports ZIP-clustered intervals (FAIRNESS.md).
+- **What "days sooner" is.** Within a month it is the ranking's AUC restated (about
+  24 × (AUC − 0.5) days in a district's month), and 6 days is about 2% of the ~290-day gap between
+  routine inspections. The model's 0.4 day over the rule is about 0.14%.
 - **For the City and the County:** monthly worklists per council district (`export_worklist.py`)
   and a pre-registered silent pilot the City can propose to the County ([docs/PILOT.md](docs/PILOT.md)).
+
+## Figures to rerun (fixes of September 25, 2026)
+
+An external review found problems that change how figures are computed. The code is fixed and
+tested; **the numbers in this README, FAIRNESS.md, outreach.md, docs/ and the dashboard were
+produced before these fixes** and have to be regenerated from the pull:
+
+```bash
+python model_food.py && python sim_schedule.py && python fairness_check.py && \
+python threshold_tradeoff.py && python feedback_check.py && python export_worklist.py && python export_dashboard.py
+```
+
+- **Scored as deployed.** The monthly list is scored on the 1st, but the test table, the
+  days-sooner simulation and the fairness audit read each inspection's history up to the
+  inspection date, so a visit made inside the month (a complaint the week before) counted.
+  `model_food.month_start_rows` scores as of the 1st, the way `features_asof` does for the list;
+  `model_food.py` prints both, and the simulation and fairness audit now use the month-start scores.
+- **Closures count.** A routine that ended in a health closure order has no score, so the
+  one-line rule and the worklist skipped it and a place closed at its only routine ranked as a
+  typical A. They now read it as 70, as the published card does.
+- **Persistence as the card defines it:** the last routine score is read over two years, not one.
+  The baseline the model is compared with was weaker than stated.
+- **Early stopping on time** (the last three training months), not a random 10% split.
+- **Who is due:** routine intervals are Kaplan–Meier medians that count still-open intervals;
+  the plain median of finished gaps ran short. This moves the lists and the 72% backtest figure.
+- **Fairness:** whole ZIPs per income group (row quantiles split ZIPs), ZIP-clustered 95%
+  intervals, false-positive rates by group, and days sooner by group under the proposed
+  within-district reordering.
+- **Feedback loop:** the test now deletes skipped inspections from the record (not just their
+  labels) over four rounds and rebuilds the rule and persistence too. The old one-round test
+  could not detect the harm it was meant to test.
+
+Expect the headline figures to move somewhat. Read the fairness sentences below against the new
+intervals before quoting them.
 
 ## What changed (September 2026)
 
@@ -38,11 +78,12 @@ rules as the public site's exporter (`export_site.load_places`, tested). From th
   reopenings came a median 1 day after the closure order (a major 6% of the time). They are no
   longer routine labels, and their scores are not the facility's routine score.
 - **4,949 same-day records of one type were merged** (grocery departments are inspected as separate records).
-- **102,755 rows → 92,410 inspections**, 15,870 businesses, 2023-01-03 → 2026-09-19. A routine
+- **102,762 rows → 92,410 inspections**, 15,870 businesses, 2023-01-03 → 2026-09-19. A routine
   inspection's history features read strictly earlier dates only.
 
-Rebuilt from the same pull, the old rules reproduce the old figures exactly (AUC 0.745, 47% in the
-top 20%, +6.3 d in a county-wide month); the clean data give 0.756, 48% and +6.5 d.
+The authors rebuilt the old rules on the same pull and got the old figures back (AUC 0.745, 47% in
+the top 20%, +6.3 d in a county-wide month); the clean data give 0.756, 48% and +6.5 d. The script
+for that check is not in the repository.
 
 ### The model, the comparison and the deliverable
 
@@ -165,9 +206,9 @@ trains only on inspections from 2024-01-03, whose year is fully on the record.
 | 12-month window, with ZIP (trained 2024) | 0.735 | 43.1% | |
 | 12-month window, with ZIP, trained 2023-24 | 0.738 | 43.3% | |
 
-**The headline uses since-2023 history.** A third of routine inspections (32.6% in the test)
-come more than a year after the facility's previous routine, so a 12-month window misses the one
-score that matters most; it costs 0.022 AUC (0.017 to 0.028) and 5.2 points of the top-20% share
+**The headline uses since-2023 history.** A third of test routine inspections (32.6%) have no
+routine score in the 365 days before them (a long gap, but also a closure or a first visit), so a
+12-month window misses the one score that matters most; it costs 0.022 AUC (0.017 to 0.028) and 5.2 points of the top-20% share
 (3.6 to 6.8), whatever the training years. The since-2023 forward test stays honest: every
 training row saw only what was on the record at the time, and the test rows simply have longer
 histories. The same holds for the rule: the mean routine score over the last 12 months does much
@@ -198,6 +239,13 @@ City of San Diego council district's month** (outside the City, a ZIP3 area's mo
   the County's real unit, an inspector's territory, which the public record does not carry.
 - This is a **detection-latency** figure within an already-scheduled batch, not prevented illness
   and not a dollar figure.
+- **What the number is.** Within a pool the gain for major violations is, to within a tenth of a
+  day, (1 − base rate) × (AUC within the pool − 0.5) × the pool's span of days: every arm above
+  fits about 24 × (AUC − 0.5). It restates ranking quality; it is not separate evidence. As a
+  share of the ~277–303-day gap between routine inspections, 6.2 days is about 2%.
+- **It reorders the inspections that were actually done**, as if the month's schedule were known
+  on the 1st. The estimated due list covers about 72% of a month's routine inspections and is about
+  2.6 times the month's volume, so the list's own benefit is smaller than the simulation's.
 
 ## Survivorship
 
@@ -225,20 +273,28 @@ permits included, remove the question.
 
 ## Fairness (see FAIRNESS.md)
 
-Targeting tracks real risk: actual major-violation rates are nearly flat across ZIP income
-(0.95×, lowest to highest quartile), and so are the flag rates (model 0.97×, rule 1.07×,
-persistence 0.96×). Coverage is even: in every income quartile the model finds 45% to 51% of the
-major violations in its top 20%, and the rule 45% to 51%, with the lowest-income quartile at the
-top of both ranges. The model's predicted rate sits 1.5 to 1.7 points above the actual rate in
-every quartile. Keep routine inspections everywhere and monitor coverage by group in use.
+In the last run (before the fixes above) actual major-violation rates were nearly flat across ZIP
+income (0.95×, lowest to highest quartile), and so were the flag rates (model 0.97×, rule 1.07×,
+persistence 0.96×); in every income quartile the model found 45% to 51% of the major violations in
+its top 20%, and the rule 45% to 51%. **With about 24 ZIPs per quartile, spreads that size are
+within chance**, so the honest reading is "no detectable disparity", not "even". Two things the
+old table shows but did not report: the rule flagged the lowest-income quartile at 1.67× its
+actual rate against 1.49× for the highest, and its false-positive rate there was 16.2% against
+15.0%. The model's predicted rate ran 12–14% (relative) above the actual rate in every quartile
+(calibration-in-the-large only). The rerun adds ZIP-clustered intervals for all of these and days
+sooner by group under the proposed reordering. Keep routine inspections everywhere and monitor
+coverage by group in use.
 
 ## Feedback loop (see feedback_check.py)
 
-The labels come from the inspections that get done, so targeting could go blind to places it
-stops visiting. In a one-round censoring test, training only on what a 2023 model flagged in 2024
-moves each income quartile's coverage by at most 1 point (49% / 50% / 46% / 48% against 50% / 49%
-/ 45% / 47%), with or without a 15% random baseline. One round cannot show multi-cycle
-compounding, so coverage by group is monitored in use.
+The labels, and every facility's record, come from the inspections that get done, so targeting
+could go blind to places it stops visiting. The earlier one-round test dropped only the labels and
+kept every facility's full history, so it could not show that harm (it reported coverage moving by
+at most 1 point). `feedback_check.py` now deletes skipped inspections and their follow-ups from the
+record over four quarterly rounds of 2024, rebuilds the model, the rule and persistence from what
+is left, and scores all three on 2025+. On synthetic data the model loses about 0.04 AUC when only
+its top 40% are inspected. Numbers for San Diego: rerun. This concerns an inspect-less policy the
+project does not propose; reordering within the schedule removes no inspection.
 
 ## Monthly worklists for the City's council districts (`export_worklist.py`)
 
@@ -321,8 +377,10 @@ record:
 
 Every restaurant's worksheet shows how its points add up. In the backtest, restaurants in the band
 (41 points or more, about the top 18% of scored restaurants) had a major violation at their next
-routine inspection **at about twice the rate of other restaurants** (37.2% against 17.8%). What it
-is and how it was chosen: [docs/MODEL_CARD.md](docs/MODEL_CARD.md).
+routine inspection **at about twice the rate of other restaurants** (37.2% against 17.8%). A
+persistence group of the same size reaches a similar rate (37.8%), so the band's value is that its
+points are transparent, not that it is more accurate. What it is and how it was chosen:
+[docs/MODEL_CARD.md](docs/MODEL_CARD.md).
 
 ```bash
 python export_site.py                          # -> data/site/ (every City place; points and bands; report.md; archive/)
