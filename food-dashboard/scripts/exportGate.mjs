@@ -13,6 +13,11 @@
  *     after the bundle is written, so the real export never has to enter public/data;
  *   - SDFOOD_SITE_REVIEW=1: an unpublished export for a local look. It is checked with
  *     --review, and the build goes to dist-review/ with a do-not-deploy marker, never dist/.
+ *   - the City staff site: publish_city_site.py writes STAFF_MARKER into the PRIVATE staff
+ *     repository's root. There the unpublished export is checked with --review (it is served
+ *     behind a password by server.mjs, never publicly) and still built into dist/. The marker is a
+ *     file, not an environment variable, so a public build cannot switch this on by a setting;
+ *     tests/test_publish_city_site.py checks this public repository never contains it.
  */
 import { spawnSync } from "node:child_process";
 import { cpSync, existsSync, rmSync, writeFileSync } from "node:fs";
@@ -20,6 +25,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const scripts = dirname(fileURLToPath(import.meta.url));
+export const STAFF_MARKER = "STAFF-SITE-PRIVATE-DO-NOT-PUBLISH";
 
 function run(script, args) {
   const r = spawnSync(process.execPath, [join(scripts, script), ...args], { encoding: "utf8" });
@@ -37,9 +43,10 @@ export function checkExport(dir, { review = false } = {}) {
   return problems;
 }
 
-export default function exportGate(env = process.env) {
+export default function exportGate(env = process.env, root = join(scripts, "..")) {
   const external = env.SDFOOD_SITE_DATA ? resolve(env.SDFOOD_SITE_DATA) : null;
   const review = env.SDFOOD_SITE_REVIEW === "1";
+  const staff = existsSync(join(root, STAFF_MARKER));
   let publicDir, outDir;
   return {
     name: "sdfood-export-gate",
@@ -54,7 +61,7 @@ export default function exportGate(env = process.env) {
     buildStart() {
       const dir = external ?? (publicDir ? join(publicDir, "data") : null);
       if (!dir) this.error("the build has no public directory, so it has no export to check");
-      const problems = checkExport(dir, { review });
+      const problems = checkExport(dir, { review: review || staff });
       if (problems.length) this.error(`the export at ${dir} may not ship:\n${problems.join("\n")}`);
     },
     closeBundle() {

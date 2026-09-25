@@ -79,3 +79,35 @@ test("a review build goes to dist-review with a do-not-deploy marker", () => {
     rmSync(tmp, { recursive: true, force: true });
   }
 });
+
+test("the City staff site (marker file in its private repo) builds an unpublished export into dist/", async () => {
+  const { STAFF_MARKER } = await import("../scripts/exportGate.mjs");
+  const tmp = mkdtempSync(join(tmpdir(), "gate-staff-"));
+  try {
+    const pub = join(tmp, "public");
+    cpSync(sampleData, join(pub, "data"), { recursive: true });
+    const meta = JSON.parse(readFileSync(join(pub, "data", "meta.json"), "utf8"));
+    const places = JSON.parse(readFileSync(join(pub, "data", "facilities.geojson"), "utf8"));
+    for (const f of places.features) {
+      f.properties.name = f.properties.name.replace(/^Sample /, "Real ");
+      const pf = join(pub, "data", "place", `${f.properties.facility_id}.json`);
+      const d = JSON.parse(readFileSync(pf, "utf8"));
+      writeFileSync(pf, JSON.stringify({ ...d, name: f.properties.name }));
+    }
+    writeFileSync(join(pub, "data", "facilities.geojson"), JSON.stringify(places));
+    const inTwoWeeks = new Date(Date.now() + 7 * 864e5).toISOString().slice(0, 10);
+    const today = new Date().toISOString().slice(0, 10);
+    writeFileSync(join(pub, "data", "meta.json"), JSON.stringify({ ...meta, sample: false, run: "forward_x",
+      inspections_through: today, expires: inTwoWeeks, provenance: { code_sha: "abc", pull_sha256: "def" } }));
+    const withoutMarker = exportGate({}, tmp);
+    withoutMarker.configResolved({ publicDir: pub, root: tmp, build: { outDir: "dist" } });
+    assert.throws(() => withoutMarker.buildStart.call({ error: (m) => { throw new Error(m); } }), /not approved for publication/);
+    writeFileSync(join(tmp, STAFF_MARKER), "private\n");
+    const staff = exportGate({}, tmp);
+    assert.deepEqual(staff.config(), {}, "the staff build still goes to dist/");
+    staff.configResolved({ publicDir: pub, root: tmp, build: { outDir: "dist" } });
+    staff.buildStart.call({ error: (m) => { throw new Error(m); } });   // review-mode checks pass
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});

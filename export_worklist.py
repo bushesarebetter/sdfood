@@ -20,9 +20,10 @@ The record is read strictly before the month's first day.
 Which facilities are due (an estimate: the public record has no schedule)
   * Active: visited in the 550 days before the month starts, permit not expired in the pull,
     at least one routine inspection on record, inside a City council district.
-  * Interval: for each business type, the median number of days between consecutive routine
-    inspections of the same facility on the record before the month (all types pooled when a
-    type has fewer than 30 such gaps).
+  * Interval: for each business type, the Kaplan-Meier median number of days between consecutive
+    routine inspections of the same facility on the record before the month, counting each active
+    facility's still-open interval (a plain median of finished gaps runs short); all types pooled
+    when a type has fewer than 30 finished gaps.
   * due_estimate = the last routine inspection's date + its type's median interval.
   * On the month's list when, on the month's last day, the time since the last routine is at
     least that interval minus 30 days (due within 30 days after the month, or overdue).
@@ -37,7 +38,8 @@ The order within a district
   * Then everything the card does not score (markets, limited-preparation places, restaurants
     without two rated routine inspections, other facility types), rule_points left blank, by the
     one-line rule: lowest mean routine score on record (since 2023-01) first, then the earlier
-    due_estimate, then facility_id. A facility with no scored routine counts as 97.
+    due_estimate, then facility_id. A routine that ended in a health closure order counts as 70
+    (as the published card counts it); a facility with no scored or closed routine counts as 97.
   * Without data/site (or when it holds the invented sample), every place is ordered by the
     one-line rule, rule_points = 100 minus its mean routine score (to 0.1), and the manifest's
     `method` says so.
@@ -66,10 +68,11 @@ METHOD = ("Due estimate: active facilities (visited in the 550 days before the m
           "pull, at least one routine inspection on record, inside a City council district) are listed when, on "
           "the month's last day, the days since their last routine inspection reach their business type's median "
           "interval between routine inspections minus 30. due_estimate = last routine date + that median. Medians "
-          "come from the public record before the month (all types pooled below 30 gaps). Computed from the "
+          "are Kaplan-Meier medians from the public record before the month, counting each active facility's "
+          "still-open interval (all types pooled below 30 finished gaps). Computed from the "
           "County's published results (SD Food Info) strictly before the month's first day.")
-MEAN_RULE = ("lowest mean routine inspection score on record (since 2023-01) first; a facility with no scored "
-             "routine counts as 97")
+MEAN_RULE = ("lowest mean routine inspection score on record (since 2023-01) first; a routine that ended in a "
+             "health closure order counts as 70; a facility with no scored or closed routine counts as 97")
 FALLBACK = (" No published card export (data/site) was found, so every district is in the one-line rule's order: "
             "rule_points = 100 minus the mean routine score on record.")
 
@@ -129,7 +132,7 @@ def km_median(durations, events):
     s = 1.0
     for t in np.unique(d[e]):
         s *= 1.0 - ((d == t) & e).sum() / (d >= t).sum()
-        if s <= 0.5:
+        if s <= 0.5 + 1e-9:                  # exactly one half, up to float rounding
             return float(t)
     return None
 

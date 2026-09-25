@@ -7,10 +7,14 @@
      that doesn't. Shows the fix works, and its cost: to equalize recall you must flag some ZIPs
      MORE (lower their cutoff), i.e. group-conscious decisions using an income/ZIP proxy =
      disparate *treatment*, the legally harder trade-off.
-Out-of-fold (train <= 2024, test 2025+), the research model (model_food.HEADLINE)."""
+Out-of-fold (train <= 2024, test 2025+), the research model (model_food.HEADLINE), scored as
+deployed (features as of the 1st of each inspection's month), with the same whole-ZIP income
+groups as fairness_check.py. The per-group cuts in B are set on the test labels themselves, so
+their flag budget is an in-sample figure."""
 import pandas as pd, numpy as np, json, os
 from sklearn.metrics import roc_auc_score
 import model_food as mf
+from fairness_check import zip_groups
 
 
 def at(score, yv, q):
@@ -24,9 +28,10 @@ def main():
     d = mf.routine_rows(df)
     d["zip5"] = d["zip"].astype(str).str.extract(r"(\d{5})")[0]
     te = (d["completed_date"] > pd.Timestamp(mf.TRAIN_END)).to_numpy()
-    p = mf.fit_predict(d, mf.HEADLINE, mf.train_mask(d, mf.HEADLINE), te)
+    dm = mf.month_start_rows(df, d[te])
+    p = mf.Model(mf.HEADLINE).fit(d[mf.train_mask(d, mf.HEADLINE)]).predict(dm)
     yt = d.loc[te, "major"].values.astype(int); base = yt.mean()
-    pers = d.loc[te, "persistence"].values; rule = d.loc[te, mf.BASELINES[mf.RULE]].values
+    pers = dm["persistence"].values; rule = dm[mf.BASELINES[mf.RULE]].values
 
     print(f"test n={len(yt):,}  base rate={base:.3f}  AUC model={roc_auc_score(yt,p):.3f}  "
           f"one-line rule={roc_auc_score(yt,rule):.3f}  persistence={roc_auc_score(yt,pers):.3f}\n")
@@ -46,7 +51,8 @@ def main():
                       "rw": mf.top_weights(rule), "flag": mf.top_weights(p)})
     t["income"] = t["zip5"].map(inc)
     t = t.dropna(subset=["income"])
-    t["grp"] = pd.qcut(t["income"], 4, labels=["Q1 low", "Q2", "Q3", "Q4 high"])
+    t["grp"] = pd.Categorical(zip_groups(t, "income", ["Q1 low", "Q2", "Q3", "Q4 high"]),
+                              categories=["Q1 low", "Q2", "Q3", "Q4 high"], ordered=True)
     crit_all = t[t["y"] == 1]
     TARGET = round(float(crit_all.groupby("grp", observed=True)["flag"].mean().max()), 2)   # best group's recall
     print(f"\n=== B) recall by income group: ONE global cut (top 20%) vs PER-GROUP equal-opportunity ===")
