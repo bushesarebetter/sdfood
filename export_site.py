@@ -1354,7 +1354,7 @@ def build(raw, districts_geojson, *, pull=None, approval=None, today=None, refit
         details[p["facility_id"]] = d
     features.sort(key=lambda f: (int(f["properties"].get("band") or 99), -(f["properties"].get("points") or -1),
                                  _norm(f["properties"]["name"])))
-    log(f"forward as of {t_now}: {len(pts_now):,} City restaurants, {int(elig_now.sum()):,} eligible; "
+    log(f"forward as of {t_now}: {len(pts_now):,} restaurants county-wide, {int(elig_now.sum()):,} eligible; "
         + ", ".join(f"band {r['band']} >= {r['min_points']} points: {sum(1 for b in bands_now if b == r['band'])}" for r in rows))
 
     in_city = lambda j: places[now.idx[j][0]].get("district") is not None
