@@ -33,10 +33,15 @@ An unknown or missing mode is shown as `record`.
 `--out <dir>` for somewhere else). Every place is named "Sample …" on made-up streets, and a
 notice sits on every page.
 
-**A real export reaches `public/data/` only through `python export_site.py --publish`** at the
-repository root, which writes `meta.publication` after every gate in
-[docs/PUBLISHING.md](../docs/PUBLISHING.md) passes. Never copy `../data/site/` into `public/`: the
-build refuses a real export without a matching `meta.publication`.
+**A real export never goes into `public/data/`.** `python export_site.py --publish` at the
+repository root stages it in `../data/site-publish/` (git-ignored) and writes `meta.publication` after
+every gate in [docs/PUBLISHING.md](../docs/PUBLISHING.md) passes. Build with
+`SDFOOD_SITE_DATA=../data/site-publish npm run build`: the export gate (`scripts/exportGate.mjs`)
+checks that directory and puts it in `dist/data/`. The gate runs inside Vite on whatever the build
+ships, so the checks cannot be skipped with `npx vite build` or another `publicDir`, and an export
+that only *claims* to be the sample (`meta.sample: true` with real ids or names) is refused. To look
+at an unpublished export locally, use `SDFOOD_SITE_REVIEW=1`: it builds into `dist-review/` with a
+do-not-deploy marker, never `dist/`.
 
 ## Checks
 

@@ -7,15 +7,19 @@ There are three ways results from the real data leave this machine.
    with its record, its points and band, and the monthly worklists.
 2. **The public site** (`food-dashboard/`). It ships an invented sample. A real export reaches it
    only through `python export_site.py --publish`, which refuses unless every gate below passes,
-   and stamps the export so that the site's own build refuses anything else.
+   stamps the export, and stages it in the git-ignored `data/site-publish/`. The site's build
+   (`SDFOOD_SITE_DATA=../data/site-publish`) checks the stamp on the data it actually ships and
+   refuses anything else.
 3. **The research dashboard** (`dashboard.html`, committed). **Counts only.** `export_dashboard.py`
    runs every payload through `privacy_gate.py` before writing it, and
    `tests/test_dashboard_privacy.py` runs the gate on the committed file. See "The research
    dashboard, and its history" below.
 
-**Real exports never enter git.** `/data/` is ignored. The committed `food-dashboard/public/data/`
-must stay the sample, and a test checks this (`tests/test_export_site.py`). If a real export is
-ever published, deploy the built site from a private build rather than committing the data.
+**Real exports never enter git.** `/data/` is ignored, and `--publish` stages there. The committed
+`food-dashboard/public/data/` must stay the sample, and a test checks that it provably is (ids, names
+and provenance, not just `meta.sample`). The approval, the notice log and the holds list are
+git-ignored too: they hold personal contacts and the names of places before they are public. If a
+real export is ever published, deploy the built site from a private build.
 
 ## The staff API
 

@@ -1,10 +1,15 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
+import exportGate from "./scripts/exportGate.mjs";
 
 export default defineConfig({
   plugins: [
     react(),
+
+    // Checks the export this build will actually ship, whatever the publicDir or the
+    // command (npx vite build skips the prebuild script). See scripts/exportGate.mjs.
+    exportGate(),
 
     /**
      * Installable web app. The shell is precached. The export under /data/

@@ -4,6 +4,7 @@ builds on an invented county whose output must pass the site's own contract chec
 import csv
 import gzip
 import json
+import re
 import shutil
 import subprocess
 from datetime import date, timedelta
@@ -488,6 +489,14 @@ def test_the_committed_site_data_is_the_invented_sample():
     """Real names never enter the repository: the site's committed data is the sample."""
     meta = json.loads((SITE / "public" / "data" / "meta.json").read_text(encoding="utf-8"))
     assert meta["sample"] is True
+    # ...and proven to be, not just flagged: the flag alone switches off every publication gate.
+    assert meta["run"] == "sample" and meta["source"]["url"] is None and meta["provenance"]["code_sha"] == "sample"
+    fc = json.loads((SITE / "public" / "data" / "facilities.geojson").read_text(encoding="utf-8"))
+    ids = [f["properties"]["facility_id"] for f in fc["features"]]
+    assert ids and all(re.fullmatch(r"SAMPLE-FFPP-\d{5}", i) for i in ids)
+    assert all(f["properties"]["name"].startswith("Sample ") for f in fc["features"])
+    places = sorted(p.stem for p in (SITE / "public" / "data" / "place").glob("*.json"))
+    assert places == sorted(ids), "no place file outside the sample index"
 
 
 def test_facility_ids_are_unique_even_when_the_county_repeats_one():

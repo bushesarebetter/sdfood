@@ -171,16 +171,18 @@ instead of a 404. The site reads that as "no such place".
 
 Don't. Real data is for City staff, through the API. The public site shows it only after every gate
 in [PUBLISHING.md](PUBLISHING.md) has passed. Then publish locally, build locally, and deploy the
-built `dist/` from a private build (never commit `public/data/`):
+built `dist/` from a private build. The real export never enters `public/data/` or git:
 
 ```bash
-python export_site.py --publish     # writes public/data/ only if every gate passes, stamped
-cd food-dashboard && npm run build  # prebuild refuses an unstamped or expired real export
-# deploy dist/ from a private build; do not commit public/data/
-python food-dashboard/scripts/make_sample_export.py   # put the sample back afterwards
+python export_site.py --publish     # stages data/site-publish/ (git-ignored) only if every gate passes, stamped
+cd food-dashboard && SDFOOD_SITE_DATA=../data/site-publish npm run build
+# the build checks that export (expiry and contract, including the stamp) and puts it in dist/data/
+# deploy dist/ from a private build
 ```
 
-A test fails if the committed `public/data/` is not the sample.
+The checks run inside the build (`scripts/exportGate.mjs`), on the data the build actually ships,
+so `npx vite build` or a config with another `publicDir` cannot skip them. A test fails if the
+committed `public/data/` is not provably the sample (ids, names, provenance), not just flagged as one.
 
 ## 3. Costs and limits
 

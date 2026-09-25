@@ -52,7 +52,7 @@ def render(payload, template="dashboard.template.html", out="dashboard.html"):
     tpl = open(template, encoding="utf-8").read()
     pre, mark, post = tpl.partition("/*__DATA__*/")     # default literal runs from here to the first ';'
     _, _, rest = post.partition(";")
-    data_js = json.dumps(payload)                       # ascii-safe; no ';' in any value
+    data_js = json.dumps(payload).replace("</", "<\\/")  # ascii-safe; "</script>" in a value cannot end the block
     assert ";" not in data_js, "a ';' in the data would end the injected literal early"
     html = pre + mark + " " + data_js + ";" + rest
 
