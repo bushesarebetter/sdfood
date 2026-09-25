@@ -36,6 +36,12 @@ ROOT = Path(__file__).resolve().parents[1]
 FLAGS = ("major", "closed", "bc", "repeat")
 MONTH = r"^\d{4}-(0[1-9]|1[0-2])$"
 log = logging.getLogger("sdfood.api")
+if not log.handlers:                         # uvicorn configures only its own loggers: without a handler
+    _h = logging.StreamHandler()             # and a level, these INFO lines would never be written
+    _h.setFormatter(logging.Formatter("%(levelname)s:     sdfood.api %(message)s"))
+    log.addHandler(_h)
+    log.setLevel(logging.INFO)
+    log.propagate = False
 
 
 def csv_cell(v):
@@ -430,6 +436,10 @@ def worklist(month: str = PathParam(pattern=MONTH, description="yyyy-mm"),
         return Response(out.getvalue(), media_type="text/csv",
                         headers={"Content-Disposition": f'attachment; filename="worklist-{month}-district-{n}.csv"'})
     rows = list(csv.DictReader(io.StringIO(text)))
+    for r in rows:                           # export_worklist wrote "'=..." so spreadsheets do not run it;
+        for k, v in r.items():               # JSON readers get the text as the County wrote it
+            if isinstance(v, str) and v[:1] == "'" and v[1:2] in ("=", "+", "-", "@", "\t", "\r"):
+                r[k] = v[1:]
     for r in rows:                           # numbers as numbers, blanks as null
         for k in ("rule_order", "rule_points", "last_routine_score", "mean_routine_score_12m"):
             v = (r.get(k) or "").strip()

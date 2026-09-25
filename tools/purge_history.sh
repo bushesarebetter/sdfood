@@ -32,14 +32,14 @@ if [ -n "$KEEP" ]; then
   git cat-file -p "$KEEP" > "$WORK/keep.html"
   python "$GATE" "$WORK/keep.html" || { echo "the default branch's dashboard.html fails the privacy gate; fix it first"; exit 1; }
 fi
-git log --all --format=%H -- dashboard.html | while read -r c; do
+git log --all --full-history --format=%H -- dashboard.html | while read -r c; do
   git rev-parse --quiet --verify "$c:dashboard.html" 2>/dev/null || true
 done | sort -u | grep -v "^${KEEP:-none}$" > "$WORK/blobs.txt" || true
 echo "blobs to strip: $(wc -l < "$WORK/blobs.txt")"
 [ -s "$WORK/blobs.txt" ] || { echo "nothing to strip"; exit 0; }
 git filter-repo --force --strip-blobs-with-ids "$WORK/blobs.txt"
 
-LEFT=$(git log --all --format=%H -- dashboard.html | while read -r c; do
+LEFT=$(git log --all --full-history --format=%H -- dashboard.html | while read -r c; do
   git rev-parse --quiet --verify "$c:dashboard.html" 2>/dev/null || true; done | sort -u | grep -Fxf "$WORK/blobs.txt" || true)
 [ -z "$LEFT" ] || { echo "ERROR: blobs still reachable: $LEFT"; exit 1; }
 echo "verified: no stripped blob is reachable from any ref"

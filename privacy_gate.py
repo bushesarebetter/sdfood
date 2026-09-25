@@ -16,22 +16,27 @@ import sys
 FORBIDDEN_KEYS = {"worklist", "facility_id", "business_id", "custom_id", "inspection_id", "name", "address",
                   "city", "lat", "lng", "lon", "latitude", "longitude", "zip", "months_since", "days_since",
                   "last_visit", "prior_band", "major_band", "due_estimate", "rule_points"}
-MAX_RECORDS = 60        # a longer list of records is treated as row-level data
+MAX_RECORDS = 60        # a longer list, or a dict with more keys, is treated as row-level data
 MIN_CELL = 11           # published counts below this are suppressed (shown as "<11")
+#: Keys whose integer values are counts of facilities or inspections, held to MIN_CELL.
+COUNT_KEYS = {"n", "count", "facilities", "due", "with_prior_major", "active", "places", "inspections", "majors"}
 
 
 def violations(obj, path="$"):
     out = []
     if isinstance(obj, dict):
-        for k, v in obj.items():
+        if len(obj) > MAX_RECORDS:
+            out.append(f"{path}: a mapping of {len(obj)} entries looks like row-level data (max {MAX_RECORDS})")
+        for k, v in list(obj.items())[:MAX_RECORDS + 1]:
             if str(k).lower() in FORBIDDEN_KEYS:
                 out.append(f"{path}.{k}: facility-level field")
-            if str(k).lower() in {"n", "count", "facilities"} and isinstance(v, int) and 0 < v < MIN_CELL:
+            if (str(k).lower() in COUNT_KEYS and isinstance(v, int) and not isinstance(v, bool)
+                    and 0 < v < MIN_CELL):
                 out.append(f"{path}.{k}={v}: a published count below {MIN_CELL}")
             out += violations(v, f"{path}.{k}")
     elif isinstance(obj, list):
-        if len(obj) > MAX_RECORDS and all(isinstance(x, dict) for x in obj):
-            out.append(f"{path}: {len(obj)} records looks like row-level data (max {MAX_RECORDS})")
+        if len(obj) > MAX_RECORDS:           # rows, column arrays or tuples: any long list is row-level
+            out.append(f"{path}: {len(obj)} entries looks like row-level data (max {MAX_RECORDS})")
         for i, v in enumerate(obj[:MAX_RECORDS + 1]):
             out += violations(v, f"{path}[{i}]")
     return out

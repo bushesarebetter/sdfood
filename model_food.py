@@ -24,9 +24,9 @@ Model variants, all tested on the same 2025+ inspections:
     routine inspections come more than a year after the facility's previous routine, so the
     window misses the one score that matters most. The headline keeps since-2023 history; its
     forward test stays honest, because each training row saw only what was on the record then.
-  * ZIP: with and without. Without ZIP the model is as accurate, and its recall of majors shows
-    no detectable gap across ZIP income groups (fairness_check.py, with ZIP-clustered intervals);
-    with ZIP the gap was larger. The headline has no
+  * ZIP: with and without. Without ZIP the model was as accurate, and in the last run its recall
+    of majors showed no detectable gap across ZIP income groups (fairness_check.py now adds
+    ZIP-clustered intervals; rerun); with ZIP the gap was larger. The headline has no
     ZIP, as the public site's card has none.
 
 This file is also the research code's shared library: sim_schedule.py, fairness_check.py,
@@ -77,7 +77,7 @@ WINDOW = "window_nozip"         # the headline read over a 12-month window
 
 # the one-line rule (what outreach and the worklist lead with) and the other no-model orderings;
 # each is a column of the routine rows, higher = inspect first
-PERSIST = "Persistence (own record, last 12 mo)"
+PERSIST = "Persistence (own record: majors, last 12 mo; last score, 24 mo)"
 RULE = "Mean routine score on record (one-line rule)"
 BASELINES = {
     PERSIST: "persistence",
@@ -230,8 +230,10 @@ def features_asof(df, T, ids=None):
         last = last[last["business_id"].isin(ids)]
     last = last[last["completed_date"] < T]
     stub = last[["business_id", "business_type", "zip", "lat", "lng", "opened_date"]].copy()
-    stub = stub.assign(insp_type="Routine", completed_date=T, score=np.nan, rated_score=np.nan, n_major=np.nan,
+    stub = stub.assign(insp_type="Routine", completed_date=T, score=np.nan, n_major=np.nan,
                        n_violations=np.nan, major=np.nan, _asof=True)
+    if "rated_score" in base.columns:        # only when the record has it: add_features falls back to score
+        stub["rated_score"] = np.nan
     full = _order(pd.concat([base[base["business_id"].isin(stub["business_id"])].assign(_asof=False), stub],
                             ignore_index=True))
     f = add_features(full)
@@ -261,8 +263,10 @@ def month_start_rows(df, d):
         ids = d.loc[idx, "business_id"].unique()
         hist = base[base["business_id"].isin(ids) & (base["completed_date"] < t)]
         stub = d.loc[idx, [c for c in STATIC if c in d.columns]].drop_duplicates("business_id")
-        stub = stub.assign(insp_type="Routine", completed_date=t, score=np.nan, rated_score=np.nan, n_major=np.nan,
+        stub = stub.assign(insp_type="Routine", completed_date=t, score=np.nan, n_major=np.nan,
                            n_violations=np.nan, major=np.nan, _asof=True)
+        if "rated_score" in base.columns:
+            stub["rated_score"] = np.nan
         full = _order(pd.concat([hist.assign(_asof=False), stub], ignore_index=True))
         f = add_features(full)
         out.append(f[f["_asof"].astype(bool)].drop(columns="_asof").assign(_month=t))
@@ -309,7 +313,7 @@ class Model:
         X = self._X(rows)
         yv = np.asarray(rows["major"].values if y is None else y)
         w = None if sample_weight is None else np.asarray(sample_weight)
-        self.n_iter = MAX_ITER
+        self.n_iter = None
         if "completed_date" in rows:
             dt = pd.to_datetime(rows["completed_date"]).to_numpy()
             cut = dt.max() - np.timedelta64(VAL_MONTHS * 30, "D")
@@ -319,6 +323,14 @@ class Model:
                 losses = [log_loss(yv[val_m], p[:, 1], labels=[0, 1], sample_weight=None if w is None else w[val_m])
                           for p in c.staged_predict_proba(X[val_m])]
                 self.n_iter = int(np.argmin(losses)) + 1
+        if self.n_iter is None:              # too few rows for a time split: sklearn's own early stopping
+            from sklearn.ensemble import HistGradientBoostingClassifier
+            self.clf = HistGradientBoostingClassifier(
+                max_iter=MAX_ITER, learning_rate=0.08, max_leaf_nodes=48,
+                categorical_features=[X.columns.get_loc(c) for c in self.cat], l2_regularization=1.0,
+                early_stopping=True, n_iter_no_change=20, random_state=0).fit(X, yv, sample_weight=w)
+            self.n_iter = int(self.clf.n_iter_)
+            return self
         self.clf = self._clf(X, self.n_iter).fit(X, yv, sample_weight=w)
         return self
 
@@ -482,8 +494,10 @@ def main():
     as_deployed = {}
     for k, v in deployed_scores.items():
         wk = top_weights(v)
+        prec = float((wk * yte).sum() / wk.sum())
         as_deployed[k] = {"auc": round(float(roc_auc_score(yte, v)), 4),
-                          "top20_recall": round(float((wk * yte).sum() / yte.sum()), 4)}
+                          "top20_recall": round(float((wk * yte).sum() / yte.sum()), 4),
+                          "top20_precision": round(prec, 4), "lift": round(prec / float(yte.mean()), 4)}
     changed = float((dt["prior_n"].values > dm["prior_n"].values).mean())   # a visit between the 1st and the inspection
     print(f"\n=== the same test AS DEPLOYED (features as of the 1st of the month; {changed*100:.1f}% of test rows "
           f"have a visit inside their month before the inspection) ===")

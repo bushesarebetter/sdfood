@@ -108,3 +108,29 @@ def test_feedback_censoring_removes_the_visit_and_the_followups_it_would_have_tr
     # and the later routine's history is rebuilt from what is left: no score on record any more
     d = mf.routine_rows(mf.add_features(kept))
     assert pd.isna(d.iloc[0]["prior_mean_score"]) and d.iloc[0]["prior_n"] == 1
+
+
+def test_feedback_censor_keeps_complaint_investigations(tmp_path):
+    import feedback_check as fb
+    rows = [_row(1, "2024-01-10", "Routine", 88, 1), _row(1, "2024-01-20", "Site Investigation", None, 0),
+            _row(1, "2024-01-25", "Re-inspection", None, 0), _row(1, "2024-02-01", "Follow-up", None, 0)]
+    raw = _load(rows, tmp_path)
+    kept = fb.censor(raw, raw.index[raw["completed_date"] == "2024-01-10"])
+    assert kept["insp_type"].tolist() == ["Site Investigation"]
+
+
+def test_rules_fall_back_to_score_without_a_rated_column(tmp_path):
+    rows = [_row(1, "2024-01-10", "Routine", 80, 1), _row(2, "2024-01-10", "Routine", 96, 0)]
+    df = _load(rows, tmp_path)
+    a = mf.features_asof(df, "2024-06-01")["rule_mean_all"]
+    b = mf.features_asof(df.drop(columns="rated_score"), "2024-06-01")["rule_mean_all"]
+    assert list(a) == list(b) == [-80.0, -96.0]
+
+
+def test_km_median_is_exact_at_one_half_and_small_fits_stop_early(tmp_path):
+    assert ew.km_median(np.arange(1, 31), np.ones(30, bool)) == 15.0
+    rng = np.random.default_rng(0)
+    rows = [_row(b, f"2024-{m:02d}-15", "Routine", 90, int(rng.random() < 0.2)) for b in range(60) for m in range(1, 7)]
+    d = mf.routine_rows(mf.add_features(_load(rows, tmp_path)))
+    m = mf.Model(mf.HEADLINE).fit(d)                     # 360 rows: too few for a time split
+    assert m.n_iter < mf.MAX_ITER, "sklearn's early stopping, not a fixed 300 rounds"

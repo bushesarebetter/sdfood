@@ -12,8 +12,8 @@ Here, in each quarter of 2024:
   1. a model is trained on the (censored) record so far;
   2. the quarter's routine inspections are kept only if flagged in its top KEEP share (arm B), or
      that plus a random BASELINE share of the rest (arm C); arm A keeps everything;
-  3. every other routine inspection is deleted from the record, with the facility's non-routine
-     visits in the FOLLOWUP_DAYS after it (the re-inspections it would have triggered).
+  3. every other routine inspection is deleted from the record, with the facility's re-inspections
+     and follow-ups in the FOLLOWUP_DAYS after it (the visits it would have triggered).
 Then the model, the one-line rule and persistence are rebuilt from the censored record and scored
 on the real 2025+ inspections (whose labels are all observed), with recall broken out by ZIP
 income group. Arm C runs over several seeds.
@@ -29,16 +29,18 @@ from fairness_check import zip_groups
 ROUNDS = [("2024-01-01", "2024-03-31"), ("2024-04-01", "2024-06-30"),
           ("2024-07-01", "2024-09-30"), ("2024-10-01", "2024-12-31")]
 KEEP, BASELINE, FOLLOWUP_DAYS, SEEDS = 0.40, 0.15, 45, (0, 1, 2)
+FOLLOWUP_TYPES = ("Re-inspection", "Follow-up")   # visits a routine triggers; complaints would still happen
 GROUPS = ["Q1 low", "Q2", "Q3", "Q4 high"]
 
 
 def censor(raw, drop_rows):
     """Remove the routine inspections at `drop_rows` (index labels of `raw`) and each facility's
-    non-routine visits in the FOLLOWUP_DAYS after one of them."""
+    re-inspections and follow-ups (FOLLOWUP_TYPES) in the FOLLOWUP_DAYS after one of them: the visits
+    that routine would have triggered. Complaint investigations do not depend on it and stay."""
     dropped = raw.loc[drop_rows, ["business_id", "completed_date"]]
     keep = pd.Series(True, index=raw.index)
     keep[drop_rows] = False
-    nr = raw[raw["insp_type"].astype(str) != "Routine"].reset_index().rename(columns={"index": "_ix"})
+    nr = raw[raw["insp_type"].astype(str).isin(FOLLOWUP_TYPES)].reset_index().rename(columns={"index": "_ix"})
     m = nr.merge(dropped.rename(columns={"completed_date": "_d"}), on="business_id")
     gap = (m["completed_date"] - m["_d"]).dt.days
     keep[m.loc[(gap >= 0) & (gap <= FOLLOWUP_DAYS), "_ix"].unique()] = False

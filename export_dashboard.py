@@ -19,6 +19,26 @@ import privacy_gate as pg
 RISK_BINS = [0, 5, 10, 15, 20, 30, 40, 100]          # model risk, percent
 
 
+def suppress_columns(rows, keys):
+    """Primary suppression (counts 1 to MIN_CELL-1 become None), then complementary: the column
+    totals are published, so a column with exactly one hidden cell would give it away by
+    subtraction; the smallest other non-zero cell in that column is hidden too. Returns the keys
+    whose single hidden cell had no partner (their total must then be withheld)."""
+    exposed = []
+    for k in keys:
+        vals = [int(r[k]) for r in rows]
+        hide = [0 < v < pg.MIN_CELL for v in vals]
+        if sum(hide) == 1:
+            others = [i for i, v in enumerate(vals) if not hide[i] and v > 0]
+            if others:
+                hide[min(others, key=lambda i: vals[i])] = True
+            else:
+                exposed.append(k)
+        for r, v, h in zip(rows, vals, hide):
+            r[k] = None if h else v
+    return exposed
+
+
 def aggregate(f):
     """This month's list as published: counts only, never a row per facility.
 
@@ -34,16 +54,21 @@ def aggregate(f):
     f["_type"] = f["_type"].where(~f["_type"].isin(small), "Other types")
     by_type = []
     for t, g in f.groupby("_type"):
-        by_type.append({"type": t, "facilities": pg.suppress(len(g)), "due": pg.suppress(g["_due"].sum()),
-                        "with_prior_major": pg.suppress(g["_major"].sum())})
-    by_type.sort(key=lambda r: (r["type"] == "Other types", -(r["facilities"] or 0), r["type"]))
+        by_type.append({"type": t, "facilities": int(len(g)), "due": int(g["_due"].sum()),
+                        "with_prior_major": int(g["_major"].sum())})
+    by_type.sort(key=lambda r: (r["type"] == "Other types", -r["facilities"], r["type"]))
     pct = f["model_risk"].astype(float) * 100
     risk_bins = []
     for lo, hi in zip(RISK_BINS[:-1], RISK_BINS[1:]):
         m = (pct >= lo) & ((pct < hi) if hi < 100 else (pct <= hi))
-        risk_bins.append({"from": lo, "to": hi, "facilities": pg.suppress(m.sum()),
-                          "due": pg.suppress((m & f["_due"]).sum())})
-    return {"facilities": int(len(f)), "due": int(f["_due"].sum()), "by_type": by_type, "risk_bins": risk_bins}
+        risk_bins.append({"from": lo, "to": hi, "facilities": int(m.sum()), "due": int((m & f["_due"]).sum())})
+    # with_prior_major has no published total, so primary suppression is enough for it
+    exposed = suppress_columns(by_type, ["facilities", "due"]) + suppress_columns(risk_bins, ["facilities", "due"])
+    suppress_columns(by_type, ["with_prior_major"])
+    total = {"facilities": int(len(f)), "due": int(f["_due"].sum())}
+    for k in set(exposed):                   # a lone hidden cell with no partner: withhold the total instead
+        total[k] = None
+    return {**total, "by_type": by_type, "risk_bins": risk_bins}
 
 
 def render(payload, template="dashboard.template.html", out="dashboard.html"):
@@ -86,7 +111,8 @@ def main():
 
     # ---- evidence numbers, all from the research runs ----
     M, S, F = R["model"], R["sim"], R["fairness"]
-    rk = M["rankings"]; P = mf.PERSIST; RL = mf.RULE
+    # scored as deployed (features as of the 1st), like the days-sooner figures from sim_schedule.py
+    rk = (M.get("as_deployed") or {}).get("rankings") or M["rankings"]; P = mf.PERSIST; RL = mf.RULE
     area = S["windows"]["month_area"]; A = area["arms"]; MM = area["model_minus"]
     roll = [r["auc"] for r in S["rolling"]]; roll_r = [r["auc_rule"] for r in S["rolling"]]
     pct = lambda v: f"{v*100:.0f}%"

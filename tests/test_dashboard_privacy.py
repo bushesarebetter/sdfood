@@ -80,3 +80,23 @@ def test_a_type_name_cannot_close_the_script_block(tmp_path, monkeypatch):
     script = html[html.index("/*__DATA__*/"):]
     assert "</script><script>alert(1)" not in script
     assert pg.dashboard_payload(html)["summary"]["by_type"][0]["type"] == "</script><script>alert(1)</script>"
+
+
+def test_a_lone_suppressed_cell_cannot_be_recovered_from_the_total():
+    s = ed.aggregate(_frame((40, 20, 5, 3)))          # "Other types" = 5 + 3 = 8: the only hidden facilities cell
+    fac = {r["type"]: r["facilities"] for r in s["by_type"]}
+    assert fac["Other types"] is None
+    hidden = [t for t, v in fac.items() if v is None]
+    assert len(hidden) >= 2, "a second cell is hidden, so total minus the published cells is a sum, not a count"
+    for col in ("facilities", "due"):
+        for table in (s["by_type"], s["risk_bins"]):
+            vals = [r[col] for r in table]
+            assert sum(v is None for v in vals) != 1 or s[col] is None
+
+
+def test_the_gate_catches_row_level_data_in_any_shape():
+    assert pg.violations({"rows": [["Restaurant", 45.6, True, 4.9]] * 15647})
+    assert pg.violations({"by_id": {f"F-{i:05d}": [45.6, True] for i in range(15647)}})
+    assert pg.violations({"risk_column": [0.1] * 15647})
+    assert any("below 11" in v for v in pg.violations({"by_type": [{"type": "Boat", "due": 2}]}))
+    assert pg.violations({"stats": {"top20": 48, "from": 5}}) == []    # percentages and bin edges are not counts

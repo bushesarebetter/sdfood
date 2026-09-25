@@ -69,3 +69,42 @@ def test_docs_can_be_turned_off(monkeypatch):
     finally:
         monkeypatch.delenv("SDFOOD_API_DOCS")
         importlib.reload(api)
+
+
+def test_each_request_logs_a_hash_of_its_key_under_uvicorn(client, tmp_path):
+    """Run the Dockerfile's own command and read its output: the key's short hash must appear."""
+    import os
+    import socket
+    import subprocess
+    import sys
+    import time
+    import urllib.request
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+    env = dict(os.environ)          # the fixture's SDFOOD_* settings point at its small export
+    proc = subprocess.Popen([sys.executable, "-m", "uvicorn", "api.main:app", "--port", str(port), "--proxy-headers"],
+                            env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    try:
+        for _ in range(100):
+            try:
+                urllib.request.urlopen(f"http://127.0.0.1:{port}/health", timeout=1)
+                break
+            except OSError:
+                time.sleep(0.1)
+        req = urllib.request.Request(f"http://127.0.0.1:{port}/v1/summary", headers={"X-API-Key": KEY})
+        assert urllib.request.urlopen(req, timeout=5).status == 200
+    finally:
+        proc.terminate()
+        out = proc.communicate(timeout=10)[0]
+    assert f"key {api.key_id(KEY)} GET /v1/summary" in out, out[-2000:]
+    assert KEY not in out, "the key itself is never logged"
+
+
+def test_worklist_json_shows_text_as_written_while_csv_stays_neutralised(client):
+    path = client.site.parent / "worklists" / "2026-10" / "district-3.csv"
+    text = path.read_text(encoding="utf-8").replace("Alpha Grill", "'=Alpha Grill")
+    path.write_text(text, encoding="utf-8")
+    rows = client.get("/v1/worklists/2026-10/districts/3", headers=H).json()["rows"]
+    assert rows[0]["name"] == "=Alpha Grill"
+    assert "'=Alpha Grill" in client.get("/v1/worklists/2026-10/districts/3?format=csv", headers=H).text
