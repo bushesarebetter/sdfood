@@ -1,0 +1,5 @@
+User-agent: *
+Allow: /
+Disallow: /data/
+
+Sitemap: https://sd-food-safety-risk.onrender.com/sitemap.xml

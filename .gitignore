@@ -1,5 +1,6 @@
-# pulled data (large, regenerate with fetch_sdfood.py)
-data/
+# pulled data (large, regenerate with fetch_sdfood.py). Anchored to the root: an
+# unanchored `data/` also matched food-dashboard/public/data/, which the site ships.
+/data/
 # generated dashboard data (regenerate with export_dashboard.py)
 dashboard_data.json
 _check.js
@@ -21,3 +22,14 @@ cookies.txt
 # python
 __pycache__/
 *.pyc
+.pytest_cache/
+
+# food-dashboard (the public site)
+food-dashboard/node_modules/
+food-dashboard/dist/
+food-dashboard/.env
+food-dashboard/.env.*
+!food-dashboard/.env.example
+
+# local review configs that point at unpublished (named) exports
+food-dashboard/vite.review*.config.js

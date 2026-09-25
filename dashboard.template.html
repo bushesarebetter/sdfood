@@ -66,39 +66,39 @@ tbody tr:last-child td{border-bottom:none}
 
 <div class="wrap">
   <div class="eyebrow">Proof of concept · public data</div>
-  <h1>Inspect smarter: risk-targeting for San Diego food inspections</h1>
-  <div class="sub" id="sub">Independent analysis by Ayan Pendharkar · SD County DEH already sets inspection frequency by facility <i>category</i> — but a facility's own violation track record barely changes it. This ranks by that.</div>
+  <h1>Inspect smarter: ordering San Diego's routine food inspections by each facility's record</h1>
+  <div class="sub" id="sub">Independent analysis by Ayan Pendharkar, not affiliated with or endorsed by the County of San Diego · The County sets routine inspection frequency by facility <i>category</i>, and follow-up visits respond to findings. Within a month's schedule, this orders the routine inspections by each facility's own record.</div>
 
   <div class="stats" id="stats"></div>
 
   <h2>The evidence (forward-tested, out-of-sample)</h2>
   <div class="cards">
-    <div class="card"><img src="IMG_GAINS" alt="Cumulative gains: top 20% by risk finds 47% of critical violations">
-      <p><b>Inspect the top 20% by risk → find ~47% of all critical violations</b> (vs 20% by calendar; 2.36× lift). Tested on 36,543 inspections the model never saw.</p></div>
-    <div class="card"><img src="IMG_DAYS" alt="Days earlier critical violations are found under risk ordering">
-      <p><b>Critical violations surface ~6 days sooner</b> when a month's scheduled inspections are worked in risk order (95% CI 5.9–6.6), while clean facilities wait under a day longer. This is detection latency within an already-scheduled batch — not prevented illness.</p></div>
+    <div class="card"><img src="IMG_GAINS" alt="Cumulative gains for the one-line rule, the research model and persistence">
+      <p><b>Inspect the top 20% first and find ~<span data-s="top20_rule"></span> of all major violations</b> (20% on the calendar alone). That is the <b>one-line rule</b>: lowest mean routine score on record first, <span data-s="lift_rule"></span> the base rate of <span data-s="base_rate"></span>. The research model finds <span data-s="top20"></span> and persistence (prior-year majors, then last score) <span data-s="top20_persistence"></span>. Tested on <span data-s="test_n"></span> inspections none of them saw.</p></div>
+    <div class="card"><img src="IMG_DAYS" alt="Days earlier major violations are found under each ordering">
+      <p><b>Within a council district's (or ZIP3 area's) month, the rule's order finds major violations ~<span data-s="days_rule"></span> days sooner</b> than the order actually worked (95% CI <span data-s="days_rule_ci"></span>). The research model adds <span data-s="days_over_rule"></span> day (95% CI <span data-s="days_over_rule_ci"></span>). Clean facilities wait <span data-s="clean_wait"></span> day longer. It assumes a finding does not depend on the day of the month and leaves routing aside: detection within an already-scheduled batch.</p></div>
   </div>
-  <div class="note"><b>Trained</b> on routine inspections <b>Jan 2023 – Dec 2024</b>; <b>tested</b> on <b>Jan 2025 – Sep 2026</b> (36,543 inspections the model never saw). All figures above (AUC, gains, days-earlier) come from that held-out test window.<br><br><b>Statistically checked:</b> AUC is stable at 0.73–0.76 across three separate time cutoffs (rolling-origin backtest); the days-earlier estimate carries a bootstrap 95% CI. Full method &amp; code in the repo.</div>
+  <div class="note"><b>Trained</b> on routine inspections <b><span data-s="train_span"></span></b>; <b>tested</b> on <b><span data-s="test_span"></span></b> (<span data-s="test_n"></span> inspections). Every figure on this page comes from that held-out window.<br><br><b>Stable across time:</b> AUC <span data-s="auc_rolling_rule"></span> for the rule and <span data-s="auc_rolling"></span> for the model over three separate cutoffs (main test: rule <span data-s="auc_rule"></span>, model <span data-s="auc"></span>, persistence <span data-s="auc_persistence"></span>). Differences carry paired bootstrap 95% CIs. Method and code in the repository.</div>
 
-  <h2>Fairness check — does it target poorer or immigrant neighborhoods?</h2>
+  <h2>Fairness: coverage across neighborhoods</h2>
   <div class="cards">
-    <div class="card"><img src="IMG_FAIRNESS" alt="Calibration by income: predicted risk matches actual violation rate in every income quartile">
-      <p><b>No — and I checked income and ethnicity.</b> Predicted risk ≈ actual violation rate in every income group (calibrated). Low-income ZIPs are flagged <b>0.64×</b> as often as high-income ones, because actual violation rates are roughly flat across income (0.96×) — the model tracks real risk, not income.</p></div>
+    <div class="card"><img src="IMG_FAIRNESS" alt="Predicted vs actual major-violation rate by ZIP income quartile">
+      <p><b>Targeting tracks real risk.</b> The model's predicted rate is within <span data-s="cal_min"></span> to <span data-s="cal_max"></span> points of the actual rate in every ZIP-income quartile. Actual rates are nearly flat across income (<span data-s="actual_ratio"></span>, lowest to highest quartile), and the rule flags low-income ZIPs at <span data-s="rule_flag_ratio"></span> the rate of high-income ones (the model: <span data-s="flag_ratio"></span>).</p></div>
     <div class="card" style="display:flex;flex-direction:column;justify-content:center">
-      <p style="font-size:13.5px"><b>The one real caveat — equal protection.</b> Because lower-income and higher-Hispanic areas score a bit lower and the model has less signal there, a single global "top-20%" rule catches a smaller share of their real violations (recall <b>38% vs 54%</b>). That's an under-coverage risk, not over-policing.</p>
-      <p style="font-size:13.5px"><b>Safeguard:</b> keep a baseline of routine/rotating inspections everywhere, monitor recall by group after launch, and treat this as an augment to discretion — not a replacement for mandated frequencies. Full numbers in <code>FAIRNESS.md</code>.</p></div>
+      <p style="font-size:13.5px"><b>Even coverage.</b> Share of major violations in the top 20%, lowest to highest income quartile: one-line rule <b><span data-s="recall_rule"></span></b>; research model <span data-s="recall_model"></span>. The model uses no ZIP code: with ZIP it was just as accurate, and its coverage ran <span data-s="recall_zip"></span>.</p>
+      <p style="font-size:13.5px"><b>Safeguards:</b> keep routine inspections everywhere (this reorders visits within the schedule, it removes none) and monitor coverage by group. Full numbers in <code>FAIRNESS.md</code>.</p></div>
   </div>
 
-  <h2>The worklist — who to prioritize next</h2>
-  <p style="font-size:13.5px;color:var(--ink-soft);margin:0 0 6px">Every currently-active facility, scored for its <b>next, not-yet-done</b> inspection from its full history to date, then ranked by <b>risk weighted by how overdue it is</b> versus its category's normal cadence (so a high-risk place seen last month doesn't jump one 11 months overdue). This is a prioritization aid <i>within</i> the county's required schedule, not a replacement for it.</p>
-  <div class="note warn" style="font-size:12.5px;margin:0 0 12px"><b>De-identified demonstration.</b> Rows show facility type and banded history only — no name, no address, no city, no exact score — so this public page can't be used to point at or accuse a specific business. A named, ranked list would be shared only with the county. Risk is a modeled probability, not a finding; most flagged facilities turn out clean (it reorders visits, it does not skip anyone).</div>
+  <h2>The worklist: <span data-s="month"></span></h2>
+  <p style="font-size:13.5px;color:var(--ink-soft);margin:0 0 6px">Every currently-active facility, in the <b>one-line rule's order</b> (lowest mean routine score on record first; ties to the earlier estimated due date), with the research model's risk beside it. <b><span data-s="n_due"></span></b> are <b>estimated due this month</b>: by the month's end, within 30 days of their business type's median interval between routine inspections, or past it. This order replaces an earlier risk-times-overdue weighting; in the backtest the rule's order found major violations sooner (+<span data-s="days_rule"></span> d against +<span data-s="days_overdue"></span> d). A prioritization aid <i>within</i> the County's required schedule.</p>
+  <div class="note warn" style="font-size:12.5px;margin:0 0 12px"><b>De-identified demonstration.</b> Rows show facility type and banded history only: no name, no address, no city, no exact score. Named worklists are for internal use. Risk is a modeled probability, not a finding; the order reorders visits everyone already gets.</div>
   <div class="controls">
     <label for="ftype">Type</label><select id="ftype"><option value="">All types</option></select>
-    <label for="fover"><input type="checkbox" id="fover" style="vertical-align:-2px"> overdue vs cadence only</label>
+    <label for="fdue"><input type="checkbox" id="fdue" style="vertical-align:-2px"> due this month only</label>
     <span class="count" id="count"></span>
   </div>
   <div class="tbl-wrap"><table>
-    <thead><tr><th>Predicted risk</th><th>Facility</th><th>Type</th><th>History on record</th><th>Since last visit</th></tr></thead>
+    <thead><tr><th>Order</th><th>Facility</th><th>Type</th><th>History on record</th><th>Since last visit</th><th>Model risk</th></tr></thead>
     <tbody id="tbody"></tbody>
   </table></div>
   <div class="pager"><button id="prev" class="pgbtn">← Prev</button><span id="pageinfo" class="pginfo"></span><button id="next" class="pgbtn">Next →</button></div>
@@ -112,10 +112,11 @@ const $=s=>document.querySelector(s);
 const S=DATA.stats;
 $("#stats").innerHTML=[
   ["g",S.routine_per_yr?.toLocaleString(),"routine inspections / yr"],
-  ["",S.critical_per_yr?.toLocaleString(),"critical violations found / yr"],
-  ["g",S.auc?.toFixed(2),"model AUC (rolling "+S.auc_rolling+")"],
-  ["g","+"+S.days_earlier+" d","criticals surfaced earlier / month"],
+  ["",S.major_per_yr?.toLocaleString(),"routine inspections finding a major violation / yr"],
+  ["g",S.top20_rule!=null?S.top20_rule+"%":null,"of major violations in the rule's top 20%"],
+  ["g",S.days_rule!=null?"+"+S.days_rule+" d":null,"major violations found sooner, rule's order (district month)"],
 ].map(([c,n,l])=>`<div class="stat ${c}"><b>${n??"—"}</b><span>${l}</span></div>`).join("");
+document.querySelectorAll("[data-s]").forEach(el=>{el.textContent=(S.t||{})[el.dataset.s]??"—";});
 
 const tsel=$("#ftype");
 DATA.types.forEach(t=>tsel.add(new Option(t,t)));
@@ -125,10 +126,10 @@ function riskColor(r){ // 0..100 -> teal to red
   const m=s[i],n=s[i+1]; return `rgb(${m[0]+(n[0]-m[0])*f|0},${m[1]+(n[1]-m[1])*f|0},${m[2]+(n[2]-m[2])*f|0})`;
 }
 let PAGE=0; const PER=50; let filtered=[];
+const ALL=DATA.worklist.map((r,i)=>({...r,pos:i+1}));   // the embedded order is the one-line rule's
 function applyFilter(){
-  const type=tsel.value, od=$("#fover").checked;
-  // keep the embedded order (risk × overdue priority); do NOT re-sort by risk alone
-  filtered=DATA.worklist.filter(r=>(!type||r.type===type)&&(!od||r.overdue)); PAGE=0; renderPage();
+  const type=tsel.value, due=$("#fdue").checked;
+  filtered=ALL.filter(r=>(!type||r.type===type)&&(!due||r.due)); PAGE=0; renderPage();
 }
 function renderPage(){
   const total=filtered.length, pages=Math.max(1,Math.ceil(total/PER));
@@ -138,19 +139,18 @@ function renderPage(){
   $("#pageinfo").textContent = `Page ${PAGE+1} of ${pages.toLocaleString()}`;
   $("#prev").disabled = PAGE<=0; $("#next").disabled = PAGE>=pages-1;
   $("#tbody").innerHTML=shown.map(r=>{
-    const hist=[`${r.prior_band} prior insp.`, r.major_band!=null?`${r.major_band} prior-critical`:"first visit"].filter(Boolean).join(" · ");
-    const since=r.overdue?`<span class="chip crit">${r.months_since} mo · overdue</span>`:`<span class="hist">${r.months_since} mo ago</span>`;
-    return `<tr><td><div class="rk"><div class="bar"><div class="fill" style="width:${Math.min(100,r.risk)}%;background:${riskColor(r.risk)}"></div></div><b>${r.risk.toFixed(0)}%</b></div></td>`+
-      `<td class="id">${r.id}</td><td>${r.type}</td><td class="hist">${hist}</td><td>${since}</td></tr>`;
-  }).join("")||`<tr><td colspan="5" style="color:var(--ink-soft);padding:16px">No facilities match.</td></tr>`;
+    const hist=[`${r.prior_band} prior insp.`, r.major_band!=null?`${r.major_band} prior-major`:"first visit"].filter(Boolean).join(" · ");
+    const since=r.due?`<span class="chip crit">${r.months_since} mo · due</span>`:`<span class="hist">${r.months_since} mo ago</span>`;
+    return `<tr><td class="id">${r.pos.toLocaleString()}</td><td class="id">${r.id}</td><td>${r.type}</td><td class="hist">${hist}</td><td>${since}</td>`+
+      `<td><div class="rk"><div class="bar"><div class="fill" style="width:${Math.min(100,r.risk)}%;background:${riskColor(r.risk)}"></div></div><b>${r.risk.toFixed(0)}%</b></div></td></tr>`;
+  }).join("")||`<tr><td colspan="6" style="color:var(--ink-soft);padding:16px">No facilities match.</td></tr>`;
 }
-[tsel,$("#fover")].forEach(el=>el.addEventListener("change",applyFilter));
+[tsel,$("#fdue")].forEach(el=>el.addEventListener("change",applyFilter));
 $("#prev").addEventListener("click",()=>{PAGE--;renderPage();});
 $("#next").addEventListener("click",()=>{PAGE++;renderPage();});
-$("#foot").innerHTML="Source: San Diego County DEH inspection results via the public sdfoodinfo.org API "+
+$("#foot").innerHTML="Source: San Diego County DEH inspection results via the public sdfoodinfo.org search "+
   `(${S.n_inspections?.toLocaleString()} inspections, ${S.n_facilities?.toLocaleString()} facilities, 2023–2026). `+
-  "Risk = modeled probability of a critical violation, from facility type, location and prior history (no leakage). "+
-  "Worklist ranks each active facility by risk × how overdue it is vs its category cadence (model trained on all data); accuracy validated out-of-sample above. "+
-  "Rows are de-identified. Independent analysis — not an official County document, and not a finding about any specific business.";
+  "Order = the one-line rule: lowest mean routine score on record first. Model risk = the research model's probability of a major violation at the next routine inspection, from facility type and prior history (no ZIP code, no permit age), fitted on all data; accuracy is from the held-out test above. "+
+  "Due this month is an estimate from each business type's median interval between routine inspections. Rows are de-identified. Independent analysis, not affiliated with or endorsed by the County of San Diego, and not a finding about any specific business.";
 applyFilter();
 </script>

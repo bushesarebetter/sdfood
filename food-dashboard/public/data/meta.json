@@ -1,0 +1,161 @@
+{
+  "mode": "bands",
+  "sample": true,
+  "run": "sample",
+  "generated": "2026-09-01",
+  "places": 1400,
+  "inspections_through": "2026-08-31",
+  "expires": null,
+  "source": {
+    "name": "invented sample; no real facility or inspection",
+    "url": null
+  },
+  "grade_context": {
+    "majors_graded_A_share": 0.9018,
+    "graded_A_share": 0.9835
+  },
+  "data_rules": {
+    "note": "sample: invented records, one entry per County record, statuses as the County writes them"
+  },
+  "survivorship": "In this sample every place is invented, so none is missing. A real export's backtest holds only places that still exist when the County's results are collected.",
+  "provenance": {
+    "code_sha": "sample",
+    "pull_sha256": null,
+    "python": null,
+    "packages": {}
+  },
+  "contact": null,
+  "operator": null,
+  "corrections": [],
+  "publication": null,
+  "model": "sample published rule (2 counts, whole-number weights), invented",
+  "label": "at least one major violation at the next routine inspection",
+  "label_window": "2026-09-01 to 2027-08-31",
+  "candidates": 957,
+  "card": {
+    "items": [
+      {
+        "item": "avg_deficit",
+        "label": "Points below 100, average routine score in the last year",
+        "weight": 1,
+        "unit": "per point below 100",
+        "feature": "avg_deficit"
+      },
+      {
+        "item": "theme_temperature",
+        "label": "Food-temperature citations in the last year",
+        "weight": 2,
+        "unit": "per citation",
+        "feature": "theme_temperature"
+      }
+    ],
+    "rule": "Places get one point for each point their average routine score in the last year fell below 100, and two points for each food-temperature citation in the last year.",
+    "window": "the year before the list date",
+    "trained_on": "sample: invented weights",
+    "eligibility": "restaurants with a scored routine inspection in the year before the list date",
+    "baseline_name": "average score",
+    "bands": [
+      {
+        "band": "1",
+        "min_points": 13,
+        "max_points": null,
+        "share": 0.025,
+        "places_now": 16,
+        "places": 22,
+        "labelled": 19,
+        "positives": 12,
+        "rate": 0.6316,
+        "interval": [
+          0.4104,
+          0.8085
+        ],
+        "baseline_rate": 0.6667,
+        "vs_baseline": [
+          -6.79,
+          6.79
+        ],
+        "kept_in_refits": 0.772
+      },
+      {
+        "band": "2",
+        "min_points": 9,
+        "max_points": 12,
+        "share": 0.075,
+        "places_now": 61,
+        "places": 59,
+        "labelled": 57,
+        "positives": 19,
+        "rate": 0.3333,
+        "interval": [
+          0.2249,
+          0.4628
+        ],
+        "baseline_rate": 0.2679,
+        "vs_baseline": [
+          -4.081,
+          12.081
+        ],
+        "kept_in_refits": 0.742
+      },
+      {
+        "band": "3",
+        "min_points": 7,
+        "max_points": 8,
+        "share": 0.175,
+        "places_now": 87,
+        "places": 75,
+        "labelled": 68,
+        "positives": 17,
+        "rate": 0.25,
+        "interval": [
+          0.1623,
+          0.3644
+        ],
+        "baseline_rate": 0.2754,
+        "vs_baseline": [
+          -10.316,
+          6.316
+        ],
+        "kept_in_refits": 0.77
+      }
+    ],
+    "rest": {
+      "band": "rest",
+      "places": 807,
+      "labelled": 743,
+      "positives": 137,
+      "rate": 0.1844,
+      "interval": [
+        0.1582,
+        0.2139
+      ]
+    }
+  },
+  "catch": {},
+  "catch_run": {
+    "as_of": "2025-09-01",
+    "candidates": 963,
+    "positives": 185,
+    "labelled": 887,
+    "unlabelled": 76,
+    "label_window": "2025-09-01 to 2026-08-31",
+    "trained_on": "sample: the rule is invented, not fitted",
+    "baseline_name": "average score"
+  },
+  "selection": {
+    "rule": "sample: no selection was run",
+    "chosen": "sample rule"
+  },
+  "named_bands": [
+    "1",
+    "2",
+    "3"
+  ],
+  "cost_ratio": null,
+  "utility": null,
+  "fairness": {},
+  "measurement": {
+    "majors_graded_A_share": 0.9018,
+    "graded_A_share": 0.9835
+  }
+}

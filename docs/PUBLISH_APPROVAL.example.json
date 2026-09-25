@@ -1,0 +1,14 @@
+{
+  "approver": "Full names of the people who decided",
+  "date": "YYYY-MM-DD",
+  "run": "forward_YYYY-MM-DD (the run in data/site/meta.json)",
+  "facilities_sha256": "sha256 of data/site/facilities.geojson, as export_site.py prints it",
+  "cost_ratio": 1,
+  "independent_reviewer": {"name": "", "affiliation": "", "date": ""},
+  "contact": "an address that answers business owners within five business days",
+  "reason": "Full names: why the benefit outweighs the cost to places named that turn out clean, at this cost ratio",
+  "insurance": "Full names: media-liability cover, or confirmation of personal-liability cover",
+  "responsible_adult": {"name": "Full names (18 or older, not an author)", "contact": ""},
+  "legal_review": {"reviewer": "", "organization": "", "date": "YYYY-MM-DD", "scope": ""},
+  "county_informed": {"date": "YYYY-MM-DD", "person": "", "method": "", "what_was_shown": "", "response": ""}
+}
