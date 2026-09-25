@@ -2,7 +2,9 @@
 
 For City of San Diego staff and council offices. Fill in the `[brackets]`. Link the
 research dashboard (`dashboard.html`, `[dashboard link]`; counts only, no facility rows), never the public site. Every number
-here is from the README and FAIRNESS.md.
+here is from the README and FAIRNESS.md, **and those figures predate the fixes of 2026-09-25: rerun
+first and replace every number below** (README, "Figures to rerun"). When quoting days sooner, say
+what they are: about 2% of the gap between routine inspections, found earlier within the month.
 
 ## Three questions only the County can answer
 
@@ -35,8 +37,9 @@ What we found, tested on 2025-26 inspections our methods had never seen:
   inspections, and within a council district's month finds them **5.8 days sooner** than the
   order actually worked. Our model reaches 6.2 days.
 - Restaurants in the published rule's top band had a major violation at their next routine
-  inspection at **about twice the rate** of other restaurants (37.2% against 17.8%).
-- Coverage is even across neighborhoods (details below).
+  inspection at **about twice the rate** of other restaurants (37.2% against 17.8%), about what a
+  ranking by recent majors and scores reaches too (37.8%); the rule's value is that it is transparent.
+- No detectable coverage gap across neighborhood income in the last run (details below).
 
 The next step we would suggest is a silent pilot the City could propose to the County
 (docs/PILOT.md): one or two district supervisors get a frozen list before each month, inspectors
@@ -102,7 +105,7 @@ Chenhao Zhang and Ayan Pendharkar · Adult point of contact: [NAME, ROLE, EMAIL]
 
 - **"Is it reliable?"** It was tested forward in time: built on 2023-24, checked on 32,552 routine
   inspections from 2025-26. Accuracy holds across three separate cutoffs (AUC 0.72 to 0.76), and
-  every comparison has a 95% interval. The top 20% of the list finds major violations at 2.4 times
+  the main comparisons carry 95% intervals. The top 20% of the list finds major violations at 2.4 times
   the base rate. It reorders visits everyone already gets; it skips no one.
 - **"Do you need the model?"** Mostly not. The one-line rule reaches the same 48% in the top 20%
   and 5.8 of the model's 6.2 days. The model adds about 0.4 day.
@@ -110,10 +113,12 @@ Chenhao Zhang and Ayan Pendharkar · Adult point of contact: [NAME, ROLE, EMAIL]
   The published rule scores City restaurants monthly and asks whether the next routine inspection
   within a year finds a major; it is shown as bands. Both say a facility's own record is a strong
   guide.
-- **"Does it target poor or immigrant neighborhoods?"** From FAIRNESS.md: "Neither lower-income
-  nor higher-Hispanic areas are over-targeted." "Under a single top-20% cut, the model finds 45% to
-  51% of each income quartile's major violations and the one-line rule 45% to 51%, with the
-  lowest-income quartile at the top of both ranges." The model uses no ZIP code.
+- **"Does it target poor or immigrant neighborhoods?"** From FAIRNESS.md: flag rates and actual
+  rates were both nearly flat across ZIP income, and under a single top-20% cut the model found
+  45% to 51% of each income quartile's major violations (the rule 45% to 51%). With about 24 ZIPs
+  per quartile that is "no detectable disparity", not proof of evenness, and the rule's
+  false-positive rate was a little higher in the lowest-income quartile (16.2% against 15.0%).
+  The model uses no ZIP code, and coverage by group is monitored in any pilot.
 - **"What would it take?"** Someone has to produce and send each month's list. Our script builds
   the lists from refreshed data; someone at the County would still pass a district's list to its
   supervisor. The estimate assumes a finding does not depend on the day of the month, and it
