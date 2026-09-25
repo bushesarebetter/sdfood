@@ -51,3 +51,60 @@ def test_a_health_closure_at_routine_is_not_a_typical_A(tmp_path):
     d = mf.routine_rows(mf.add_features(_load(nxt, tmp_path)))
     last = d[d["completed_date"] == "2026-10-05"].set_index("business_id")
     assert last["rule_mean_all"].idxmax() == 1
+
+
+def test_interval_medians_count_intervals_still_open(tmp_path):
+    """True routine interval: median 290 days. Early in a record that starts 2023-01, a plain
+    median of finished gaps runs short; Kaplan-Meier with the open intervals does not."""
+    rng = np.random.default_rng(0)
+    rows = []
+    for b in range(1, 1501):
+        t = pd.Timestamp("2023-01-03") + pd.Timedelta(days=int(rng.integers(0, 290)))
+        while t < pd.Timestamp("2024-06-30"):
+            rows.append(_row(b, t.strftime("%Y-%m-%d"), "Routine", 95, 0))
+            t += pd.Timedelta(days=float(290 * np.exp(rng.normal(0, 0.35))))
+    insp = _load(rows, tmp_path)
+    rt = insp[insp["insp_type"] == "Routine"]
+    asof = pd.Timestamp("2024-01-01")
+    rt = rt[rt["completed_date"] < asof]
+    naive_by, naive = ew.intervals(rt)
+    km_by, km = ew.intervals(rt, asof=asof, last_visit=rt.groupby("business_id")["completed_date"].max())
+    assert naive < 260, naive                      # biased short
+    assert abs(km - 290) < 20, km                   # close to the truth
+    assert ew.km_median([10, 20, 30], [True, True, True]) == 20.0
+    assert ew.km_median([10, 50, 50, 50], [True, False, False, False]) is None   # never reaches 0.5
+
+
+def test_month_start_rows_see_nothing_inside_the_month(tmp_path):
+    """A complaint visit with majors on 2025-03-03, then the routine on 2025-03-20: evaluated at the
+    inspection date the complaint is history; as of 2025-03-01 (the deployed list) it is not."""
+    rows = [_row(1, "2024-05-02", "Routine", 94, 0), _row(1, "2025-03-03", "Complaint", None, 2),
+            _row(1, "2025-03-20", "Routine", 90, 1), _row(2, "2025-03-10", "Routine", 96, 0)]
+    df = mf.add_features(_load(rows, tmp_path))
+    d = mf.routine_rows(df)
+    at = d[d["completed_date"] == "2025-03-20"].iloc[0]
+    assert at["days_since_last"] == 17 and at["last_major"] == 1 and at["prior_n"] == 2
+    ms = mf.month_start_rows(df, d)
+    m = ms.loc[at.name]
+    assert m["days_since_last"] == (pd.Timestamp("2025-03-01") - pd.Timestamp("2024-05-02")).days
+    assert m["last_major"] == 0 and m["prior_n"] == 1 and m["month"] == 3
+    assert ms.loc[d["business_id"] == 2, "prior_n"].tolist() == [0]      # a first visit still gets a row
+    assert list(ms.index) == list(d.index) and (ms["major"] == d["major"]).all()
+    # the deployed scorer (features_asof) and month_start_rows agree for the same facility and date
+    fx = mf.features_asof(df[df["completed_date"] < "2025-03-01"], "2025-03-01", ids=[1])
+    for c in mf.HIST + ["persistence", "rule_mean_all"]:
+        a, b = fx.loc[1, c], m[c]
+        assert (pd.isna(a) and pd.isna(b)) or a == b, c
+
+
+def test_feedback_censoring_removes_the_visit_and_the_followups_it_would_have_triggered(tmp_path):
+    import feedback_check as fb
+    rows = [_row(1, "2024-01-10", "Routine", 88, 1), _row(1, "2024-01-25", "Re-inspection", None, 0),
+            _row(1, "2024-06-01", "Complaint", None, 0), _row(1, "2024-09-01", "Routine", 96, 0)]
+    raw = _load(rows, tmp_path)
+    first = raw.index[(raw["completed_date"] == "2024-01-10")]
+    kept = fb.censor(raw, first)
+    assert kept["completed_date"].dt.strftime("%Y-%m-%d").tolist() == ["2024-06-01", "2024-09-01"]
+    # and the later routine's history is rebuilt from what is left: no score on record any more
+    d = mf.routine_rows(mf.add_features(kept))
+    assert pd.isna(d.iloc[0]["prior_mean_score"]) and d.iloc[0]["prior_n"] == 1

@@ -240,6 +240,43 @@ def features_asof(df, T, ids=None):
     return f.set_index("business_id")
 
 
+STATIC = ["business_id", "business_type", "zip", "lat", "lng", "opened_date"]
+
+
+def month_start_rows(df, d):
+    """Each routine row of `d`, with every feature recomputed as of the first day of its month:
+    what a list scored that morning sees. History is strictly before the 1st, so no visit made
+    inside the month (a complaint two weeks before the routine, say) is used. add_features runs
+    on one stand-in row per facility and month, so training and the deployed list
+    (export_worklist.model_orders -> features_asof) read features the same way. Aligned to d.index;
+    the label and the real inspection date stay d's own."""
+    cols = [c for c in ("business_id", "business_type", "zip", "lat", "lng", "opened_date", "insp_type",
+                        "completed_date", "score", "rated_score", "n_major", "n_violations", "major", "closure")
+            if c in df.columns]
+    base = df[cols]
+    T = d["completed_date"].dt.to_period("M").dt.start_time
+    out = []
+    for t, idx in T.groupby(T).groups.items():
+        ids = d.loc[idx, "business_id"].unique()
+        hist = base[base["business_id"].isin(ids) & (base["completed_date"] < t)]
+        stub = d.loc[idx, [c for c in STATIC if c in d.columns]].drop_duplicates("business_id")
+        stub = stub.assign(insp_type="Routine", completed_date=t, score=np.nan, rated_score=np.nan, n_major=np.nan,
+                           n_violations=np.nan, major=np.nan, _asof=True)
+        full = _order(pd.concat([hist.assign(_asof=False), stub], ignore_index=True))
+        f = add_features(full)
+        out.append(f[f["_asof"].astype(bool)].drop(columns="_asof").assign(_month=t))
+    feats = pd.concat(out, ignore_index=True).set_index(["business_id", "_month"])
+    key = pd.MultiIndex.from_arrays([d["business_id"].to_numpy(), T.to_numpy()])
+    m = feats.reindex(key)
+    m.index = d.index
+    keep = [c for c in m.columns if c not in ("insp_type", "completed_date", "score", "rated_score", "n_major",
+                                              "n_violations", "major", "closure")]
+    r = d[["insp_type", "completed_date", "major"] + [c for c in ("n_major",) if c in d.columns]].join(m[keep])
+    for c in CAT:
+        r[c] = r[c].astype("string").fillna("NA")
+    return r
+
+
 # ── the model ──────────────────────────────────────────────────────────────────────────
 
 class Model:
@@ -432,6 +469,27 @@ def main():
     print(tab.round(3).to_string())
     print(f"PR-AUC   model={average_precision_score(yte,p):.3f}   base_rate={yte.mean():.3f}")
 
+    # ---- the same test, scored AS DEPLOYED: features as of the 1st of each inspection's month ----
+    # (the table above reads each row's history up to the inspection date, so a complaint visit two
+    # weeks earlier in the same month counts; the monthly list cannot know it on the 1st)
+    dm = month_start_rows(df, dt)
+    pm = Model(HEADLINE).fit(d[train_mask(d, HEADLINE)]).predict(dm)
+    deployed_scores = {"Model": pm}
+    for k, c in BASELINES.items():
+        deployed_scores[k] = dm[c].values if c != "rule_major_rate" else dm["prior_major_rate"].fillna(
+            d.loc[trn, "major"].mean()).values
+    as_deployed = {}
+    for k, v in deployed_scores.items():
+        wk = top_weights(v)
+        as_deployed[k] = {"auc": round(float(roc_auc_score(yte, v)), 4),
+                          "top20_recall": round(float((wk * yte).sum() / yte.sum()), 4)}
+    changed = float((dt["prior_n"].values > dm["prior_n"].values).mean())   # a visit between the 1st and the inspection
+    print(f"\n=== the same test AS DEPLOYED (features as of the 1st of the month; {changed*100:.1f}% of test rows "
+          f"have a visit inside their month before the inspection) ===")
+    for k, r in as_deployed.items():
+        print(f"  {k:45s} AUC {r['auc']:.3f} (inspection-date features {tab.loc[k, 'auc']:.3f})  "
+              f"top-20% {r['top20_recall']*100:4.1f}%")
+
     # ---- paired bootstrap over facilities ----
     base_names = list(BASELINES)
     best_auc = max(base_names, key=lambda k: tab.loc[k, "auc"])
@@ -577,6 +635,8 @@ def main():
         "train_n": var_rows[HEADLINE]["train_n"], "test_n": int(te.sum()), "test_major_rate": round(float(yte.mean()), 4),
         "pr_auc": round(float(average_precision_score(yte, p)), 4),
         "rankings": {k: {c: round(float(tab.loc[k, c]), 4) for c in tab.columns} for k in tab.index},
+        "as_deployed": {"rankings": as_deployed, "rows_with_a_visit_inside_the_month": round(changed, 4),
+                        "note": "features as of the 1st of each test inspection's month (month_start_rows)"},
         "best_auc_baseline": best_auc, "best_top20_baseline": best_cap, "vs": diffs,
         "variants": var_rows, "ablation": vdiffs, "age_leak": leak, "truncation": trunc,
         "test_no_12mo_score": round(miss12, 4), "survivorship": surv,

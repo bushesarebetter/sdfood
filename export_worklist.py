@@ -121,13 +121,49 @@ def rule_text(card):
             "due_estimate, then facility_id. rule_order is 1..N per district; why says which ordering placed each row.")
 
 
-def intervals(rt):
-    """Median days between consecutive routine inspections of the same facility, by type."""
+def km_median(durations, events):
+    """Kaplan-Meier median in days: the first time the survival estimate falls to 0.5 or below.
+    None when it never does (too few intervals have ended)."""
+    d = np.asarray(durations, dtype=float)
+    e = np.asarray(events, dtype=bool)
+    s = 1.0
+    for t in np.unique(d[e]):
+        s *= 1.0 - ((d == t) & e).sum() / (d >= t).sum()
+        if s <= 0.5:
+            return float(t)
+    return None
+
+
+def intervals(rt, asof=None, last_visit=None):
+    """Median days between consecutive routine inspections of the same facility, by type.
+
+    Only finished gaps are observed, and within a record that starts in 2023 the long ones are the
+    ones still open at the cutoff, so a plain median of finished gaps runs short (worse the earlier
+    the cutoff). With ``asof``, each active facility's open interval (last routine to asof) enters
+    as censored and the median is Kaplan-Meier. A facility not seen for ACTIVE_DAYS is taken to
+    have closed and adds no open interval."""
     gap = rt.groupby("business_id")["completed_date"].diff().dt.days
     g = rt.assign(gap=gap).dropna(subset=["gap"])
-    by = g.groupby("business_type")["gap"].agg(["median", "size"])
-    overall = float(g["gap"].median()) if len(g) else 365.0
-    return by.loc[by["size"] >= MIN_GAPS, "median"].to_dict(), overall
+    if asof is None:
+        by = g.groupby("business_type")["gap"].agg(["median", "size"])
+        overall = float(g["gap"].median()) if len(g) else 365.0
+        return by.loc[by["size"] >= MIN_GAPS, "median"].to_dict(), overall
+    last = rt.groupby("business_id").agg(business_type=("business_type", "last"), last=("completed_date", "max"))
+    if last_visit is not None:
+        last = last[(pd.Timestamp(asof) - last_visit.reindex(last.index)).dt.days <= ACTIVE_DAYS]
+    open_ = pd.DataFrame({"business_type": last["business_type"], "gap": (pd.Timestamp(asof) - last["last"]).dt.days,
+                          "event": False})
+    allg = pd.concat([g[["business_type", "gap"]].assign(event=True), open_], ignore_index=True)
+    overall = km_median(allg["gap"], allg["event"])
+    if overall is None:
+        overall = float(g["gap"].median()) if len(g) else 365.0
+    out = {}
+    for t, gt in allg.groupby("business_type"):
+        if gt["event"].sum() >= MIN_GAPS:
+            m = km_median(gt["gap"], gt["event"])
+            if m is not None:
+                out[t] = m
+    return out, overall
 
 
 def _why(scores, majors, n, *, closures=0, points=None, band=None, card=False):
@@ -158,7 +194,7 @@ def worklist(insp, info, month, lookup, *, card=None, use_status=True, why=True,
     rt = h[h["insp_type"].astype(str) == "Routine"].sort_values(["business_id", "completed_date"])
     if rt.empty:
         return pd.DataFrame()
-    by_type, overall = intervals(rt)
+    by_type, overall = intervals(rt, asof=start, last_visit=last_visit)
     g = rt.groupby("business_id")
     last = g.tail(1).set_index("business_id")
     f = pd.DataFrame({"business_type": last["business_type"].astype(str),
