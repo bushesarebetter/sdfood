@@ -117,10 +117,17 @@ def main():
     ratio = overdue_ratio(df, d[te], interval)
     s = d.loc[te, ["business_id", "completed_date", "major", "zip", "lat", "lng"]].copy()
     s["area"], s["district"] = areas(s)
-    ARMS = {"Model": P[H], "Model with ZIP": P[mf.WITH_ZIP], "Model, 12-month window": P[mf.WINDOW],
-            "Model as published (age leak)": P["published"], RULE: d.loc[te, mf.BASELINES[RULE]].values,
-            "Mean routine score, last 12 months": d.loc[te, "rule_mean12"].values,
-            "Persistence": d.loc[te, "persistence"].values, OVERDUE: P[H] * ratio}
+    # Reordering a month's inspections on the 1st can only use what was known on the 1st: the
+    # arms score features as of the month's first day (mf.month_start_rows), as the deployed list
+    # does. Scoring at the inspection date instead let a visit made inside the month (a complaint
+    # a week before the routine) move that routine to the 1st; that version is kept, labelled.
+    dm = mf.month_start_rows(df, d[te])
+    Pm = {v: mf.Model(v).fit(d[mf.train_mask(d, v)]).predict(dm) for v in (H, mf.WITH_ZIP, mf.WINDOW, "published")}
+    ARMS = {"Model": Pm[H], "Model with ZIP": Pm[mf.WITH_ZIP], "Model, 12-month window": Pm[mf.WINDOW],
+            "Model as published (age leak)": Pm["published"], RULE: dm[mf.BASELINES[RULE]].values,
+            "Mean routine score, last 12 months": dm["rule_mean12"].values,
+            "Persistence": dm["persistence"].values, OVERDUE: Pm[H] * ratio,
+            "Model, inspection-date features (old)": P[H]}
     print(f"\nmain out-of-fold: test n={te.sum():,}  " + "  ".join(
         f"{a} AUC {roc_auc_score(y[te], v):.3f}" for a, v in ARMS.items()))
     print(f"areas: {s.loc[s['district'].notna(), 'district'].nunique()} council districts "
