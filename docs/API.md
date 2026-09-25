@@ -122,3 +122,21 @@ Environment variables:
 4. Rebuild the image, or copy the new `data/` and call `POST /v1/admin/reload`.
 
 Tests: `python -m pytest tests/test_api.py`.
+
+## Security notes
+
+- **Keys** are compared in constant time over every configured key, as bytes. Each request logs
+  an 8-character hash of the key that made it, so access can be traced to an office without the
+  key itself appearing in the log.
+- **No rate limit** is built in. Put one in front of the service (the host's or a proxy's), at
+  least for failed authentications.
+- **Client addresses in the log** come from `X-Forwarded-For` (`--forwarded-allow-ips='*'` in the
+  Dockerfile), which a caller can set. Treat them as a hint unless the host's proxy strips the
+  header.
+- **Docs:** `/docs`, `/redoc` and `/openapi.json` are open by default. They list the endpoints but no
+  data, and Swagger UI loads from a CDN. Set `SDFOOD_API_DOCS=0` in production to turn them off.
+- **Expiry:** after `meta.expires` the data is still served, marked `X-Data-Stale: true`.
+  `deploy_api.py` refuses to ship an expired export; refresh before that.
+- **Worklists** are addressed only as `yyyy-mm` and districts 1 to 9, and the resolved file must
+  lie inside the worklists folder.
+- **CSV downloads** prefix text that a spreadsheet would run as a formula with `'`.

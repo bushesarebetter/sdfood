@@ -110,3 +110,8 @@ python food-dashboard/scripts/make_sample_export.py
 
 Then redeploy. The site's build refuses a real export once its `expires` date has passed, and the
 site shows search only after it.
+
+Expiry is enforced by the site's code in the browser and by the build. **The host keeps serving
+`/data/` to anyone who asks until the sample is redeployed**, and the site's offline cache keeps a
+copy for up to 7 days. So schedule the redeploy of the sample for the expiry date itself: a
+calendar reminder, or a scheduled job that runs the command above and deploys.
