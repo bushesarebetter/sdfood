@@ -1,0 +1,177 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: light;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    background: theme("colors.paper.DEFAULT");
+    color: theme("colors.ink.DEFAULT");
+    /* The system's own fonts: the site requests no font from anywhere. */
+    font-family: theme("fontFamily.sans");
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Tabular numerals everywhere numbers are compared down a column: points,
+     counts, districts. Proportional figures make a column wobble. */
+  .tnum {
+    font-variant-numeric: tabular-nums;
+  }
+
+  ::selection {
+    background: theme("colors.band.3");
+    color: theme("colors.paper.DEFAULT");
+  }
+
+  :focus-visible {
+    outline: 2px solid theme("colors.ink.DEFAULT");
+    outline-offset: 2px;
+  }
+
+  /* Removes the legacy 300 ms tap delay on touch devices without disabling
+     pinch-zoom on the page as a whole. */
+  button,
+  a,
+  input,
+  [role="button"] {
+    touch-action: manipulation;
+  }
+
+  /* Motion is a courtesy, not information: nothing in this interface is
+     conveyed only by an animation, so it can all be switched off. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      transition-duration: 0.01ms !important;
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+    }
+  }
+}
+
+@layer components {
+  /* These are written as plain declarations rather than with @apply.
+     `tracking-label` and `border-rule` are custom theme extensions, and Tailwind
+     cannot resolve custom utilities inside @apply reliably across its build
+     passes -- `.rule` as a class name alongside `rule` as a colour makes it
+     worse. Plain CSS sidesteps the whole problem and these rules are small. */
+
+  /* Small-caps interface label: the one repeated typographic device in the
+     design. It marks every section without needing a box around it. */
+  .label {
+    font-family: theme("fontFamily.sans");
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    color: theme("colors.ink.3");
+  }
+
+  /* Hairline rules, the primary separator in place of borders and cards. */
+  .rule {
+    border: 0;
+    border-top: 1px solid theme("colors.rule.DEFAULT");
+  }
+
+  .rule-strong {
+    border: 0;
+    border-top: 1px solid theme("colors.rule.strong");
+  }
+}
+
+/* ── Print ──────────────────────────────────────────────────────────────────
+   A corner's detail panel prints as a one-page sheet: everything else on the
+   map view is hidden and the panel becomes ordinary flowing text. Pages that
+   are already documents (district report, privacy) print as they are, minus
+   their navigation. */
+@media print {
+  .print-hide {
+    display: none !important;
+  }
+  .print-sheet {
+    position: static !important;
+    width: 100% !important;
+    max-width: none !important;
+    height: auto !important;
+    transform: none !important;
+    box-shadow: none !important;
+    border: 0 !important;
+    overflow: visible !important;
+  }
+  .print-sheet .print-scroll {
+    overflow: visible !important;
+  }
+  a[href]::after {
+    content: "";
+  }
+}
+
+/* ── Scrollbars ─────────────────────────────────────────────────────────────
+   Thin and paper-toned, so a scrolling column does not sprout a grey bar that
+   breaks the printed-page illusion. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: theme("colors.rule.strong") transparent;
+}
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: theme("colors.rule.strong");
+  border-radius: 0;
+}
+
+/* ── Google Maps chrome ─────────────────────────────────────────────────────
+   Google renders its InfoWindow and controls into generated class names that
+   change between API releases, so these target the stable structural
+   containers. The basemap is light by default, which this design now works with
+   rather than against, so no Cloud-console dark style is required. */
+.gm-style .gm-style-iw-c {
+  padding: 0 !important;
+  border-radius: 2px !important;
+  box-shadow: 0 2px 3px rgba(23, 21, 15, 0.1), 0 10px 30px -14px rgba(23, 21, 15, 0.3) !important;
+  border: 1px solid #dcd5c7;
+}
+.gm-style .gm-style-iw-d {
+  overflow: hidden !important;
+  padding: 0 !important;
+}
+/* Hover-driven tooltip; the close button is noise. */
+.gm-style .gm-style-iw-chr {
+  display: none !important;
+}
+.gm-style .gm-style-iw-tc::after {
+  background: #fbf9f5 !important;
+}
+
+/* Square off Google's default control chrome to match the interface. */
+.gm-style .gm-control-active,
+.gm-style button.gm-control-active {
+  border-radius: 2px !important;
+}
+
+/* Attribution must remain visible per Google's terms; this only tones it down. */
+.gm-style-cc {
+  opacity: 0.75;
+}
+
+/* deck.gl mounts its canvas as an overlay; it must never intercept pointer
+   events meant for the basemap (deck does its own picking via overlay hooks). */
+.gm-style canvas.deck-canvas {
+  pointer-events: none;
+}

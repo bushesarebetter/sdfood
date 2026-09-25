@@ -1,0 +1,31 @@
+{
+  "mode": "record",
+  "sample": true,
+  "run": "sample",
+  "generated": "2026-09-01",
+  "places": 4,
+  "inspections_through": "2026-08-31",
+  "expires": null,
+  "source": {
+    "name": "invented sample; no real facility or inspection",
+    "url": null
+  },
+  "grade_context": {
+    "majors_graded_A_share": 1.0,
+    "graded_A_share": 1.0
+  },
+  "data_rules": {
+    "note": "sample: invented records, one entry per County record, statuses as the County writes them"
+  },
+  "survivorship": "In this sample every place is invented, so none is missing. A real export's backtest holds only places that still exist when the County's results are collected.",
+  "provenance": {
+    "code_sha": "sample",
+    "pull_sha256": null,
+    "python": null,
+    "packages": {}
+  },
+  "contact": null,
+  "operator": null,
+  "corrections": [],
+  "publication": null
+}

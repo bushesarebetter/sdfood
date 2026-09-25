@@ -1,124 +1,119 @@
-"""Export dashboard data. Two distinct things, kept honest:
-  (1) STATS/EVIDENCE come from the proper hold-out validation (train<=2024, test 2025+).
-  (2) The WORKLIST is FORWARD-LOOKING: a model trained on ALL data scores each currently
-      active facility for its NEXT (not-yet-done) inspection, using its full history to date,
-      ranked by risk weighted by how overdue it is vs its type's normal cadence.
-Rows are DE-IDENTIFIED (type + banded history only; no city, no exact score) so the public
-page can't be used to point at a specific named business. The named list runs internally."""
-import pandas as pd, numpy as np, json, base64
-from sklearn.preprocessing import OrdinalEncoder
-from sklearn.ensemble import HistGradientBoostingClassifier
+"""Export the de-identified dashboard (dashboard.html). Two things, kept apart:
+  (1) STATS/EVIDENCE come from the forward test (train <= 2024, test 2025+), read from
+      data/research_results.json, which model_food.py, sim_schedule.py and fairness_check.py write.
+      Nothing on the page is typed in by hand.
+  (2) The WORKLIST is forward-looking, for the month after the data ends: every active facility in
+      the County, in the one-line rule's order (lowest mean routine score on record first; ties to
+      the earlier due date), with the same due-this-month estimate as export_worklist.py and the
+      research model's risk (fitted on every routine inspection) beside it. The page used to rank
+      by risk times an "overdue" ratio; sim_schedule.py backtested that weighting and it found
+      majors later than either the plain model or the rule, so it is gone.
+Rows are DE-IDENTIFIED (type and banded history only; no name, address, city or exact score) so the
+public page can't be used to point at a specific business. Named lists are export_worklist.py's,
+for internal use."""
+import pandas as pd, numpy as np, json, base64, os, sys
+from datetime import date
+import model_food as mf
+import export_worklist as ew
 
-TODAY=pd.Timestamp("2026-09-18")
-df=pd.read_csv("data/sd_inspections.csv",low_memory=False)
-df["completed_date"]=pd.to_datetime(df["completed_date"],errors="coerce")
-df["opened_date"]=pd.to_datetime(df["opened_date"],errors="coerce")
-df["score"]=pd.to_numeric(df["score"],errors="coerce")
-df=df.dropna(subset=["completed_date"]).sort_values(["business_id","completed_date"])
-df["major"]=(df["n_major"]>0).astype(int)
-df.loc[df["insp_type"].astype(str)!="Routine","score"]=np.nan  # 0 is a not-scored sentinel off-routine
+R = json.load(open(mf.RESULTS)) if os.path.exists(mf.RESULTS) else {}
+missing = [k for k in ("model", "sim", "fairness") if k not in R]
+if missing:
+    sys.exit(f"{mf.RESULTS} lacks {missing}: run model_food.py, sim_schedule.py and fairness_check.py first")
 
-# ---- per-inspection features (training format) ----
-g=df.groupby("business_id",sort=False)
-df["prior_n"]=g.cumcount()
-df["days_since_last"]=(df["completed_date"]-g["completed_date"].shift(1)).dt.days
-df["last_score"]=g["score"].transform(lambda s:s.shift().ffill())  # last real routine score
-df["last_major"]=(g["n_major"].shift(1)>0).astype("float")
-df["prior_major_rate"]=g["major"].transform(lambda s:s.shift().expanding().mean())
-df["prior_mean_score"]=g["score"].transform(lambda s:s.shift().expanding().mean())
-df["prior_mean_viol"]=g["n_violations"].transform(lambda s:s.shift().expanding().mean())
-df["facility_age_yrs"]=(df["completed_date"]-df["opened_date"]).dt.days/365.25
-df["month"]=df["completed_date"].dt.month
-d=df[df["insp_type"].astype(str).str.contains("Routine",case=False,na=False)].copy()
 
-cat=["business_type","zip"]
-num=["prior_n","days_since_last","last_score","last_major","prior_major_rate",
-     "prior_mean_score","prior_mean_viol","facility_age_yrs","month"]
-for c in cat:
-    d[c]=d[c].astype("string").fillna("NA")
-    if d[c].nunique()>250:
-        keep=d[c].value_counts().head(240).index; d[c]=d[c].where(d[c].isin(keep),"OTHER")
-
-# ---- DEPLOY model: train on ALL routine inspections ----
-enc=OrdinalEncoder(handle_unknown="use_encoded_value",unknown_value=-1,encoded_missing_value=-1)
-X=d[cat+num].copy(); enc.fit(X[cat]); X[cat]=enc.transform(X[cat])
-ci=[X.columns.get_loc(c) for c in cat]
-clf=HistGradientBoostingClassifier(max_iter=300,learning_rate=0.08,max_leaf_nodes=48,
-    categorical_features=ci,l2_regularization=1.0,early_stopping=True,n_iter_no_change=20,random_state=0)
-clf.fit(X,d["major"].values)
-
-# ---- FORWARD features: one row per facility, as of TODAY, for its NEXT inspection ----
-allowed=set(d["business_type"].unique()); allowed_zip=set(d["zip"].unique())
-gg=df.groupby("business_id")
-last=gg.tail(1).set_index("business_id")
-fwd=pd.DataFrame(index=last.index)
-fwd["business_type"]=last["business_type"].astype("string")
-fwd["business_type"]=fwd["business_type"].where(fwd["business_type"].isin(allowed),"OTHER")
-fwd["zip"]=last["zip"].astype("string")
-fwd["zip"]=fwd["zip"].where(fwd["zip"].isin(allowed_zip),"OTHER")
-fwd["prior_n"]=gg.size()
-fwd["last_completed"]=gg["completed_date"].max()
-fwd["days_since_last"]=(TODAY-fwd["last_completed"]).dt.days
-fwd["last_score"]=gg["score"].last()       # last real routine score (skips sentinel NaN)
-fwd["last_major"]=(last["n_major"]>0).astype(float)
-fwd["prior_major_rate"]=gg["major"].mean()
-fwd["prior_mean_score"]=gg["score"].mean()
-fwd["prior_mean_viol"]=gg["n_violations"].mean()
-fwd["facility_age_yrs"]=(TODAY-gg["opened_date"].min()).dt.days/365.25
-fwd["month"]=TODAY.month
-
-# active = inspected within last ~18 months (still operating)
-fwd=fwd[fwd["days_since_last"]<=550].copy()
-Xf=fwd[cat+num].copy(); Xf[cat]=enc.transform(Xf[cat])
-fwd["risk"]=(clf.predict_proba(Xf)[:,1]*100).round(1)
-
-# ---- DUE-DATE-AWARE priority: risk alone would rank a place done last month over one
-# 11 months overdue. Weight risk by how far past its type's normal cadence it is. ----
-rt=df[df["insp_type"].astype(str)=="Routine"].sort_values(["business_id","completed_date"])
-rt_gap=rt.groupby("business_id")["completed_date"].diff().dt.days
-type_interval=rt.assign(gap=rt_gap).groupby("business_type")["gap"].median()
-med_interval=float(rt_gap.median())                       # overall fallback (~days between routines)
-fwd["exp_interval"]=fwd["business_type"].map(type_interval).fillna(med_interval).clip(lower=120)
-fwd["overdue_ratio"]=(fwd["days_since_last"]/fwd["exp_interval"]).round(2)
-fwd["priority"]=fwd["risk"]*fwd["overdue_ratio"].clip(0.2,2.0)   # not-yet-due downweighted, overdue boosted
-
-fwd=fwd.sort_values("priority",ascending=False)
-work=fwd                                   # embed ALL active facilities, not just top 2500
 def band_prior(n):                         # de-identify: bands, not exact counts
-    return "1" if n<=1 else "2–4" if n<=4 else "5–9" if n<=9 else "10+"
+    return "1" if n <= 1 else "2–4" if n <= 4 else "5–9" if n <= 9 else "10+"
+
+
 def band_major(pct):
-    return None if pct is None else "none" if pct==0 else "low" if pct<15 else "elevated" if pct<35 else "high"
-rows=[]
-for i,(_,r) in enumerate(work.iterrows(),1):
-    pm=None if pd.isna(r["prior_major_rate"]) else round(r["prior_major_rate"]*100)
-    rows.append({"id":f"F-{i:05d}","risk":r["risk"],"type":str(r["business_type"]),
-        "prior_band":band_prior(int(r["prior_n"])),
-        "major_band":band_major(pm),
-        "overdue":bool(r["overdue_ratio"]>=1.0),
-        "months_since":round(r["days_since_last"]/30.4,1)})
+    return None if pct is None else "none" if pct == 0 else "low" if pct < 15 else "elevated" if pct < 35 else "high"
 
-routine_2025=int(d[d["completed_date"].dt.year==2025].shape[0])
-crit_2025=int(d[(d["completed_date"].dt.year==2025)&(d["major"]==1)].shape[0])
-stats={"n_inspections":int(len(df)),"n_facilities":int(df["business_id"].nunique()),
-    "routine_per_yr":routine_2025,"critical_per_yr":crit_2025,"active_facilities":int(len(fwd)),
-    "n_overdue":int(sum(1 for r in rows if r["overdue"])),
-    "auc":0.745,"auc_rolling":"0.73–0.76","days_earlier":6.3,"days_earlier_ci":[5.9,6.6],
-    "days_earlier_q":18.9,"top20_recall":47}
-types=sorted(fwd["business_type"].astype(str).unique().tolist())
-payload={"generated":"2026-09-21","stats":stats,"worklist":rows,"types":types}
-json.dump(payload, open("dashboard_data.json","w"))
 
-# ---- build self-contained dashboard.html: inject data at /*__DATA__*/ and embed the PNGs ----
-tpl=open("dashboard.template.html",encoding="utf-8").read()
-pre,mark,post=tpl.partition("/*__DATA__*/")     # default literal runs from here to the first ';'
-_,_,rest=post.partition(";")
-data_js=json.dumps(payload)                     # ascii-safe; no ';' in any value
-html=pre+mark+" "+data_js+";"+rest
-def datauri(fn): return "data:image/png;base64,"+base64.b64encode(open(fn,"rb").read()).decode()
-for ph,fn in [("IMG_GAINS","food_gains.png"),("IMG_DAYS","food_days_earlier.png"),("IMG_FAIRNESS","food_fairness.png")]:
-    html=html.replace(ph,datauri(fn))
-open("dashboard.html","w",encoding="utf-8").write(html)
+def main():
+    import export_site as es
+    insp = mf.load()
+    info = ew.facility_info(json.load(open(mf.RAW)))
+    data_to = insp["completed_date"].max()
+    month = (data_to + pd.offsets.MonthBegin(1)).strftime("%Y-%m")
+    start, _ = ew.month_bounds(month)
+    f = ew.worklist(insp, info, month, es.district_lookup(es.load_districts()), why=False, city_only=False)
+    f = ew.model_orders(insp, month, f)
+    h = insp[insp["completed_date"] < start].groupby("business_id")
+    f["prior_n"] = h.size().reindex(f.index)
+    f["prior_major_rate"] = h["major"].mean().reindex(f.index)
+    f["days_since"] = (start - f["last_visit"]).dt.days
+    f = f.sort_values(["rule_points", "due_estimate", "facility_id"], ascending=[False, True, True])
 
-print("stats:",stats); print("forward worklist rows:",len(rows),"types:",len(types))
-print("overdue (past type cadence) in worklist:", stats["n_overdue"])
-print("wrote dashboard.html")
+    rows = []
+    for i, (_, r) in enumerate(f.iterrows(), 1):
+        pm = None if pd.isna(r["prior_major_rate"]) else round(r["prior_major_rate"]*100)
+        rows.append({"id": f"F-{i:05d}", "risk": round(float(r["model_risk"])*100, 1), "type": str(r["business_type"]),
+                     "prior_band": band_prior(int(r["prior_n"])), "major_band": band_major(pm),
+                     "due": bool(r["due_this_month"]), "months_since": round(r["days_since"]/30.4, 1)})
+
+    # ---- evidence numbers, all from the research runs ----
+    M, S, F = R["model"], R["sim"], R["fairness"]
+    rk = M["rankings"]; P = mf.PERSIST; RL = mf.RULE
+    area = S["windows"]["month_area"]; A = area["arms"]; MM = area["model_minus"]
+    roll = [r["auc"] for r in S["rolling"]]; roll_r = [r["auc_rule"] for r in S["rolling"]]
+    pct = lambda v: f"{v*100:.0f}%"
+    rng2 = lambda v: f"{min(v):.2f}–{max(v):.2f}"
+    ci2 = lambda c: f"{c[0]:.1f}–{c[1]:.1f}"
+    d = insp[insp["insp_type"].astype(str) == "Routine"]
+    routine_2025 = int((d["completed_date"].dt.year == 2025).sum())
+    major_2025 = int(((d["completed_date"].dt.year == 2025) & (d["major"] == 1)).sum())
+    cal = [r["mean_risk_%"] - r["actual_major_%"] for r in F["income"]]
+    rec = lambda key: " / ".join(f"{r[key]:.0f}%" for r in F["income"])
+    stats = {"n_inspections": int(len(insp)), "n_facilities": int(insp["business_id"].nunique()),
+             "routine_per_yr": routine_2025, "major_per_yr": major_2025, "active_facilities": int(len(f)),
+             "n_due": int(f["due_this_month"].sum()), "month": month,
+             "top20_rule": round(rk[RL]["top20_recall"]*100), "days_rule": round(A[RL]["days_earlier"], 1)}
+    stats["t"] = {   # preformatted phrases the template drops into its text (data-s="key")
+        "test_n": f"{M['test_n']:,}", "train_span": "Jan 2023 – Dec 2024",
+        "test_span": f"Jan 2025 – {pd.Timestamp(M['data_to']):%b %Y}",
+        "top20": pct(rk["Model"]["top20_recall"]), "top20_rule": pct(rk[RL]["top20_recall"]),
+        "top20_persistence": pct(rk[P]["top20_recall"]),
+        "lift": f"{rk['Model']['lift']:.1f}×", "lift_rule": f"{rk[RL]['lift']:.1f}×",
+        "prec_rule": pct(rk[RL]["top20_precision"]), "base_rate": pct(M["test_major_rate"]),
+        "auc": f"{rk['Model']['auc']:.2f}", "auc_rule": f"{rk[RL]['auc']:.2f}", "auc_persistence": f"{rk[P]['auc']:.2f}",
+        "auc_rolling": rng2(roll), "auc_rolling_rule": rng2(roll_r),
+        "days": f"{A['Model']['days_earlier']:.1f}", "days_ci": ci2(A["Model"]["ci"]),
+        "days_rule": f"{A[RL]['days_earlier']:.1f}", "days_rule_ci": ci2(A[RL]["ci"]),
+        "days_persistence": f"{A['Persistence']['days_earlier']:.1f}",
+        "days_over_rule": f"{MM[RL]['days']:.1f}", "days_over_rule_ci": ci2(MM[RL]["ci"]),
+        "days_overdue": f"{A['Model x overdue (old dashboard)']['days_earlier']:.1f}",
+        "clean_wait": f"{abs(A[RL]['clean_days']):.1f}",
+        "flag_ratio": f"{F['flag_ratio']:.2f}×", "rule_flag_ratio": f"{F['rule_flag_ratio']:.2f}×",
+        "actual_ratio": f"{F['actual_ratio']:.2f}×",
+        "recall_model": rec("recall_of_crit_%"), "recall_rule": rec("rule_recall_%"), "recall_zip": rec("zip_recall_%"),
+        "cal_max": f"{max(cal):+.1f}", "cal_min": f"{min(cal):+.1f}",
+        "n_due": f"{int(f['due_this_month'].sum()):,}", "month": pd.Timestamp(start).strftime("%B %Y"),
+    }
+    types = sorted(f["business_type"].astype(str).unique().tolist())
+    payload = {"generated": date.today().isoformat(), "as_of": str(data_to.date()), "stats": stats,
+               "worklist": rows, "types": types}
+    json.dump(payload, open("dashboard_data.json", "w"))
+
+    # ---- build self-contained dashboard.html: inject data at /*__DATA__*/ and embed the PNGs ----
+    tpl = open("dashboard.template.html", encoding="utf-8").read()
+    pre, mark, post = tpl.partition("/*__DATA__*/")     # default literal runs from here to the first ';'
+    _, _, rest = post.partition(";")
+    data_js = json.dumps(payload)                       # ascii-safe; no ';' in any value
+    assert ";" not in data_js, "a ';' in the data would end the injected literal early"
+    html = pre + mark + " " + data_js + ";" + rest
+
+    def datauri(fn):
+        return "data:image/png;base64," + base64.b64encode(open(fn, "rb").read()).decode()
+    for ph, fn in [("IMG_GAINS", "food_gains.png"), ("IMG_DAYS", "food_days_earlier.png"), ("IMG_FAIRNESS", "food_fairness.png")]:
+        html = html.replace(ph, datauri(fn))
+    open("dashboard.html", "w", encoding="utf-8", newline="\n").write(html)   # LF, as committed
+
+    print("stats:", {k: v for k, v in stats.items() if k != "t"}); print("text:", stats["t"])
+    print(f"worklist rows: {len(rows):,} active facilities, {stats['n_due']:,} estimated due in {month}; "
+          f"{len(types)} types; data through {data_to.date()}")
+    print("wrote dashboard.html")
+
+
+if __name__ == "__main__":
+    main()
