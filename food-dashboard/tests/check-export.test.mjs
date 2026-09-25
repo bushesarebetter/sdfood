@@ -34,7 +34,7 @@ const card = {
 };
 
 const reviewMeta = (places) => ({
-  mode: "bands", sample: false, run: "forward_test", generated: "2026-09-20", places, expires: "2026-11-03", inspections_through: "2026-09-19",
+  mode: "bands", sample: false, run: "forward_test", generated: "2026-09-20", places, expires: "2026-10-03", inspections_through: "2026-09-19",
   provenance: { code_sha: "abc", pull_sha256: "def", python: "3.14", packages: {} }, contact: null, operator: null, corrections: [], publication: null,
   named_bands: [], card, catch_run: {},
 });
@@ -162,4 +162,24 @@ test("record mode carries no bands field; the sample fixture and a published rec
   assert.match(check([place(1)], { ...recMeta, mode: "ranked" }, { args: ["--review"] }).err, /meta\.mode is "ranked"/);
   const fixture = spawnSync(process.execPath, [script, join(dirname(fileURLToPath(import.meta.url)), "fixtures", "record")], { encoding: "utf8" });
   assert.equal(fixture.status, 0, fixture.stderr);
+});
+
+test("a real export cannot pass as the sample by setting meta.sample", () => {
+  const real = [place(1, { band: "1", points: 21 }), place(2, { band: "2", points: 12 })];
+  const r = check(real, { ...reviewMeta(2), sample: true, run: "sample", provenance: { code_sha: "sample" }, source: { url: null } });
+  assert.ok(!r.ok);
+  assert.match(r.err, /meta\.sample is true, but this is not the invented sample: place "DEH2020-FFPP-000001" does not have a sample id/);
+  assert.match(r.err, /not approved for publication/, "and it is then held to the real gates");
+});
+
+test("a hand-written publication stamp must be well formed and inside the export's window", () => {
+  const places = [place(1, { band: "1", points: 21 })];
+  const forged = check(places, { ...reviewMeta(1), expires: "2099-01-01" }, { publish: { approval_sha256: "x", gates_passed_at: "x" } });
+  assert.ok(!forged.ok);
+  assert.match(forged.err, /more than 14 days after inspections_through/);
+  assert.match(forged.err, /approval_sha256 is not a sha256/);
+  assert.match(forged.err, /gates_passed_at is not a date/);
+  const late = check(places, reviewMeta(1), { publish: { gates_passed_at: "2027-01-01" } });
+  assert.match(late.err, /outside this export's window/);
+  assert.ok(check(places, reviewMeta(1), { publish: true }).ok, "a well-formed stamp inside the window passes");
 });

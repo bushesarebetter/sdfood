@@ -22,6 +22,7 @@ const today = at >= 0 ? args[at + 1] : new Date();
 const dirArg = args.find((a, i) => !a.startsWith("--") && args[i - 1] !== "--today");
 const data = dirArg ? resolve(dirArg) : join(root, "public", "data");
 const { isExpired } = await import(pathToFileURL(join(root, "src", "lib", "expiry.js")).href);
+const { sampleProblems } = await import(pathToFileURL(join(root, "src", "lib", "sampleProof.js")).href);
 
 const path = join(data, "meta.json");
 if (!existsSync(path)) {
@@ -29,6 +30,13 @@ if (!existsSync(path)) {
   process.exit(1);
 }
 const meta = JSON.parse(readFileSync(path, "utf8"));
+const indexPath = join(data, "facilities.geojson");
+const features = existsSync(indexPath) ? JSON.parse(readFileSync(indexPath, "utf8"))?.features ?? [] : [];
+const pretend = sampleProblems(meta, features);
+if (pretend.length) {
+  console.error(`FAIL: meta.sample is true, but this is not the invented sample: ${pretend.join("; ")}`);
+  process.exit(1);
+}
 if (meta.sample === true) {
   console.log("expiry check passed (sample data never expires)");
   process.exit(0);

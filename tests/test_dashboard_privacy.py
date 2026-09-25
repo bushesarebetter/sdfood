@@ -69,3 +69,14 @@ def test_render_round_trips_a_clean_payload(tmp_path, monkeypatch):
     html = Path(out).read_text(encoding="utf-8")
     assert pg.dashboard_payload(html) == json.loads(json.dumps(payload))
     assert "IMG_GAINS" not in html and "data:image/png;base64," in html
+
+
+def test_a_type_name_cannot_close_the_script_block(tmp_path, monkeypatch):
+    monkeypatch.chdir(ROOT)
+    f = _frame((20,))
+    f["business_type"] = "</script><script>alert(1)</script>"
+    out = ed.render({"stats": {"t": {}}, "summary": ed.aggregate(f)}, out=str(tmp_path / "d.html"))
+    html = Path(out).read_text(encoding="utf-8")
+    script = html[html.index("/*__DATA__*/"):]
+    assert "</script><script>alert(1)" not in script
+    assert pg.dashboard_payload(html)["summary"]["by_type"][0]["type"] == "</script><script>alert(1)</script>"

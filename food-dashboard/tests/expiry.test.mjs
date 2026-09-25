@@ -52,5 +52,9 @@ test("the prebuild check stops a build of a real export once it has expired", ()
   assert.equal(late.ok, false);
   assert.match(late.err, /expired on 2026-10-03/);
   assert.match(runCheck({ sample: false }, "2026-10-04").err, /without meta\.expires/);
-  assert.ok(runCheck({ sample: true, expires: null }, "2099-01-01").ok, "the sample never expires");
+  const sampleMeta = { sample: true, run: "sample", expires: null, source: { url: null }, provenance: { code_sha: "sample" } };
+  assert.ok(runCheck(sampleMeta, "2099-01-01").ok, "the sample never expires");
+  const flipped = runCheck({ sample: true, run: "forward_2026-09-20", expires: "2026-10-03", provenance: { code_sha: "abc" } }, "2099-01-01");
+  assert.equal(flipped.ok, false, "a real export does not escape expiry by setting meta.sample");
+  assert.match(flipped.err, /not the invented sample/);
 });

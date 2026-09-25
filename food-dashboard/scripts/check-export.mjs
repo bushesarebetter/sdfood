@@ -48,6 +48,8 @@ const dirArg = args.find((a) => !a.startsWith("--"));
 const data = dirArg ? resolve(dirArg) : join(root, "public", "data");
 const lib = (name) => import(pathToFileURL(join(root, "src", "lib", name)).href);
 const { THEMES, TYPE_LABELS, MODES, PUBLIC_TYPES, VISIT_TYPES, SEVERITIES, CLOSURES, GRADES, FLAG_KEYS } = await lib("inspections.js");
+const { sampleProblems } = await lib("sampleProof.js");
+const FRESH_DAYS = 14;   // export_site.FRESH_DAYS: expires = inspections_through + 14 days
 
 // An index this size is about 300 KB gzipped; the host must serve .geojson compressed.
 const MAX_INDEX_BYTES = 3 * 1024 * 1024;
@@ -87,7 +89,10 @@ try {
   process.exit(1);
 }
 const features = Array.isArray(fc?.features) ? fc.features : [];
-const sample = meta?.sample === true;
+// The sample skips the publication gates below, so the claim has to be proven, not just stated.
+const pretend = sampleProblems(meta, features);
+for (const p of pretend) fail(`meta.sample is true, but this is not the invented sample: ${p}`);
+const sample = meta?.sample === true && !pretend.length;
 const mode = meta?.mode;
 const bands = mode === "bands";
 
@@ -248,8 +253,17 @@ if (bands) {
   }
 }
 
+const addDays = (iso, n) => {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+};
+
 if (!sample) {
   if (!ISO.test(meta?.expires ?? "")) fail("a real export without meta.expires (YYYY-MM-DD)");
+  else if (ISO.test(meta?.inspections_through ?? "") && meta.expires > addDays(meta.inspections_through, FRESH_DAYS)) {
+    fail(`meta.expires ${meta.expires} is more than ${FRESH_DAYS} days after inspections_through ${meta.inspections_through}`);
+  }
   const prov = meta?.provenance;
   if (!prov || typeof prov !== "object" || !prov.code_sha || !prov.pull_sha256) fail("a real export without meta.provenance { code_sha, pull_sha256, python, packages }");
   const gates = [];
@@ -258,6 +272,13 @@ if (!sample) {
   else {
     for (const k of ["run", "approval_sha256", "facilities_sha256", "gates_passed_at"]) if (!pub[k]) gates.push(`meta.publication without ${k}`);
     if (pub.run && pub.run !== meta.run) gates.push(`meta.publication is for run ${pub.run}, not ${meta.run}`);
+    if (pub.approval_sha256 && !/^[0-9a-f]{64}$/.test(pub.approval_sha256)) gates.push("meta.publication.approval_sha256 is not a sha256");
+    const passed = String(pub.gates_passed_at ?? "").slice(0, 10);
+    if (pub.gates_passed_at && (!ISO.test(passed) || Number.isNaN(Date.parse(passed)))) gates.push("meta.publication.gates_passed_at is not a date");
+    else if (pub.gates_passed_at && ISO.test(meta?.inspections_through ?? "") && ISO.test(meta?.expires ?? "")
+             && (passed < meta.inspections_through || passed > meta.expires)) {
+      gates.push(`meta.publication.gates_passed_at ${passed} is outside this export's window (${meta.inspections_through} to ${meta.expires})`);
+    }
     const sha = createHash("sha256").update(indexBytes).digest("hex");
     if (pub.facilities_sha256 && pub.facilities_sha256 !== sha) gates.push("meta.publication.facilities_sha256 is not the sha256 of the shipped facilities.geojson");
   }
