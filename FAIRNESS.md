@@ -9,8 +9,10 @@ Numbers are from the September 2026 rerun: history since 2023-01, no ZIP code, n
 ## Method
 
 - Out-of-fold predictions (train ≤ 2024, test 2025+, 32,552 routine inspections the model never saw).
-- Each facility joined to its ZIP's **median household income** and **% Hispanic** (ACS 5-yr via
-  Census Reporter; 99.8% of test inspections covered, 97/109 ZIPs matched).
+- Each facility joined to its ZIP's **median household income** and **% Hispanic** ([ACS](https://www.census.gov/programs-surveys/acs)
+  5-yr via [Census Reporter](https://censusreporter.org): tables [B19013](https://censusreporter.org/tables/B19013/)
+  income, [B03002](https://censusreporter.org/tables/B03002/) ethnicity; 99.8% of test inspections
+  covered, 97/109 ZIPs matched).
 - Grouped by income quartile and %-Hispanic tercile, four orderings of the same inspections,
   each flagging its top 20% (ties split pro rata):
   - the **research model** (no ZIP);
@@ -62,8 +64,10 @@ and 40.7%, 42.5%, 41.4% for persistence. The model with ZIP: 56.3%, 45.7%, 41.8%
 
 ## Equalizing coverage exactly (`threshold_tradeoff.py`)
 
-A single global cut gives slightly different recall per group; only per-group thresholds make it
-identical. Targeting the best group's recall (50%) everywhere:
+The recall gap above is at a *single global* top-20% cut. A global threshold can't equalize recall
+across groups with different score distributions — only per-group thresholds
+([equal-opportunity](https://arxiv.org/abs/1610.02413), Hardt et al. 2016) can. `threshold_tradeoff.py`
+quantifies both. Targeting the best group's recall (50%) everywhere:
 
 | income group | global (top-20%) recall | equal-opportunity recall (per-group cut) | flag rate, global → per-group |
 |---|---|---|---|
@@ -82,7 +86,8 @@ the base rate; flagging 50% reaches 82% of major violations for the model, 78% f
 
 ## Feedback loop
 
-Because inspections generate the labels the model trains on, targeting could compound over time.
+Because inspections generate the labels the model trains on, targeting could compound over time
+([runaway feedback loops](https://arxiv.org/abs/1706.09847), Ensign et al. 2018).
 `feedback_check.py` tests one round of "only label what we flagged": trained on all 2023-24
 labels, the model covers 50% / 49% / 45% / 47% of each income quartile's majors; trained only on
 what a 2023 model flagged in 2024, 49% / 50% / 46% / 48%; with a 15% random baseline added, 49% /
@@ -98,3 +103,5 @@ so coverage by group is monitored in use.
   with neighborhood; that is why this audit reports outcomes by group rather than inputs.
 - The data hold only surviving facilities, about 3.7 years of them.
 - Any deployment should re-run this audit on the County's internal records, on a schedule.
+
+Full source list (data, methods, fairness papers): [REFERENCES.md](REFERENCES.md).
