@@ -2,36 +2,77 @@
   (1) STATS/EVIDENCE come from the forward test (train <= 2024, test 2025+), read from
       data/research_results.json, which model_food.py, sim_schedule.py and fairness_check.py write.
       Nothing on the page is typed in by hand.
-  (2) The WORKLIST is forward-looking, for the month after the data ends: every active facility in
-      the County, in the one-line rule's order (lowest mean routine score on record first; ties to
-      the earlier due date), with the same due-this-month estimate as export_worklist.py and the
-      research model's risk (fitted on every routine inspection) beside it. The page used to rank
-      by risk times an "overdue" ratio; sim_schedule.py backtested that weighting and it found
-      majors later than either the plain model or the rule, so it is gone.
-Rows are DE-IDENTIFIED (type and banded history only; no name, address, city or exact score) so the
-public page can't be used to point at a specific business. Named lists are export_worklist.py's,
-for internal use."""
+  (2) THIS MONTH'S LIST IN AGGREGATE: for the month after the data ends, how many active
+      facilities of each type are estimated due, how many have a major on record, and how the
+      research model's risk is distributed. The list itself, facility by facility in the one-line
+      rule's order, is export_worklist.py's and reaches City staff only through the key-protected
+      staff API (docs/API.md).
+The page used to embed one row per active facility (type, risk to 0.1, banded history, months
+since the last visit). Those rows were not de-identified: 80% were unique on the fields shown, and
+SD Food Info publishes every facility's name and inspection dates, so a row links to a named
+business. Everything published now passes privacy_gate.check (aggregates only, counts under 11
+suppressed), and tests/test_dashboard_privacy.py runs the gate on the committed dashboard.html."""
 import pandas as pd, numpy as np, json, base64, os, sys
 from datetime import date
-import model_food as mf
-import export_worklist as ew
+import privacy_gate as pg
 
-R = json.load(open(mf.RESULTS)) if os.path.exists(mf.RESULTS) else {}
-missing = [k for k in ("model", "sim", "fairness") if k not in R]
-if missing:
-    sys.exit(f"{mf.RESULTS} lacks {missing}: run model_food.py, sim_schedule.py and fairness_check.py first")
+RISK_BINS = [0, 5, 10, 15, 20, 30, 40, 100]          # model risk, percent
 
 
-def band_prior(n):                         # de-identify: bands, not exact counts
-    return "1" if n <= 1 else "2–4" if n <= 4 else "5–9" if n <= 9 else "10+"
+def aggregate(f):
+    """This month's list as published: counts only, never a row per facility.
+
+    ``f`` has one row per active facility with ``business_type``, ``due_this_month`` (bool),
+    ``prior_major_rate`` (NaN with no routine on record) and ``model_risk`` (0-1). Types with fewer
+    than MIN_CELL facilities are pooled into "Other types"; any count from 1 to MIN_CELL-1 is
+    published as null ("<11")."""
+    f = f.assign(_type=f["business_type"].astype(str),
+                 _major=f["prior_major_rate"].fillna(0) > 0,
+                 _due=f["due_this_month"].astype(bool))
+    sizes = f["_type"].value_counts()
+    small = sizes[sizes < pg.MIN_CELL].index
+    f["_type"] = f["_type"].where(~f["_type"].isin(small), "Other types")
+    by_type = []
+    for t, g in f.groupby("_type"):
+        by_type.append({"type": t, "facilities": pg.suppress(len(g)), "due": pg.suppress(g["_due"].sum()),
+                        "with_prior_major": pg.suppress(g["_major"].sum())})
+    by_type.sort(key=lambda r: (r["type"] == "Other types", -(r["facilities"] or 0), r["type"]))
+    pct = f["model_risk"].astype(float) * 100
+    risk_bins = []
+    for lo, hi in zip(RISK_BINS[:-1], RISK_BINS[1:]):
+        m = (pct >= lo) & ((pct < hi) if hi < 100 else (pct <= hi))
+        risk_bins.append({"from": lo, "to": hi, "facilities": pg.suppress(m.sum()),
+                          "due": pg.suppress((m & f["_due"]).sum())})
+    return {"facilities": int(len(f)), "due": int(f["_due"].sum()), "by_type": by_type, "risk_bins": risk_bins}
 
 
-def band_major(pct):
-    return None if pct is None else "none" if pct == 0 else "low" if pct < 15 else "elevated" if pct < 35 else "high"
+def render(payload, template="dashboard.template.html", out="dashboard.html"):
+    """Inject the (gated) payload and the committed charts into the template."""
+    pg.check(payload)
+    tpl = open(template, encoding="utf-8").read()
+    pre, mark, post = tpl.partition("/*__DATA__*/")     # default literal runs from here to the first ';'
+    _, _, rest = post.partition(";")
+    data_js = json.dumps(payload)                       # ascii-safe; no ';' in any value
+    assert ";" not in data_js, "a ';' in the data would end the injected literal early"
+    html = pre + mark + " " + data_js + ";" + rest
+
+    def datauri(fn):
+        return "data:image/png;base64," + base64.b64encode(open(fn, "rb").read()).decode()
+    for ph, fn in [("IMG_GAINS", "food_gains.png"), ("IMG_DAYS", "food_days_earlier.png"), ("IMG_FAIRNESS", "food_fairness.png")]:
+        html = html.replace(ph, datauri(fn))
+    assert pg.dashboard_payload(html) == json.loads(data_js)
+    open(out, "w", encoding="utf-8", newline="\n").write(html)   # LF, as committed
+    return out
 
 
 def main():
+    import model_food as mf
+    import export_worklist as ew
     import export_site as es
+    R = json.load(open(mf.RESULTS)) if os.path.exists(mf.RESULTS) else {}
+    missing = [k for k in ("model", "sim", "fairness") if k not in R]
+    if missing:
+        sys.exit(f"{mf.RESULTS} lacks {missing}: run model_food.py, sim_schedule.py and fairness_check.py first")
     insp = mf.load()
     info = ew.facility_info(json.load(open(mf.RAW)))
     data_to = insp["completed_date"].max()
@@ -40,17 +81,8 @@ def main():
     f = ew.worklist(insp, info, month, es.district_lookup(es.load_districts()), why=False, city_only=False)
     f = ew.model_orders(insp, month, f)
     h = insp[insp["completed_date"] < start].groupby("business_id")
-    f["prior_n"] = h.size().reindex(f.index)
     f["prior_major_rate"] = h["major"].mean().reindex(f.index)
-    f["days_since"] = (start - f["last_visit"]).dt.days
-    f = f.sort_values(["rule_points", "due_estimate", "facility_id"], ascending=[False, True, True])
-
-    rows = []
-    for i, (_, r) in enumerate(f.iterrows(), 1):
-        pm = None if pd.isna(r["prior_major_rate"]) else round(r["prior_major_rate"]*100)
-        rows.append({"id": f"F-{i:05d}", "risk": round(float(r["model_risk"])*100, 1), "type": str(r["business_type"]),
-                     "prior_band": band_prior(int(r["prior_n"])), "major_band": band_major(pm),
-                     "due": bool(r["due_this_month"]), "months_since": round(r["days_since"]/30.4, 1)})
+    summary = aggregate(f)
 
     # ---- evidence numbers, all from the research runs ----
     M, S, F = R["model"], R["sim"], R["fairness"]
@@ -90,28 +122,14 @@ def main():
         "cal_max": f"{max(cal):+.1f}", "cal_min": f"{min(cal):+.1f}",
         "n_due": f"{int(f['due_this_month'].sum()):,}", "month": pd.Timestamp(start).strftime("%B %Y"),
     }
-    types = sorted(f["business_type"].astype(str).unique().tolist())
     payload = {"generated": date.today().isoformat(), "as_of": str(data_to.date()), "stats": stats,
-               "worklist": rows, "types": types}
+               "summary": summary}
     json.dump(payload, open("dashboard_data.json", "w"))
-
-    # ---- build self-contained dashboard.html: inject data at /*__DATA__*/ and embed the PNGs ----
-    tpl = open("dashboard.template.html", encoding="utf-8").read()
-    pre, mark, post = tpl.partition("/*__DATA__*/")     # default literal runs from here to the first ';'
-    _, _, rest = post.partition(";")
-    data_js = json.dumps(payload)                       # ascii-safe; no ';' in any value
-    assert ";" not in data_js, "a ';' in the data would end the injected literal early"
-    html = pre + mark + " " + data_js + ";" + rest
-
-    def datauri(fn):
-        return "data:image/png;base64," + base64.b64encode(open(fn, "rb").read()).decode()
-    for ph, fn in [("IMG_GAINS", "food_gains.png"), ("IMG_DAYS", "food_days_earlier.png"), ("IMG_FAIRNESS", "food_fairness.png")]:
-        html = html.replace(ph, datauri(fn))
-    open("dashboard.html", "w", encoding="utf-8", newline="\n").write(html)   # LF, as committed
+    render(payload)
 
     print("stats:", {k: v for k, v in stats.items() if k != "t"}); print("text:", stats["t"])
-    print(f"worklist rows: {len(rows):,} active facilities, {stats['n_due']:,} estimated due in {month}; "
-          f"{len(types)} types; data through {data_to.date()}")
+    print(f"this month's list, in aggregate: {summary['facilities']:,} active facilities, {summary['due']:,} "
+          f"estimated due in {month}; {len(summary['by_type'])} type rows; data through {data_to.date()}")
     print("wrote dashboard.html")
 
 

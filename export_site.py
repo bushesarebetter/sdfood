@@ -1126,7 +1126,9 @@ def sha256_file(path: Path):
     return h.hexdigest()
 
 
-def provenance(raw_path=RAW):
+def provenance(raw_path=None):
+    raw_path = RAW if raw_path is None else raw_path     # read at call time, so tests can point it elsewhere
+
     def git(*a):
         try:
             return subprocess.run(["git", *a], cwd=ROOT, capture_output=True, text=True, timeout=20).stdout.strip()

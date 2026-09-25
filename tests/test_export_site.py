@@ -376,8 +376,15 @@ PULL = {"started": "2026-09-20", "finished": "2026-09-21", "complete": True}
 
 
 @pytest.fixture(scope="module")
-def built():
-    return es.build(invented_county(), DISTRICTS, pull=PULL, approval=None, today=date(2026, 9, 22), refits=2, log=lambda *_: None)
+def built(tmp_path_factory):
+    # A real export must carry the sha256 of the pull it was built from. Hand the build an invented
+    # pull file, so the test does not depend on a data/ folder that only exists on the author's machine.
+    raw = invented_county()
+    pull = tmp_path_factory.mktemp("pull") / "sd_businesses.json"
+    pull.write_text(json.dumps(raw), encoding="utf-8")
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(es, "RAW", pull)
+        return es.build(raw, DISTRICTS, pull=PULL, approval=None, today=date(2026, 9, 22), refits=2, log=lambda *_: None)
 
 
 def test_build_lists_every_county_place_with_scores_where_eligible(built):
