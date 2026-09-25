@@ -7,3 +7,8 @@
 data/site/archive/
 data/site/publish/
 **/__pycache__/
+# never bake secrets into the image, whatever sits in api/ or data/ on the build machine
+**/.env
+**/.env.*
+**/*.pem
+**/*.key
