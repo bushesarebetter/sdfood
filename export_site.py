@@ -428,6 +428,8 @@ SCOPES = {
     "city": lambda p: p["kind"] in PUBLIC_KINDS and p.get("district") is not None,        # the record's places
     "city_bands": lambda p: p["kind"] in BAND_KINDS and p.get("district") is not None,    # the rule's candidates
     "train": lambda p: p["kind"] in BAND_KINDS,                                           # county-wide restaurants
+    "county": lambda p: p["kind"] in PUBLIC_KINDS,                                        # the record, county-wide
+    "county_bands": lambda p: p["kind"] in BAND_KINDS,                                    # the rule, county-wide
 }
 
 
@@ -1313,9 +1315,10 @@ def build(raw, districts_geojson, *, pull=None, approval=None, today=None, refit
     vs_avg = paired_auc(np.nan_to_num(te.y), pts_c, AVERAGE_RULE.score(te.F), lab & elig, cl) if chosen != "average score" else None
     vs_base = paired_auc(np.nan_to_num(te.y), pts_c, conf["_scores"][best_base], lab & elig, cl)
 
-    # Today's list: the frozen rule on today's City restaurants.
+    # Today's list: the frozen rule on today's restaurants, county-wide. Places outside the City carry
+    # no council district; the site shows them when its area toggle is on. Band counts stay the City's.
     t_now = (through + timedelta(days=1)).isoformat()
-    now = frame(places, [t_now], scope="city_bands", labelled=False, forward=True)
+    now = frame(places, [t_now], scope="county_bands", labelled=False, forward=True)
     elig_now = np.array([eligible(f) for f in now.feats])
     pts_now = rule.score(now.F)
     bands_now = assign_bands(pts_now, elig_now, cuts)
@@ -1327,7 +1330,7 @@ def build(raw, districts_geojson, *, pull=None, approval=None, today=None, refit
     # Every listed City place gets its County record; an eligible restaurant also gets its points and
     # worksheet, and a band when it is in one. (A published public export keeps only named bands.)
     scored = {now.idx[j][0]: j for j in range(len(pts_now)) if elig_now[j]}
-    everyone = [i for i, p in enumerate(places) if active_at(p, t_now, scope="city", forward=True)]
+    everyone = [i for i, p in enumerate(places) if active_at(p, t_now, scope="county", forward=True)]
     everyone.sort(key=lambda i: (-(pts_now[scored[i]]) if i in scored else 1, _norm(places[i]["name"]), places[i]["address"]))
     seen, features, details = set(), [], {}
     for i in everyone:
@@ -1354,6 +1357,7 @@ def build(raw, districts_geojson, *, pull=None, approval=None, today=None, refit
     log(f"forward as of {t_now}: {len(pts_now):,} City restaurants, {int(elig_now.sum()):,} eligible; "
         + ", ".join(f"band {r['band']} >= {r['min_points']} points: {sum(1 for b in bands_now if b == r['band'])}" for r in rows))
 
+    in_city = lambda j: places[now.idx[j][0]].get("district") is not None
     run = f"forward_{t_now}"
     m_ = measurement([p for p in places if p["kind"] in PUBLIC_KINDS])
     meta = _common_meta("bands", run, today, through, pull, len(features), m_, stats, unknown, approval, load_corrections())
@@ -1371,7 +1375,8 @@ def build(raw, districts_geojson, *, pull=None, approval=None, today=None, refit
             "eligibility": "restaurants with two rated routine inspections in the last two years",
             "trained_on": conf["trained_on"],
             "bands": [{**r, "share": round(float(np.mean(np.array([b is not None and int(b) <= int(r["band"]) for b in bands_c])[elig])), 4),
-                       "places_now": sum(1 for b in bands_now if b == r["band"]), "kept_in_refits": keep.get(r["band"])}
+                       "places_now": sum(1 for j, b in enumerate(bands_now) if b == r["band"] and in_city(j)),
+                       "places_now_county": sum(1 for b in bands_now if b == r["band"]), "kept_in_refits": keep.get(r["band"])}
                       for r in rows],
             "rest": rest,
             "baseline_name": best_base,
@@ -1488,9 +1493,9 @@ def report(meta, extra):
 def write_export(out: Path, fc, details, meta):
     out.mkdir(parents=True, exist_ok=True)
     pdir = out / "place"
-    if pdir.exists():
-        shutil.rmtree(pdir)
-    pdir.mkdir()
+    pdir.mkdir(exist_ok=True)
+    for old in pdir.glob("*.json"):       # emptied, not removed: a synced folder (OneDrive) may hold the directory
+        old.unlink()
     for fid, d in details.items():
         (pdir / f"{fid}.json").write_text(json.dumps(d, separators=(",", ":")), encoding="utf-8")
     (out / "facilities.geojson").write_text(json.dumps(fc, separators=(",", ":")), encoding="utf-8")

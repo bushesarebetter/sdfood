@@ -14,7 +14,7 @@ const pct = (x) => (typeof x === "number" ? `${Math.round(x * 100)}%` : "");
  * fresh it is, which places to show, whether any are near an address, in
  * `bands` mode what each band has been worth, and where the places are.
  */
-export default function Sidebar({ facilities, filters, onFiltersChange, onPoint, onSelect }) {
+export default function Sidebar({ facilities, hasCounty = false, filters, onFiltersChange, onPoint, onSelect }) {
   const meta = useMeta();
   const mode = useMode();
 
@@ -33,7 +33,7 @@ export default function Sidebar({ facilities, filters, onFiltersChange, onPoint,
       </div>
 
       <hr className="rule" />
-      <FilterBar filters={filters} onFiltersChange={onFiltersChange} facilities={facilities} />
+      <FilterBar filters={filters} onFiltersChange={onFiltersChange} facilities={facilities} hasCounty={hasCounty} />
 
       <hr className="rule" />
       <NearPanel facilities={facilities} filters={filters} onPoint={onPoint} onSelect={onSelect} />

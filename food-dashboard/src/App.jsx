@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import Header from "./Header";
 import Sidebar from "./Sidebar";
 import MapView from "./MapView";
@@ -14,6 +14,7 @@ import Corrections from "./Corrections";
 import NotFound from "./NotFound";
 import Notice from "./Notice";
 import SampleBanner from "./SampleBanner";
+import { inArea, hasCountyPlaces } from "./AreaToggle";
 import useFacilities from "./useFacilities";
 import useMediaQuery from "./useMediaQuery";
 import usePageMeta from "./usePageMeta";
@@ -27,7 +28,7 @@ import { DEFAULT_BAND, ALL_PLACES } from "./constants";
 import { SITE } from "./site";
 
 const PHONE = "(max-width: 767px)";
-const defaultFilters = (mode) => ({ band: mode === "bands" ? DEFAULT_BAND : ALL_PLACES, districts: [], types: [], flag: null });
+const defaultFilters = (mode) => ({ band: mode === "bands" ? DEFAULT_BAND : ALL_PLACES, districts: [], types: [], flag: null, county: false });
 
 /**
  * Six views, no router. `/` the front page, `/map` the map and list,
@@ -80,6 +81,10 @@ function Dashboard() {
   const [pointOverlay, setPointOverlay] = useState(null);
   const [mapError, setMapError] = useState(null);
   const isPhone = useMediaQuery(PHONE);
+  // The City by default; the rest of the county on request. A place page always reads the full list.
+  const hasCounty = useMemo(() => hasCountyPlaces(facilities), [facilities]);
+  const shown = useMemo(() => inArea(facilities, filters.county || !hasCounty), [facilities, filters.county, hasCounty]);
+  const setCounty = useCallback((county) => setFilters((f) => ({ ...f, county })), []);
 
   // Deep link in, read once the index is here.
   const initialPlace = useRef(readPlaceFromUrl());
@@ -166,7 +171,7 @@ function Dashboard() {
   if (view === "landing") {
     return (
       <Landing
-        facilities={facilities}
+        facilities={shown}
         error={error}
         onRetry={retry}
         onEnter={enterMap}
@@ -198,8 +203,10 @@ function Dashboard() {
       <>
         <WelcomeModal />
         <MobileShell
-          facilities={facilities}
-          filters={defaultFilters(mode)}
+          facilities={shown}
+          filters={{ ...defaultFilters(mode), county: filters.county }}
+          hasCounty={hasCounty}
+          onCountyChange={setCounty}
           selected={selected}
           onSelect={setSelected}
           pointOverlay={pointOverlay}
@@ -219,20 +226,20 @@ function Dashboard() {
         Skip to the map and list
       </a>
 
-      <Header facilities={facilities} onSelect={setSelected} onHome={goHome} onNavigate={navigate} />
+      <Header facilities={shown} onSelect={setSelected} onHome={goHome} onNavigate={navigate} />
       <SampleBanner fixed />
 
       <main className="relative flex flex-1 overflow-hidden">
         <aside aria-label="Filters and summary" className="print-hide w-[20.5rem] shrink-0 border-r border-rule-strong">
-          <Sidebar facilities={facilities} filters={filters} onFiltersChange={setFilters} onPoint={setPointOverlay} onSelect={setSelected} />
+          <Sidebar facilities={shown} hasCounty={hasCounty} filters={filters} onFiltersChange={setFilters} onPoint={setPointOverlay} onSelect={setSelected} />
         </aside>
 
         <div id="map-area" tabIndex={-1} className="print-hide relative min-w-0 flex-1 focus:outline-none">
-          <MapView facilities={facilities} filters={filters} selected={selected} onSelect={setSelected} pointOverlay={pointOverlay} onError={setMapError} />
-          <PlaceTable facilities={facilities} filters={filters} onSelect={setSelected} initialOpen={listOpen} openWhen={Boolean(mapError)} />
+          <MapView facilities={shown} filters={filters} selected={selected} onSelect={setSelected} pointOverlay={pointOverlay} onError={setMapError} />
+          <PlaceTable facilities={shown} filters={filters} onSelect={setSelected} initialOpen={listOpen} openWhen={Boolean(mapError)} />
         </div>
 
-        <PlacePanel feature={selected} onClose={() => setSelected(null)} facilities={facilities} onSelect={setSelected} onNavigate={navigate} />
+        <PlacePanel feature={selected} onClose={() => setSelected(null)} facilities={shown} onSelect={setSelected} onNavigate={navigate} />
       </main>
 
       <Notice placement="fixed" onNavigate={navigate} />
