@@ -4,7 +4,7 @@
 import { createServer } from "node:http";
 import { readFile, stat } from "node:fs/promises";
 import { extname, join, normalize, sep } from "node:path";
-import { timingSafeEqual } from "node:crypto";
+import { createHash, timingSafeEqual } from "node:crypto";
 import { gzipSync } from "node:zlib";
 
 const ROOT = join(import.meta.dirname, "dist");
@@ -36,11 +36,12 @@ async function geocode(q) {
 
 const COMPRESS = new Set([".html", ".js", ".css", ".json", ".geojson", ".svg", ".webmanifest", ".txt"]);
 
+// Compare fixed-length digests, so neither the password nor its length leaks through timing.
+const digest = (s) => createHash("sha256").update(s).digest();
 function authorized(header) {
   if (!PASSWORD || !header?.startsWith("Basic ")) return false;
-  const given = Buffer.from(Buffer.from(header.slice(6), "base64").toString("utf8"));
-  const want = Buffer.from(`${USER}:${PASSWORD}`);
-  return given.length === want.length && timingSafeEqual(given, want);
+  const given = digest(Buffer.from(header.slice(6), "base64").toString("utf8"));
+  return timingSafeEqual(given, digest(`${USER}:${PASSWORD}`));
 }
 
 async function file(path) {
@@ -52,7 +53,19 @@ async function file(path) {
   }
 }
 
-createServer(async (req, res) => {
+// One malformed request (an unparsable URL, a bad %-escape) must never take the site down.
+process.on("unhandledRejection", (e) => console.error("unhandled rejection:", e));
+
+createServer((req, res) => {
+  handle(req, res).catch((e) => {
+    const bad = e instanceof URIError || e instanceof TypeError;
+    if (!bad) console.error(e);
+    if (!res.headersSent) res.writeHead(bad ? 400 : 500);
+    res.end();
+  });
+}).listen(Number(process.env.PORT) || 10000, "0.0.0.0");
+
+async function handle(req, res) {
   const url = new URL(req.url, "http://x");
   if (url.pathname === "/healthz") return res.end("ok");
   if (!authorized(req.headers.authorization)) {
@@ -88,4 +101,4 @@ createServer(async (req, res) => {
     headers.Vary = "Accept-Encoding";
   }
   res.writeHead(200, headers).end(body);
-}).listen(Number(process.env.PORT) || 10000, "0.0.0.0");
+}

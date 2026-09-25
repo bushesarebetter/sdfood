@@ -245,6 +245,17 @@ def _points(r):
     return str(int(r["rule_points"])) if pd.notna(r["card_points"]) else f"{r['rule_points']:.1f}"
 
 
+def csv_text(v):
+    """Scraped text as a CSV cell: a leading =, +, -, @, tab or carriage return would make a
+    spreadsheet run the cell as a formula, so such text gets a leading apostrophe."""
+    if isinstance(v, str) and v[:1] in ("=", "+", "-", "@", "\t", "\r"):
+        try:
+            float(v)
+        except ValueError:
+            return "'" + v
+    return v
+
+
 def write_month(f, month, out=OUT, generated=None, freeze=True, card=None):
     """district-<n>.csv for n in 1..9 and manifest.json; with freeze, a read-only timestamped
     copy with scoring.csv. Returns the month's folder and the frozen folder (or None)."""
@@ -259,10 +270,11 @@ def write_month(f, month, out=OUT, generated=None, freeze=True, card=None):
             wr = csv.writer(fh)
             wr.writerow(COLUMNS)
             for _, r in rows.iterrows():
-                wr.writerow([r["facility_id"], r["name"], r["address"], r["business_type"],
+                wr.writerow([csv_text(r["facility_id"]), csv_text(r["name"]), csv_text(r["address"]),
+                             csv_text(r["business_type"]),
                              _fmt(r["last_routine_date"]), _fmt(r["last_routine_score"]),
                              _fmt(r["mean_routine_score_12m"]), _fmt(r["due_estimate"]),
-                             int(r["rule_order"]), _points(r), r["why"]])
+                             int(r["rule_order"]), _points(r), csv_text(r["why"])])
         files[str(n)] = sha256(path)
     manifest = {"month": month, "generated": generated.isoformat(),
                 "method": METHOD + (FALLBACK if card is None else ""), "rule": rule_text(card), "files": files}

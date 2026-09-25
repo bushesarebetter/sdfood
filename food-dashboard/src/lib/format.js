@@ -12,9 +12,13 @@ import { gradeView } from "./grades.js";
 import { typeLabel } from "./inspections.js";
 import { shownBand } from "./marks.js";
 
+// Text a spreadsheet would run as a formula (a leading =, +, -, @, tab or carriage return) gets a
+// leading apostrophe; numbers, and text that is just a number, are left alone.
+const FORMULA = /^[=+\-@\t\r]/;
 const cell = (v) => {
-  const s = v == null ? "" : String(v);
-  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  let s = v == null ? "" : String(v);
+  if (typeof v === "string" && FORMULA.test(s) && !Number.isFinite(Number(s))) s = "'" + s;
+  return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 };
 
 const RECORD_COLUMNS = [

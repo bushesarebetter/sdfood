@@ -11,7 +11,7 @@ enters this public repository.
 On Render (once): a Node web service from that repository, build `npm ci && npx vite build`,
 start `node server.mjs`, env SITE_PASSWORD (and NODE_VERSION=24, VITE_GOOGLE_MAPS_*). Each push
 redeploys it."""
-import argparse, json, os, shutil, subprocess, sys
+import argparse, json, os, re, shutil, subprocess, sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
@@ -21,6 +21,28 @@ SITE = ROOT / "data" / "site"
 def run(cmd, cwd):
     print("$ " + " ".join(cmd), flush=True)
     return subprocess.run(cmd, cwd=cwd, check=True, text=True, capture_output=True).stdout
+
+
+def github_repo(url):
+    """OWNER/NAME (lowercase) for a github.com remote URL in https, ssh or scp form; None otherwise."""
+    m = re.fullmatch(r"(?:https://(?:[^@/]+@)?github\.com/|ssh://git@github\.com/|git@github\.com:)"
+                     r"([A-Za-z0-9-]+)/([A-Za-z0-9._-]+?)(?:\.git)?/?", (url or "").strip())
+    return f"{m.group(1)}/{m.group(2)}".lower() if m else None
+
+
+def check_target(remote_url, repo, visibility):
+    """Refuse unless the checkout's origin IS --repo and that repository is private. (Checking
+    --repo while pushing to whatever origin says would send the real export somewhere unchecked.)"""
+    target = github_repo(remote_url)
+    if target is None:
+        sys.exit(f"origin is {remote_url!r}, not a github.com repository: refusing to push the real export there")
+    if target != repo.lower():
+        sys.exit(f"origin is {target}, but --repo is {repo}: refusing to push the real export to a repository "
+                 "other than the one whose privacy was checked")
+    vis = visibility(target)
+    if vis != "PRIVATE":
+        sys.exit(f"{target} is {vis}: the real export only goes to a private repository")
+    return target
 
 
 def main(argv=None):
@@ -42,10 +64,9 @@ def main(argv=None):
         if not exists:
             run(["gh", "repo", "create", args.repo, "--private"], out)
         run(["git", "remote", "add", "origin", f"https://github.com/{args.repo}.git"], out)
-        remote = args.repo
-    vis = run(["gh", "repo", "view", args.repo, "--json", "visibility", "--jq", ".visibility"], out).strip()
-    if vis != "PRIVATE":
-        sys.exit(f"{args.repo} is {vis}: the real export only goes to a private repository")
+        remote = f"https://github.com/{args.repo}.git"
+    check_target(remote, args.repo,
+                 lambda r: run(["gh", "repo", "view", r, "--json", "visibility", "--jq", ".visibility"], out).strip())
 
     for p in out.iterdir():                                   # a clean copy each time, keeping .git
         if p.name == ".git":
@@ -54,7 +75,8 @@ def main(argv=None):
             shutil.rmtree(p, onexc=lambda fn, path, exc: None if fn is os.rmdir else (_ for _ in ()).throw(exc))
         else:
             p.unlink()
-    for rel in run(["git", "ls-files", "--cached", "--others", "--exclude-standard", "food-dashboard"], ROOT).splitlines():
+    # Tracked files only: an untracked local file (a review export, a scratch config) is never shipped.
+    for rel in run(["git", "ls-files", "--cached", "food-dashboard"], ROOT).splitlines():
         rel = Path(rel).relative_to("food-dashboard")
         if rel.parts[:2] == ("public", "data"):
             continue
