@@ -62,6 +62,9 @@ tbody tr:last-child td{border-bottom:none}
 .chip.ok{background:color-mix(in srgb,var(--good) 15%,transparent);color:var(--good)}
 .hist{font-family:var(--mono);font-size:10.5px;color:var(--ink-soft)}
 .foot{font-family:var(--mono);font-size:10px;color:var(--ink-soft);line-height:1.6;margin-top:24px;border-top:1px solid var(--line);padding-top:14px}
+.card.agg{min-width:0}
+.card.agg table{min-width:0}
+.card.agg td:not(:first-child),.card.agg th:not(:first-child){text-align:right;font-variant-numeric:tabular-nums}
 </style>
 
 <div class="wrap">
@@ -89,25 +92,23 @@ tbody tr:last-child td{border-bottom:none}
       <p style="font-size:13.5px"><b>Safeguards:</b> keep routine inspections everywhere (this reorders visits within the schedule, it removes none) and monitor coverage by group. Full numbers in <code>FAIRNESS.md</code>.</p></div>
   </div>
 
-  <h2>The worklist: <span data-s="month"></span></h2>
-  <p style="font-size:13.5px;color:var(--ink-soft);margin:0 0 6px">Every currently-active facility, in the <b>one-line rule's order</b> (lowest mean routine score on record first; ties to the earlier estimated due date), with the research model's risk beside it. <b><span data-s="n_due"></span></b> are <b>estimated due this month</b>: by the month's end, within 30 days of their business type's median interval between routine inspections, or past it. This order replaces an earlier risk-times-overdue weighting; in the backtest the rule's order found major violations sooner (+<span data-s="days_rule"></span> d against +<span data-s="days_overdue"></span> d). A prioritization aid <i>within</i> the County's required schedule.</p>
-  <div class="note warn" style="font-size:12.5px;margin:0 0 12px"><b>De-identified demonstration.</b> Rows show facility type and banded history only: no name, no address, no city, no exact score. Named worklists are for internal use. Risk is a modeled probability, not a finding; the order reorders visits everyone already gets.</div>
-  <div class="controls">
-    <label for="ftype">Type</label><select id="ftype"><option value="">All types</option></select>
-    <label for="fdue"><input type="checkbox" id="fdue" style="vertical-align:-2px"> due this month only</label>
-    <span class="count" id="count"></span>
+  <h2>This month's list, in aggregate: <span data-s="month"></span></h2>
+  <p style="font-size:13.5px;color:var(--ink-soft);margin:0 0 6px">Every currently-active facility is ordered by the <b>one-line rule</b> (lowest mean routine score on record first; ties to the earlier estimated due date). <b><span data-s="n_due"></span></b> are <b>estimated due this month</b>: by the month's end, within 30 days of their business type's median interval between routine inspections, or past it. This order replaced an earlier risk-times-overdue weighting; in the backtest the rule's order found major violations sooner (+<span data-s="days_rule"></span> d against +<span data-s="days_overdue"></span> d). A prioritization aid <i>within</i> the County's required schedule.</p>
+  <div class="note warn" style="font-size:12.5px;margin:0 0 12px"><b>No facility-level data on this page.</b> The list itself, facility by facility, goes to City staff through the key-protected staff API, never to a public page: even without names, a row's type, visit timing and history can be matched to a named business in the County's public search. Below are counts only; any count from 1 to 10 is shown as &lt;11. Risk is a modeled probability, not a finding.</div>
+  <div class="cards">
+    <div class="card agg"><div class="tbl-wrap"><table>
+      <thead><tr><th>Facility type</th><th>Active</th><th>Due this month</th><th>A major on record</th></tr></thead>
+      <tbody id="tbytype"></tbody></table></div></div>
+    <div class="card agg"><div class="tbl-wrap"><table>
+      <thead><tr><th>Research model's risk</th><th>Active</th><th>Due this month</th></tr></thead>
+      <tbody id="trisk"></tbody></table></div></div>
   </div>
-  <div class="tbl-wrap"><table>
-    <thead><tr><th>Order</th><th>Facility</th><th>Type</th><th>History on record</th><th>Since last visit</th><th>Model risk</th></tr></thead>
-    <tbody id="tbody"></tbody>
-  </table></div>
-  <div class="pager"><button id="prev" class="pgbtn">← Prev</button><span id="pageinfo" class="pginfo"></span><button id="next" class="pgbtn">Next →</button></div>
 
   <div class="foot" id="foot"></div>
 </div>
 
 <script>
-const DATA = /*__DATA__*/ {stats:{},worklist:[],types:[]};
+const DATA = /*__DATA__*/ {stats:{},summary:{by_type:[],risk_bins:[]}};
 const $=s=>document.querySelector(s);
 const S=DATA.stats;
 $("#stats").innerHTML=[
@@ -118,39 +119,14 @@ $("#stats").innerHTML=[
 ].map(([c,n,l])=>`<div class="stat ${c}"><b>${n??"—"}</b><span>${l}</span></div>`).join("");
 document.querySelectorAll("[data-s]").forEach(el=>{el.textContent=(S.t||{})[el.dataset.s]??"—";});
 
-const tsel=$("#ftype");
-DATA.types.forEach(t=>tsel.add(new Option(t,t)));
-
-function riskColor(r){ // 0..100 -> teal to red
-  const a=[29,106,151],b=[201,116,26],c=[178,53,36],t=Math.min(1,r/60)*2,i=Math.min(1,Math.floor(t)),f=t-i,s=[a,b,c];
-  const m=s[i],n=s[i+1]; return `rgb(${m[0]+(n[0]-m[0])*f|0},${m[1]+(n[1]-m[1])*f|0},${m[2]+(n[2]-m[2])*f|0})`;
-}
-let PAGE=0; const PER=50; let filtered=[];
-const ALL=DATA.worklist.map((r,i)=>({...r,pos:i+1}));   // the embedded order is the one-line rule's
-function applyFilter(){
-  const type=tsel.value, due=$("#fdue").checked;
-  filtered=ALL.filter(r=>(!type||r.type===type)&&(!due||r.due)); PAGE=0; renderPage();
-}
-function renderPage(){
-  const total=filtered.length, pages=Math.max(1,Math.ceil(total/PER));
-  if(PAGE>pages-1) PAGE=pages-1; if(PAGE<0) PAGE=0;
-  const start=PAGE*PER, shown=filtered.slice(start,start+PER);
-  $("#count").textContent = total? `${(start+1).toLocaleString()}–${(start+shown.length).toLocaleString()} of ${total.toLocaleString()} facilities` : "0 matching";
-  $("#pageinfo").textContent = `Page ${PAGE+1} of ${pages.toLocaleString()}`;
-  $("#prev").disabled = PAGE<=0; $("#next").disabled = PAGE>=pages-1;
-  $("#tbody").innerHTML=shown.map(r=>{
-    const hist=[`${r.prior_band} prior insp.`, r.major_band!=null?`${r.major_band} prior-major`:"first visit"].filter(Boolean).join(" · ");
-    const since=r.due?`<span class="chip crit">${r.months_since} mo · due</span>`:`<span class="hist">${r.months_since} mo ago</span>`;
-    return `<tr><td class="id">${r.pos.toLocaleString()}</td><td class="id">${r.id}</td><td>${r.type}</td><td class="hist">${hist}</td><td>${since}</td>`+
-      `<td><div class="rk"><div class="bar"><div class="fill" style="width:${Math.min(100,r.risk)}%;background:${riskColor(r.risk)}"></div></div><b>${r.risk.toFixed(0)}%</b></div></td></tr>`;
-  }).join("")||`<tr><td colspan="6" style="color:var(--ink-soft);padding:16px">No facilities match.</td></tr>`;
-}
-[tsel,$("#fdue")].forEach(el=>el.addEventListener("change",applyFilter));
-$("#prev").addEventListener("click",()=>{PAGE--;renderPage();});
-$("#next").addEventListener("click",()=>{PAGE++;renderPage();});
+const esc=v=>String(v).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const cnt=v=>v==null?"&lt;11":Number(v).toLocaleString();
+const SUM=DATA.summary||{by_type:[],risk_bins:[]};
+$("#tbytype").innerHTML=SUM.by_type.map(r=>`<tr><td>${esc(r.type)}</td><td>${cnt(r.facilities)}</td><td>${cnt(r.due)}</td><td>${cnt(r.with_prior_major)}</td></tr>`).join("")||
+  `<tr><td colspan="4" style="color:var(--ink-soft)">No data.</td></tr>`;
+$("#trisk").innerHTML=SUM.risk_bins.map(r=>`<tr><td>${r.from}–${r.to}%</td><td>${cnt(r.facilities)}</td><td>${cnt(r.due)}</td></tr>`).join("");
 $("#foot").innerHTML="Source: San Diego County DEH inspection results via the public sdfoodinfo.org search "+
   `(${S.n_inspections?.toLocaleString()} inspections, ${S.n_facilities?.toLocaleString()} facilities, 2023–2026). `+
   "Order = the one-line rule: lowest mean routine score on record first. Model risk = the research model's probability of a major violation at the next routine inspection, from facility type and prior history (no ZIP code, no permit age), fitted on all data; accuracy is from the held-out test above. "+
-  "Due this month is an estimate from each business type's median interval between routine inspections. Rows are de-identified. Independent analysis, not affiliated with or endorsed by the County of San Diego, and not a finding about any specific business.";
-applyFilter();
+  "Due this month is an estimate from each business type's median interval between routine inspections. This page publishes counts only. Independent analysis, not affiliated with or endorsed by the County of San Diego, and not a finding about any specific business.";
 </script>

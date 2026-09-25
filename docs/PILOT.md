@@ -119,7 +119,7 @@ month, and driving time.
 
 ## Keeping the study clean
 
-- The pilot uses only **de-identified or County-internal lists**. District lists go only to the
+- The pilot uses only **County-internal lists**; anything public is counts only (`dashboard.html`). District lists go only to the
   participating supervisors. City staff who use the internal API should not pass district lists
   to inspectors or businesses during the pilot.
 - **No public list of names exists during the study.** The public website in `food-dashboard/`

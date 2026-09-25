@@ -92,7 +92,8 @@ def test_files_for_the_api_and_the_frozen_copy(data, tmp_path):
     assert m["files"] == {str(n): ew.sha256(os.path.join(folder, f"district-{n}.csv")) for n in range(1, 10)}
     assert ew.verify(frozen) == []
     target = os.path.join(frozen, "district-1.csv")
-    assert not os.access(target, os.W_OK)                             # frozen files are read-only
+    mode = os.stat(target).st_mode                                    # frozen files are read-only (mode bits:
+    assert not mode & (stat.S_IWUSR | stat.S_IWGRP | stat.S_IWOTH)    # os.access is always True for root)
     os.chmod(target, stat.S_IWRITE)
     with open(target, "a", encoding="utf-8") as fh:
         fh.write("tampered\n")

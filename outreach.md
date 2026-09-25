@@ -1,7 +1,7 @@
 # Outreach kit: San Diego food inspections, for City staff
 
 For City of San Diego staff and council offices. Fill in the `[brackets]`. Link the
-de-identified dashboard (`dashboard.html`, `[dashboard link]`), never the public site. Every number
+research dashboard (`dashboard.html`, `[dashboard link]`; counts only, no facility rows), never the public site. Every number
 here is from the README and FAIRNESS.md.
 
 ## Three questions only the County can answer
@@ -48,7 +48,7 @@ official extract. And our repository also contains a public website that would s
 restaurants from the County's data. Today it shows only invented sample data, and we will not
 publish real names without the County's review.
 
-A de-identified summary is here: [dashboard link]. Could we have 20 minutes to show you the API?
+A summary with counts only is here: [dashboard link]. Could we have 20 minutes to show you the API?
 
 Thank you,
 Chenhao Zhang and Ayan Pendharkar, Canyon Crest Academy

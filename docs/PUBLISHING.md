@@ -1,6 +1,6 @@
 # Publishing: the staff API, and the gated public site
 
-There are two ways the real data leaves this machine.
+There are three ways results from the real data leave this machine.
 
 1. **The staff API** ([API.md](API.md)). This is internal, for City of San Diego staff. It is
    reached with a key and deployed from a privately built image, and it serves every listed place
@@ -8,6 +8,10 @@ There are two ways the real data leaves this machine.
 2. **The public site** (`food-dashboard/`). It ships an invented sample. A real export reaches it
    only through `python export_site.py --publish`, which refuses unless every gate below passes,
    and stamps the export so that the site's own build refuses anything else.
+3. **The research dashboard** (`dashboard.html`, committed). **Counts only.** `export_dashboard.py`
+   runs every payload through `privacy_gate.py` before writing it, and
+   `tests/test_dashboard_privacy.py` runs the gate on the committed file. See "The research
+   dashboard, and its history" below.
 
 **Real exports never enter git.** `/data/` is ignored. The committed `food-dashboard/public/data/`
 must stay the sample, and a test checks this (`tests/test_export_site.py`). If a real export is
@@ -65,6 +69,34 @@ clear it at C/B = 0.25, 0.5, 1, 2 and 3.
 - `export_site.py --monitor` scores every archived run against the routine inspections made after
   it, and writes `monitor.md` and `monitor.json`.
 - If the registered run's band falls below the cost bar on those inspections, take the names down.
+
+## The research dashboard, and its history
+
+Until September 2026 the committed `dashboard.html` embedded one row per active facility: type,
+model risk to 0.1, banded history, and months since the last visit to 0.1 (earlier versions also
+had city, ZIP and the exact last score). The rows had no names, but they were not anonymous. On the
+last version, **80% of 15,647 rows were unique** on the fields shown, and SD Food Info publishes each
+facility's name and inspection dates, so a row could be matched to a named business, including
+home kitchens. The page is now counts only: by facility type and by risk band, with any count from 1
+to 10 shown as "<11" and types with fewer than 11 facilities pooled.
+
+The old versions are still in git history. After the change is merged, the repository owner runs:
+
+```bash
+pip install git-filter-repo
+tools/purge_history.sh git@github.com:bushesarebetter/sdfood.git          # dry run: strips and verifies
+tools/purge_history.sh git@github.com:bushesarebetter/sdfood.git --push   # rewrite every branch and tag
+```
+
+The script mirror-clones and keeps a backup. It checks that the current `dashboard.html` passes
+the privacy gate, strips every other historical version, verifies that none is still reachable,
+and only then force-pushes. It was tested on a scratch copy of this repository: eight historical
+versions were stripped, the clean one was kept, and the commit history was otherwise unchanged. Then:
+
+1. Ask GitHub Support to remove cached views and unreachable objects and to clear pull-request
+   refs that still point at old commits (GitHub Docs, *Removing sensitive data from a repository*).
+2. Every collaborator re-clones. Old clones still hold the old files.
+3. Replace or delete any copy of the old page hosted elsewhere (GitHub Pages, shared links).
 
 ## Taking the public site down
 

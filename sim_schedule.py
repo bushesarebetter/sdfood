@@ -11,7 +11,7 @@ Orderings (arms), all out-of-fold (a model never trains on the inspection it sco
     first; and the mean routine score over the prior 12 months;
   * persistence: routine inspections with a major in the prior 12 months, then majors in the
     prior 12 months, then the lowest last routine score (export_site.persistence);
-  * Model x overdue: the weighting the de-identified dashboard used to rank by (risk times the
+  * Model x overdue: the weighting the old dashboard worklist used to rank by (risk times the
     time since the last visit over the type's median routine interval, clipped to 0.2-2), never
     tested before. Its time since the last visit is taken at the start of the month, from visits
     before that date, and the type intervals come from 2023-24.

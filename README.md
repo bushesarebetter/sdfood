@@ -71,7 +71,12 @@ top 20%, +6.3 d in a county-wide month); the clean data give 0.756, 48% and +6.5
 - **The one-line rule leads,** the research model second, persistence as the reference.
 - **The dashboard's "risk × overdue" ranking was backtested and replaced.** It found major
   violations 5.3 days sooner within a district's month, against 5.8 for the rule and 6.2 for the
-  model, so `dashboard.html` now lists facilities in the rule's order.
+  model, so worklists now use the rule's order.
+- **The research dashboard publishes counts only.** It used to embed one row per active facility
+  (type, risk, history bands, months since the last visit). 80% of those rows were unique and
+  could be matched to named businesses in SD Food Info, so `dashboard.html` now shows counts by
+  type and risk band, gated by `privacy_gate.py`. Old versions stay in git history until
+  `tools/purge_history.sh` is run ([docs/PUBLISHING.md](docs/PUBLISHING.md)).
 - **Survivorship stated and bounded** (below), **monthly worklists** for the City's council
   districts with a frozen copy for a pilot (`export_worklist.py`), a pinned environment
   (`requirements.txt`), and one shared feature library (`model_food.py`) that every research
@@ -302,7 +307,7 @@ python -m pytest tests     # includes tests/test_worklist.py
 | | `api/` (FastAPI) | `food-dashboard/` (site) | `dashboard.html` |
 |---|---|---|---|
 | For | City of San Diego staff | the public, once approved | the research summary |
-| Shows | every listed City restaurant and market with the County's record, the published rule's points and band, district summaries, monthly worklists | the same records and bands on a map | a de-identified worklist |
+| Shows | every listed City restaurant and market with the County's record, the published rule's points and band, district summaries, monthly worklists | the same records and bands on a map | the research results, and this month's list as counts only (no facility rows) |
 | Access | an API key ([docs/API.md](docs/API.md)) | invented sample until every gate passes ([docs/PUBLISHING.md](docs/PUBLISHING.md)) | open |
 
 **The published rule** is a transparent point score built from each restaurant's own County
