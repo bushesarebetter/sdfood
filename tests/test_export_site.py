@@ -380,10 +380,12 @@ def built():
     return es.build(invented_county(), DISTRICTS, pull=PULL, approval=None, today=date(2026, 9, 22), refits=2, log=lambda *_: None)
 
 
-def test_build_lists_every_city_place_with_scores_where_eligible(built):
+def test_build_lists_every_county_place_with_scores_where_eligible(built):
     fc, details, meta, extra = built
     props = [f["properties"] for f in fc["features"]]
-    assert props and all(p["facility_type"] in es.PUBLIC_KINDS and p["council_district"] in (1, 2) for p in props)
+    # City places carry their council district; the rest of the county has none (the site's area toggle)
+    assert props and all(p["facility_type"] in es.PUBLIC_KINDS and p["council_district"] in (1, 2, None) for p in props)
+    assert any(p["council_district"] in (1, 2) for p in props)
     assert {p["facility_type"] for p in props} >= {"restaurant", "market"}
     assert all("rank" not in p and "percentile" not in p for p in props)
     for p in props:

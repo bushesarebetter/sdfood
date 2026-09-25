@@ -143,7 +143,7 @@ for (const f of features) {
 
   if (!p.name || !p.address) note("a place without a name or an address", label);
   if (!kinds.includes(p.facility_type)) note(`facility_type outside ${kinds.join("|")}`, `${label}: ${p.facility_type}`);
-  if (!Number.isInteger(p.council_district) || p.council_district < 1 || p.council_district > 9) note("council_district outside 1 to 9", `${label}: ${p.council_district}`);
+  if (p.council_district != null && (!Number.isInteger(p.council_district) || p.council_district < 1 || p.council_district > 9)) note("council_district outside 1 to 9 (null: outside the City)", `${label}: ${p.council_district}`);
   if (!ISO.test(p.last_visit?.date ?? "") || !VISIT_TYPES.includes(p.last_visit?.type)) note("last_visit without a date and a visit type from the contract", label);
   if (p.grade != null && (!isGrade(p.grade) || (p.grade.replaced != null && !isGrade(p.grade.replaced)))) note("grade outside { grade: A|B|C, score, date, replaced }", label);
   if (!Array.isArray(p.flags) || p.flags.some((k) => !FLAG_KEYS.includes(k))) note(`flags outside ${FLAG_KEYS.join("|")}`, `${label}: ${JSON.stringify(p.flags)}`);

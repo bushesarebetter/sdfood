@@ -27,6 +27,28 @@ export function explain(err) {
  * matches what is on the map. Addresses are suggested as you type; a chosen
  * suggestion is located directly and typed text goes to the geocoder.
  */
+/**
+ * Google's geocoder when the Maps key allows it; otherwise the site's own /geocode (the staff
+ * server's OpenStreetMap and Census lookup, city_site/server.mjs).
+ */
+async function geocodeText(text) {
+  try {
+    const maps = await loadMaps();
+    const { results } = await new maps.Geocoder().geocode({ address: text, bounds: SITE.bounds, region: "us" });
+    if (results?.length) {
+      const loc = results[0].geometry.location;
+      return { point: [loc.lng(), loc.lat()], label: results[0].formatted_address };
+    }
+  } catch {
+    // no key, or the key lacks Geocoding: fall through to the site's lookup
+  }
+  const res = await fetch(`/geocode?q=${encodeURIComponent(text)}`, { headers: { Accept: "application/json" } });
+  if (res.status === 404) throw new Error("ZERO_RESULTS");
+  const hit = res.ok && /json/i.test(res.headers.get("content-type") || "") ? await res.json() : null;
+  if (!hit || typeof hit.lat !== "number") throw new Error("GEOCODER_UNAVAILABLE");
+  return { point: [hit.lon, hit.lat], label: hit.label };
+}
+
 export default function NearPanel({ facilities, filters, onPoint, onSelect, compact = false }) {
   const [text, setText] = useState("");
   const [pick, setPick] = useState(null);
@@ -47,12 +69,7 @@ export default function NearPanel({ facilities, filters, onPoint, onSelect, comp
       if (pick) {
         ({ point, label } = await resolvePlace(pick));
       } else {
-        const maps = await loadMaps();
-        const { results } = await new maps.Geocoder().geocode({ address: text, bounds: SITE.bounds, region: "us" });
-        if (!results?.length) throw new Error("ZERO_RESULTS");
-        const loc = results[0].geometry.location;
-        point = [loc.lng(), loc.lat()];
-        label = results[0].formatted_address;
+        ({ point, label } = await geocodeText(text));
       }
       const shown = facilities.features.filter((f) => passesFilters(f.properties, filters, { mode }));
       const places = shown
