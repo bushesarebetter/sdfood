@@ -130,13 +130,20 @@ def intervals(rt):
     return by.loc[by["size"] >= MIN_GAPS, "median"].to_dict(), overall
 
 
-def _why(scores, majors, n, *, points=None, band=None, card=False):
+def _why(scores, majors, n, *, closures=0, points=None, band=None, card=False):
     """Which ordering placed the row, and the facts behind it."""
     lead = (f"Published card: {int(points)} points{f', band {band}' if band else ''}. " if points is not None
             else "Not scored by the published card; placed after its places, by lowest mean routine score. "
             if card else "")
-    rec = (f"Routine scores since 2023-01: {', '.join(f'{v:g}' for v in scores)} (mean {np.mean(scores):.1f})."
-           if scores else "No scored routine inspection on record since 2023-01; counted as a typical A (97).")
+    rated = scores + [float(mf.es.CLOSURE_SCORE)] * closures
+    shut = (f" {closures} routine inspection{'s' if closures > 1 else ''} ended in a health closure order "
+            f"(counted as {mf.es.CLOSURE_SCORE})." if closures else "")
+    if scores:
+        rec = f"Routine scores since 2023-01: {', '.join(f'{v:g}' for v in scores)} (mean {np.mean(rated):.1f}).{shut}"
+    elif closures:
+        rec = f"No scored routine inspection on record since 2023-01.{shut} Mean {np.mean(rated):.1f}."
+    else:
+        rec = "No scored routine inspection on record since 2023-01; counted as a typical A (97)."
     return lead + rec + (f" {majors} of {n} routine inspections found a major violation." if majors else "")
 
 
@@ -158,6 +165,8 @@ def worklist(insp, info, month, lookup, *, card=None, use_status=True, why=True,
                       "last_routine_date": last["completed_date"], "last_routine_score": last["score"],
                       "lat": last["lat"], "lng": last["lng"]})
     f["mean_all"] = g["score"].mean()
+    # the rule's mean counts a routine that ended in a health closure as CLOSURE_SCORE, as the card does
+    f["mean_rated"] = (g["rated_score"] if "rated_score" in rt.columns else g["score"]).mean()
     w12 = rt[rt["completed_date"] >= start - pd.Timedelta(days=mf.WINDOW_DAYS)]
     f["mean_routine_score_12m"] = w12.groupby("business_id")["score"].mean()
     f["last_visit"] = last_visit
@@ -172,7 +181,7 @@ def worklist(insp, info, month, lookup, *, card=None, use_status=True, why=True,
     f["interval"] = f["business_type"].map(by_type).fillna(overall)
     f["due_estimate"] = f["last_routine_date"] + pd.to_timedelta(f["interval"].round(), unit="D")
     f["due_this_month"] = (end - f["last_routine_date"]).dt.days >= f["interval"] - DUE_MARGIN
-    f["mean_points"] = (100 - f["mean_all"].fillna(mf.FILL_SCORE)).round(1)
+    f["mean_points"] = (100 - f["mean_rated"].fillna(mf.FILL_SCORE)).round(1)
     f = f.join(info[["facility_id", "name", "address"]], how="left")
     f["facility_id"] = f["facility_id"].fillna(pd.Series(f.index.astype(str), index=f.index))
     f["card_points"] = f["facility_id"].map(card["points"]) if card else np.nan
@@ -181,9 +190,11 @@ def worklist(insp, info, month, lookup, *, card=None, use_status=True, why=True,
     if why:
         rows = rt[rt["business_id"].isin(f.index)]
         sc = rows.groupby("business_id")["score"].apply(lambda s: [float(v) for v in s.dropna()])
+        cl = (rows.assign(_c=rows["rated_score"].notna() & rows["score"].isna())
+                  .groupby("business_id")["_c"].sum() if "rated_score" in rows.columns else pd.Series(dtype=int))
         mj = rows.groupby("business_id")["n_major"].apply(lambda s: int((s > 0).sum()))
         nr = rows.groupby("business_id").size()
-        f["why"] = [_why(sc.get(b, []), mj.get(b, 0), nr.get(b, 0),
+        f["why"] = [_why(sc.get(b, []), mj.get(b, 0), nr.get(b, 0), closures=int(cl.get(b, 0)),
                          points=None if pd.isna(p) else p, band=None if pd.isna(bd) else bd, card=bool(card))
                     for b, p, bd in zip(f.index, f["card_points"], f["card_band"])]
     return rank(f)

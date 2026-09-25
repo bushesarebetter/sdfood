@@ -43,9 +43,12 @@ RAW = "data/sd_businesses.json"
 RESULTS = "data/research_results.json"
 TRAIN_END = "2024-12-31"        # train on inspections up to here, test on the rest
 WINDOW_DAYS = es.WINDOW_DAYS    # 365: the 12-month window, as the public site's exporter
+SCORE_WINDOW_DAYS = es.SCORE_WINDOW_DAYS  # 730: how far back persistence reads the last score (as export_site)
 WINDOW_FROM = "2024-01-03"      # the record starts 2023-01-03: from here every window is whole
 FILL_SCORE = 97.0               # a facility with no routine score ranks as a typical A (as export_site)
 BOOT = 1000
+MAX_ITER = 300                  # boosting rounds, at most; the count is chosen on the last VAL_MONTHS of training
+VAL_MONTHS = 3
 
 CAT = ["business_type", "zip"]
 HIST = ["prior_n", "days_since_last", "last_score", "last_major", "prior_major_rate",
@@ -106,13 +109,28 @@ def load(path=DATA):
     # reopening visit) keeps its score in the CSV, but that is not the place's routine score.
     df.loc[df["insp_type"].astype(str) != "Routine", "score"] = np.nan
     df["major"] = (df["n_major"] > 0).astype(float)
+    # Two routine rows for one facility on one day would let the second see the first's outcome as
+    # "history" (add_features works row by row). fetch_sdfood's CSV builder merges them; refuse if not.
+    rt_day = df[df["insp_type"].astype(str) == "Routine"].duplicated(["business_id", "completed_date"])
+    if rt_day.any():
+        raise ValueError(f"{int(rt_day.sum())} same-day duplicate routine rows in {path}: rebuild the CSV "
+                         "with fetch_sdfood.py, which merges them")
+    # The score the no-model rules read: a routine that ended in a health closure order has no score,
+    # and counts as es.CLOSURE_SCORE, as in the published card (export_site.features_at). Without
+    # this a place closed at its only routine ranked as a typical A. Model features keep real scores.
+    df["rated_score"] = df["score"]
+    if "closure" in df.columns:
+        closed = ((df["insp_type"].astype(str) == "Routine") & df["score"].isna()
+                  & (df["closure"].astype(str).str.lower() == "health"))
+        df.loc[closed, "rated_score"] = float(es.CLOSURE_SCORE)
     return _order(df)
 
 
-def persistence(df, days=WINDOW_DAYS):
+def persistence(df, days=WINDOW_DAYS, score_days=SCORE_WINDOW_DAYS):
     """export_site.persistence for every row, from the facility's record in the `days` before the
     row's date (strictly earlier dates): routine inspections with a major, then majors on routine /
-    re-inspection / follow-up visits, then the lowest last routine score. df sorted by _order."""
+    re-inspection / follow-up visits, then the lowest last routine score, read over `score_days`
+    as export_site does (a third of routine inspections come more than a year apart). df sorted by _order."""
     t = df["completed_date"].values.astype("datetime64[D]").astype(np.int64)
     typ = df["insp_type"].astype(str).values
     rt_ = typ == "Routine"; rec = np.isin(typ, ["Routine", "Re-inspection", "Follow-up"])
@@ -120,10 +138,11 @@ def persistence(df, days=WINDOW_DAYS):
     out = np.full((len(df), 3), np.nan)
     for ix in df.groupby("business_id", sort=False).indices.values():
         tt = t[ix]; hi = np.searchsorted(tt, tt, "left"); lo = np.searchsorted(tt, tt - days, "left")
+        lo_s = np.searchsorted(tt, tt - score_days, "left")
         c1 = np.r_[0, np.cumsum(rt_[ix] & (mj[ix] > 0))]; c2 = np.r_[0, np.cumsum(rec[ix] * mj[ix])]
         s = sc[ix]; lastpos = np.maximum.accumulate(np.where(np.isnan(s), -1, np.arange(len(ix))))
         lp = np.where(hi > 0, lastpos[np.maximum(hi - 1, 0)], -1)
-        out[ix] = np.c_[c1[hi] - c1[lo], c2[hi] - c2[lo], np.where(lp >= lo, s[np.maximum(lp, 0)], np.nan)]
+        out[ix] = np.c_[c1[hi] - c1[lo], c2[hi] - c2[lo], np.where(lp >= lo_s, s[np.maximum(lp, 0)], np.nan)]
     X = np.zeros((len(df), len(es.NUMERIC)))
     for j, c in enumerate(["routines_major", "majors", "last_score"]):
         X[:, es.NUMERIC.index(c)] = out[:, j]
@@ -170,17 +189,21 @@ def add_features(df):
     df["prior_major_rate"] = g["major"].transform(lambda s: s.shift().expanding().mean())
     df["prior_mean_score"] = g["score"].transform(lambda s: s.shift().expanding().mean())
     df["prior_mean_viol"]  = g["n_violations"].transform(lambda s: s.shift().expanding().mean())
+    rated = df["rated_score"] if "rated_score" in df.columns else df["score"]
+    df["prior_mean_rated"] = rated.groupby(df["business_id"], sort=False).transform(lambda s: s.shift().expanding().mean())
+    df["last_rated"]       = rated.groupby(df["business_id"], sort=False).transform(lambda s: s.shift().ffill())
     age = (df["completed_date"] - df["opened_date"]).dt.days / 365.25
     df["facility_age_asof_pull"] = age               # the permit in force at the pull: leaks, kept to measure it
     df["facility_age_yrs"] = age.where(age >= 0)     # missing when the permit was issued after the inspection
     df["month"] = df["completed_date"].dt.month
     w = window_features(df)
     df[w.columns] = w
+    w_rated = window_features(df.assign(score=rated))["w_mean_score"]
     df["persistence"] = persistence(df)
-    # the no-model rules, higher = first
-    df["rule_mean12"] = -df["w_mean_score"].fillna(FILL_SCORE)
-    df["rule_mean_all"] = -df["prior_mean_score"].fillna(FILL_SCORE)
-    df["rule_last"] = -df["last_score"].fillna(FILL_SCORE)
+    # the no-model rules, higher = first; they read closures as es.CLOSURE_SCORE (rated), like the card
+    df["rule_mean12"] = -w_rated.fillna(FILL_SCORE)
+    df["rule_mean_all"] = -df["prior_mean_rated"].fillna(FILL_SCORE)
+    df["rule_last"] = -df["last_rated"].fillna(FILL_SCORE)
     return df
 
 
@@ -199,14 +222,14 @@ def features_asof(df, T, ids=None):
     at T and add_features reads its history, strictly before T. Indexed by business_id."""
     T = pd.Timestamp(T)
     base = df[[c for c in df.columns if c in ("business_id", "business_type", "zip", "lat", "lng", "opened_date",
-                                               "insp_type", "completed_date", "score", "n_major", "n_violations",
-                                               "major")]]
+                                               "insp_type", "completed_date", "score", "rated_score", "n_major",
+                                               "n_violations", "major")]]
     last = base.groupby("business_id", sort=False).tail(1)
     if ids is not None:
         last = last[last["business_id"].isin(ids)]
     last = last[last["completed_date"] < T]
     stub = last[["business_id", "business_type", "zip", "lat", "lng", "opened_date"]].copy()
-    stub = stub.assign(insp_type="Routine", completed_date=T, score=np.nan, n_major=np.nan,
+    stub = stub.assign(insp_type="Routine", completed_date=T, score=np.nan, rated_score=np.nan, n_major=np.nan,
                        n_violations=np.nan, major=np.nan, _asof=True)
     full = _order(pd.concat([base[base["business_id"].isin(stub["business_id"])].assign(_asof=False), stub],
                             ignore_index=True))
@@ -230,17 +253,35 @@ class Model:
         X[self.cat] = self.enc.transform(X[self.cat])
         return X
 
-    def fit(self, rows, y=None, sample_weight=None):
-        from sklearn.preprocessing import OrdinalEncoder
+    def _clf(self, X, max_iter):
         from sklearn.ensemble import HistGradientBoostingClassifier
+        return HistGradientBoostingClassifier(
+            max_iter=max_iter, learning_rate=0.08, max_leaf_nodes=48,
+            categorical_features=[X.columns.get_loc(c) for c in self.cat], l2_regularization=1.0,
+            early_stopping=False, random_state=0)
+
+    def fit(self, rows, y=None, sample_weight=None):
+        """Early stopping on TIME: the number of boosting rounds is chosen on the last VAL_MONTHS of
+        the training rows (a random 10% split, sklearn's default, puts a facility's inspections on
+        both sides and wastes 10% of the data), then the model is refit on every training row."""
+        from sklearn.metrics import log_loss
+        from sklearn.preprocessing import OrdinalEncoder
         self.enc = OrdinalEncoder(handle_unknown="use_encoded_value", unknown_value=-1, encoded_missing_value=-1)
         self.enc.fit(rows[self.cat])
         X = self._X(rows)
-        self.clf = HistGradientBoostingClassifier(
-            max_iter=300, learning_rate=0.08, max_leaf_nodes=48,
-            categorical_features=[X.columns.get_loc(c) for c in self.cat], l2_regularization=1.0,
-            early_stopping=True, n_iter_no_change=20, random_state=0)
-        self.clf.fit(X, rows["major"].values if y is None else y, sample_weight=sample_weight)
+        yv = np.asarray(rows["major"].values if y is None else y)
+        w = None if sample_weight is None else np.asarray(sample_weight)
+        self.n_iter = MAX_ITER
+        if "completed_date" in rows:
+            dt = pd.to_datetime(rows["completed_date"]).to_numpy()
+            cut = dt.max() - np.timedelta64(VAL_MONTHS * 30, "D")
+            fit_m, val_m = dt <= cut, dt > cut
+            if fit_m.sum() >= 1000 and val_m.sum() >= 300 and 0 < yv[val_m].sum() < val_m.sum():
+                c = self._clf(X, MAX_ITER).fit(X[fit_m], yv[fit_m], sample_weight=None if w is None else w[fit_m])
+                losses = [log_loss(yv[val_m], p[:, 1], labels=[0, 1], sample_weight=None if w is None else w[val_m])
+                          for p in c.staged_predict_proba(X[val_m])]
+                self.n_iter = int(np.argmin(losses)) + 1
+        self.clf = self._clf(X, self.n_iter).fit(X, yv, sample_weight=w)
         return self
 
     def predict(self, rows):
