@@ -4,6 +4,7 @@ import { useMeta, useMode } from "./useMeta";
 import { flagChips, typesFor, bandCounts } from "./lib/filters";
 import { bandPoints } from "./lib/bands";
 import { BAND_FILTERS, ALL_PLACES } from "./constants";
+import AreaToggle from "./AreaToggle";
 
 const chip = (on) =>
   `min-h-[32px] border px-2.5 py-1 text-[13px] leading-none ${
@@ -18,7 +19,7 @@ const places = (n) => `${Number(n || 0).toLocaleString("en-US")} ${n === 1 ? "pl
  * reading, from the index's flags). Each button's accessible name says its
  * count apart from its label ("Band 1, 16 places").
  */
-export default function FilterBar({ filters, onFiltersChange, facilities }) {
+export default function FilterBar({ filters, onFiltersChange, facilities, hasCounty = false }) {
   const { copy } = useAdvanced();
   const meta = useMeta();
   const mode = useMode();
@@ -37,6 +38,12 @@ export default function FilterBar({ filters, onFiltersChange, facilities }) {
 
   return (
     <div className="px-6 py-5">
+      {hasCounty && (
+        <div className="mb-6">
+          <p className="label mb-3">Area</p>
+          <AreaToggle county={Boolean(filters.county)} onChange={(county) => set({ county })} />
+        </div>
+      )}
       {mode === "bands" && bandChoices.length > 1 && (
         <>
           <div className="mb-3 flex items-baseline justify-between gap-3">

@@ -5,6 +5,7 @@ import MobileSheet from "./MobileSheet";
 import AboutModal from "./AboutModal";
 import NearPanel from "./NearPanel";
 import SampleBanner from "./SampleBanner";
+import AreaToggle from "./AreaToggle";
 import Dialog, { CloseButton } from "./Dialog";
 import { useMode, useExpired } from "./useMeta";
 import { passesFilters, sortPlaces } from "./lib/filters";
@@ -22,7 +23,7 @@ const LIST_PAGE = 50;
  * Phone layout: the map or the list, a search field, an address check, and
  * a detail sheet on tap. When the map cannot load, the list takes its place.
  */
-export default function MobileShell({ facilities, filters, selected, onSelect, pointOverlay, onPoint, onNavigate }) {
+export default function MobileShell({ facilities, filters, hasCounty = false, onCountyChange, selected, onSelect, pointOverlay, onPoint, onNavigate }) {
   const [aboutOpen, setAboutOpen] = useState(false);
   const [nearOpen, setNearOpen] = useState(false);
   const [view, setView] = useState("map");
@@ -61,6 +62,7 @@ export default function MobileShell({ facilities, filters, selected, onSelect, p
           </IconButton>
         </div>
         <SampleBanner compact />
+        <div className="flex flex-wrap gap-2">
         {!mapError && (
           <div role="group" aria-label="Show" className="inline-flex border border-rule-strong bg-paper shadow-paper">
             {["map", "list"].map((v) => (
@@ -70,6 +72,8 @@ export default function MobileShell({ facilities, filters, selected, onSelect, p
             ))}
           </div>
         )}
+        {hasCounty && <AreaToggle compact county={Boolean(filters.county)} onChange={onCountyChange} />}
+        </div>
       </div>
 
       {showList && <PlaceList facilities={facilities} filters={filters} onSelect={onSelect} note={mapError ? MAP_UNAVAILABLE : null} />}
