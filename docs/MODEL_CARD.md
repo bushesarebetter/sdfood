@@ -36,8 +36,9 @@ the inspection.
 ## Data
 
 - **Source.** SD Food Info, the County's published inspection results: 16,728 facilities and
-  102,762 inspection records, from 2023-01-03 to 2026-09-19. The data was pulled with
-  `fetch_sdfood.py`, which identifies itself, rate-limits, and stops for good on a refusal.
+  102,762 inspection records, from 2023-01-03 to 2026-09-19. The data was pulled on
+  2026-09-19 by an earlier `fetch_sdfood.py` that rate-limited but sent a browser User-Agent; the
+  current script identifies itself, records `data/pull_meta.json`, and stops for good on a refusal.
 - **Data rules** (`export_site.load_places`, tested; shared with the research CSV):
   - "No Access", "Self Closed" and "Status Verification" visits are not inspections (5,403
     records).

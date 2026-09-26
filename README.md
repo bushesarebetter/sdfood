@@ -6,8 +6,9 @@ schedule. This is the classic "help a public agency allocate a scarce resource" 
 Chicago's food-inspection model).
 
 **By Ayan Pendharkar** (research) **and Chenhao Zhang**, students at Canyon Crest Academy, San Diego. Independent: not affiliated with or endorsed by the
-County of San Diego. The data were collected from the County's public SD Food Info search with an
-identifying User-Agent (`fetch_sdfood.py`), pending an official extract from the County.
+County of San Diego. The data were collected from the County's public SD Food Info search on 2026-09-19, pending an
+official extract from the County. That pull ran before `fetch_sdfood.py` was changed to send an
+identifying User-Agent (2026-09-22): it sent a browser User-Agent. Later pulls identify themselves.
 
 ## The short version
 
@@ -137,8 +138,10 @@ required schedule** by that record. It does not change how often any facility is
 ## Data
 
 SD County DEH inspection results, from the official **sdfoodinfo.org** app's public JSON search
-(`/restaurants/search.htm`): public-record data, collected with an honest User-Agent and rate
-limits (see `fetch_sdfood.py`). For any pilot the County's official extract should replace it.
+(`/restaurants/search.htm`): public-record data, pulled on 2026-09-19 with rate limits
+but a browser User-Agent. `fetch_sdfood.py` now identifies itself (`SDFOOD_CONTACT`) and records
+`data/pull_meta.json`; the current data predates that. For any pilot the County's official
+extract should replace it.
 
 - **92,410 inspections**, 15,870 facilities, **2023-01-03 → 2026-09-19** (~3.7 yr).
 - **64,085 routine** inspections (18,669 in 2025); plus 21,944 re-inspections, 4,558 complaint
