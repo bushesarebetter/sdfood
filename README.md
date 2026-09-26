@@ -15,52 +15,29 @@ identifying User-Agent (2026-09-22): it sent a browser User-Agent. Later pulls i
 - **A one-line rule does most of the work.** Ranking routine inspections by each facility's mean
   routine score on record, lowest first, puts **48%** of 2025-26 major violations in the first
   20% of inspections, **2.4×** the base rate. Within a council district's month it finds them
-  **5.8 days sooner** than the order actually worked.
-- **The research model adds a little.** It reaches the same 48%, with AUC 0.76 against the
-  rule's 0.74, and finds major violations **6.2 days sooner** (0.4 day more than the rule).
-- **Coverage by neighborhood income.** In the last run both found 45% to 51% of the major
-  violations in every ZIP-income quartile. With about 24 ZIPs per quartile, gaps of a few points
-  are within chance, so this shows no detectable disparity rather than proven evenness; the
-  rerun reports ZIP-clustered intervals (FAIRNESS.md).
+  **5.8 days sooner** than the order actually worked (95% CI 5.4–6.1), which is 1.9–2.1% of the
+  277–303 days between a facility's routine inspections.
+- **The research model adds a little, and the data can tell.** Scored as of the 1st of each month,
+  as a monthly list would be, it puts **50%** in the first 20% (1.8 points more than the rule,
+  95% CI +0.6 to +3.1), ranks the whole list better (AUC 0.764 against 0.737; +0.027, +0.023 to
+  +0.032), and finds major violations **6.4 days sooner**: 0.7 day more than the rule (0.5–0.8),
+  about 0.2% of the gap between routine inspections.
+- **Coverage by neighborhood income: no detectable difference.** The model found 47% to 51% of
+  each ZIP-income quartile's major violations, the rule 44% to 52%. Lowest minus highest quartile:
+  model +1.8 points (95% CI −6.2 to +10.1), rule +4.6 (−4.1 to +13.5). Both intervals cover zero,
+  so the data cannot tell the groups apart; that is not proof of evenness (FAIRNESS.md).
 - **What "days sooner" is.** Within a month it is the ranking's AUC restated (about
-  24 × (AUC − 0.5) days in a district's month), and 6 days is about 2% of the ~290-day gap between
-  routine inspections. The model's 0.4 day over the rule is about 0.14%.
+  24 × (AUC − 0.5) days in a district's month), and 6 days is about 2% of the 277–303-day gap
+  between routine inspections. It is detection latency within an already-scheduled month, not
+  prevented illness.
 - **For the City and the County:** monthly worklists per council district (`export_worklist.py`)
   and a pre-registered silent pilot the City can propose to the County ([docs/PILOT.md](docs/PILOT.md)).
 
-## Figures to rerun (fixes of September 25, 2026)
-
-An external review found problems that change how figures are computed. The code is fixed and
-tested; **the numbers in this README, FAIRNESS.md, outreach.md, docs/ and the dashboard were
-produced before these fixes** and have to be regenerated from the pull:
-
-```bash
-python model_food.py && python sim_schedule.py && python fairness_check.py && \
-python threshold_tradeoff.py && python feedback_check.py && python export_worklist.py && python export_dashboard.py
-```
-
-- **Scored as deployed.** The monthly list is scored on the 1st, but the test table, the
-  days-sooner simulation and the fairness audit read each inspection's history up to the
-  inspection date, so a visit made inside the month (a complaint the week before) counted.
-  `model_food.month_start_rows` scores as of the 1st, the way `features_asof` does for the list;
-  `model_food.py` prints both, and the simulation and fairness audit now use the month-start scores.
-- **Closures count.** A routine that ended in a health closure order has no score, so the
-  one-line rule and the worklist skipped it and a place closed at its only routine ranked as a
-  typical A. They now read it as 70, as the published card does.
-- **Persistence as the card defines it:** the last routine score is read over two years, not one.
-  The baseline the model is compared with was weaker than stated.
-- **Early stopping on time** (the last three training months), not a random 10% split.
-- **Who is due:** routine intervals are Kaplan–Meier medians that count still-open intervals;
-  the plain median of finished gaps ran short. This moves the lists and the 72% backtest figure.
-- **Fairness:** whole ZIPs per income group (row quantiles split ZIPs), ZIP-clustered 95%
-  intervals, false-positive rates by group, and days sooner by group under the proposed
-  within-district reordering.
-- **Feedback loop:** the test now deletes skipped inspections from the record (not just their
-  labels) over four rounds and rebuilds the rule and persistence too. The old one-round test
-  could not detect the harm it was meant to test.
-
-Expect the headline figures to move somewhat. Read the fairness sentences below against the new
-intervals before quoting them.
+Every figure in this README, FAIRNESS.md, outreach.md, docs/ and the dashboard was regenerated on
+2026-09-26, after the September 2026 fixes (scoring as of the 1st of the month, closures read as
+70, two-year persistence, time-based early stopping, Kaplan–Meier due dates, whole-ZIP fairness
+intervals, a feedback test that deletes skipped inspections), from the 2026-09-19 pull
+(inspections through 2026-09-18).
 
 ## What changed (September 2026)
 
@@ -78,41 +55,43 @@ rules as the public site's exporter (`export_site.load_places`, tested). From th
   re-grades came a median 6 days after the B/C and found a major 3% of the time; the 1,464
   reopenings came a median 1 day after the closure order (a major 6% of the time). They are no
   longer routine labels, and their scores are not the facility's routine score.
-- **4,949 same-day records of one type were merged** (grocery departments are inspected as separate records).
-- **102,762 rows → 92,410 inspections**, 15,870 businesses, 2023-01-03 → 2026-09-19. A routine
+- **4,948 same-day records of one type were merged** (grocery departments are inspected as separate records).
+- **102,755 rows → 92,404 inspections**, 15,870 businesses, 2023-01-03 → 2026-09-18. A routine
   inspection's history features read strictly earlier dates only.
 
-The authors rebuilt the old rules on the same pull and got the old figures back (AUC 0.745, 47% in
-the top 20%, +6.3 d in a county-wide month); the clean data give 0.756, 48% and +6.5 d. The script
-for that check is not in the repository.
+The authors also rebuilt the old rules on the same pull and recovered the figures published
+earlier; the script for that check is not in the repository, so its numbers are not repeated here.
 
 ### The model, the comparison and the deliverable
 
-| headline (2025+ forward test) | as published earlier in September | now |
+| headline (2025+ forward test) | as published earlier in September | now (scored as of the 1st) |
 |---|---|---|
 | Model features | since-2023 history, ZIP, permit age as of the pull | since-2023 history, **no ZIP, no permit age** |
-| Model ROC-AUC | 0.756 | **0.758** |
-| Model: top 20% → share of major violations | 48.2% | **47.9%** |
-| One-line rule: top 20% → share | 48.3% | **48.3%** |
-| Days sooner within a district's month: model / rule | +6.2 / +5.8 | **+6.2 / +5.8** |
-| Model's coverage of majors, lowest vs highest income quartile | 42% vs 58% | **50% vs 47%** |
-| Model's flag rate, low- vs high-income ZIPs | 0.61× | **0.97×** |
+| Model ROC-AUC | 0.756 | **0.764** |
+| Model: top 20% → share of major violations | 48.2% | **49.7%** |
+| One-line rule: top 20% → share | 48.3% | **47.8%** |
+| Days sooner within a district's month: model / rule | +6.2 / +5.8 | **+6.4 / +5.8** |
+| Model's coverage of majors, lowest vs highest income quartile | 42% vs 58% | **51% vs 49%** (gap 95% CI −6.2 to +10.1 points) |
+| Model's flag rate, low- vs high-income ZIPs | 0.61× | **0.96×** (0.74–1.22) |
 
 - **Permit age removed (a leak).** `opened_date` is the permit in force when the data were
   collected. A permit reissued after an inspection (a change of owner, say) gave 171 training
   inspections a negative age; they found a major 23.4% of the time against 11.4%. Dropping the
-  feature changes AUC by +0.000 (95% CI −0.002 to +0.002) and the top-20% share by +0.3 points
-  (−0.5 to +1.2): the published figures were not inflated by it. Setting only the impossible ages
-  to missing was tested too (47.5% in the top 20%), but a blank still marks a later reissue, so
+  feature changes AUC by +0.001 (95% CI −0.001 to +0.003) and the top-20% share by +0.1 points
+  (−0.7 to +1.0): the published figures were not inflated by it. Setting only the impossible ages
+  to missing was tested too (47.8% in the top 20%), but a blank still marks a later reissue, so
   the feature is gone.
-- **ZIP removed.** With and without ZIP the model is equally accurate (AUC −0.002, −0.006 to
-  +0.003; top-20% share +0.6 points, −0.7 to +2.1; days sooner −0.1, −0.2 to +0.1, all "with
-  minus without"). Without ZIP its coverage is even across income groups; with ZIP it was not
-  (FAIRNESS.md). The research model now matches the public site's card, which never used ZIP.
+- **ZIP removed.** With ZIP the model ranks slightly worse: AUC −0.006 (−0.011 to −0.002),
+  top-20% share −2.5 points (−3.9 to −1.1), days sooner −0.2 (−0.4 to −0.1), all "with minus
+  without". With ZIP it also covered the major violations of the lowest-%-Hispanic ZIPs better than
+  those of the highest (56% against 40%; gap +16.1 points, +1.4 to +30.2), the only coverage gap
+  in the audit the data can detect (FAIRNESS.md). The research model now matches the public site's
+  card, which never used ZIP.
 - **12-month history tested; since-2023 history kept.** See "History window" below.
-- **The one-line rule leads,** the research model second, persistence as the reference.
+- **The one-line rule leads,** the research model second, persistence as the reference. The model
+  is measurably better than the rule, but by little, and the rule needs no model.
 - **The dashboard's "risk × overdue" ranking was backtested and replaced.** It found major
-  violations 5.3 days sooner within a district's month, against 5.8 for the rule and 6.2 for the
+  violations 5.3 days sooner within a district's month, against 5.8 for the rule and 6.4 for the
   model, so worklists now use the rule's order.
 - **The research dashboard publishes counts only.** It used to embed one row per active facility
   (type, risk, history bands, months since the last visit). 80% of those rows were unique and
@@ -130,7 +109,7 @@ San Diego County sets routine inspection **frequency by facility category** (sch
 facilities about 2.3 times a year against a 1.5 median), and **follow-up visits respond to
 findings**. The routine cadence itself moves a little with a facility's own record: the next
 routine comes a median **277 days** after one that found a major against **303** after one that
-did not, and across the 4,747 facilities on the record for three years or more, the correlation
+did not, and across the 4,746 facilities on the record for three years or more, the correlation
 between a facility's routine major-violation rate and its routine inspections per year is −0.07
 (`model_food.py` prints all three). This project orders routine inspections **within the County's
 required schedule** by that record. It does not change how often any facility is inspected.
@@ -143,8 +122,8 @@ but a browser User-Agent. `fetch_sdfood.py` now identifies itself (`SDFOOD_CONTA
 `data/pull_meta.json`; the current data predates that. For any pilot the County's official
 extract should replace it.
 
-- **92,410 inspections**, 15,870 facilities, **2023-01-03 → 2026-09-19** (~3.7 yr).
-- **64,085 routine** inspections (18,669 in 2025); plus 21,944 re-inspections, 4,558 complaint
+- **92,404 inspections**, 15,870 facilities, **2023-01-03 → 2026-09-18** (~3.7 yr).
+- **64,081 routine** inspections (18,669 in 2025); plus 21,943 re-inspections, 4,557 complaint
   visits and 1,823 follow-ups (re-grade or reopening visits).
 - Per inspection: type, status, score, grade, date, counts of major, minor and good-retail-practice
   items, and closure orders with a reason. `score` is set only for real routine scores.
@@ -158,37 +137,46 @@ extract should replace it.
   routine score, prior major-violation rate, mean violations per visit, whether the last visit
   found a major. No ZIP, no permit age.
 - **Forward-in-time test:** trained on **Jan 2023 – Dec 2024** (31,533 routine), tested on
-  **Jan 2025 – Sep 2026** (32,552 inspections the model never saw; 4,115 found a major).
+  **Jan 2025 – Sep 2026** (32,548 inspections the model never saw; 4,114 found a major).
+- **Scored as deployed.** A monthly list is scored on the 1st, so the headline reads each test
+  inspection's history as of the 1st of its month (`model_food.month_start_rows`, the features the
+  deployed list reads). Only 0.8% of test inspections had a visit between the 1st and the
+  inspection, so scoring at the inspection date gives nearly the same figures (below, for comparison).
 - **Deployment model** (worklists, dashboard) is fitted on **all** routine inspections before the
   list's month; the accuracy figures come only from the held-out test.
 - **Orderings that need no model:** the **one-line rule** (mean routine score on record, lowest
   first); **persistence** (routine inspections with a major in the prior 12 months, then majors,
-  then the lowest last routine score; `export_site.persistence`); the last routine score; the mean
-  routine score over the prior 12 months; the prior major-violation rate. Ties at the cut are
-  split pro rata (the expectation under a random order).
+  then the lowest last routine score over two years; `export_site.persistence`); the last routine
+  score; the mean routine score over the prior 12 months; the prior major-violation rate. A routine
+  that ended in a health closure order reads as a score of 70, as on the published card. Ties at
+  the cut are split pro rata (the expectation under a random order).
 
-| 2025+ test | ROC-AUC | top 20% → share of major violations | precision in top 20% | lift |
+| 2025+ test, scored as of the 1st | ROC-AUC | top 20% → share of major violations | precision in top 20% | lift |
 |---|---|---|---|---|
-| **One-line rule: mean routine score on record** | 0.740 | **48.3%** | 30.5% | 2.42× |
-| **Research model** | **0.758** | 47.9% | 30.3% | 2.39× |
-| Last routine score alone | 0.725 | 46.9% | 29.6% | 2.34× |
+| **One-line rule: mean routine score on record** | 0.737 | **47.8%** | 30.2% | 2.39× |
+| **Research model** | **0.764** | **49.7%** | 31.4% | 2.48× |
+| Last routine score alone | 0.725 | 46.7% | 29.5% | 2.34× |
+| Persistence | 0.724 | 46.1% | 29.1% | 2.31× |
+| Mean routine score, last 12 months | 0.698 | 43.2% | 27.3% | 2.16× |
 | Prior major-violation rate | 0.640 | 42.8% | 27.1% | 2.14× |
-| Persistence (last 12 months) | 0.684 | 41.5% | 26.2% | 2.08× |
-| Mean routine score, last 12 months | 0.682 | 40.7% | 25.7% | 2.04× |
 | Routine calendar, no ordering | 0.500 | 20% | 12.6% (base rate) | 1× |
 
-Model PR-AUC 0.294 (base rate 0.126). Paired bootstrap over facilities, 95% CIs:
+Scored at the inspection date instead: model AUC 0.763 and 49.7%, rule 0.736 and 47.8%,
+persistence 0.723 and 45.9%. Model PR-AUC 0.302 (base rate 0.126). Paired bootstrap over 15,847
+facilities, 95% CIs, scored as of the 1st:
 
-- **Model and one-line rule are tied at the top-20% cut** (model minus rule −0.4 points, −1.7 to
-  +0.8); the model ranks the whole list a little better (AUC +0.018, +0.013 to +0.023).
-- **Both clearly beat persistence:** the model by AUC +0.074 (+0.067 to +0.081) and +6.4 points of
-  major violations in the top 20% (+4.8 to +8.0).
-- **Stable across time:** rolling-origin AUC 0.725–0.759 for the model and 0.722–0.741 for the rule
-  across three cutoffs (persistence 0.673–0.697).
-- **Drivers (permutation importance):** mean routine score on record, business type, mean
+- **The model beats the one-line rule, by a little:** AUC +0.027 (+0.023 to +0.032) and +1.8
+  points of major violations in the top 20% (+0.6 to +3.1). At the inspection date: +0.026
+  (+0.022 to +0.031) and +1.8 (+0.7 to +3.1).
+- **The model beats persistence:** AUC +0.040 (+0.034 to +0.046) and +3.5 points (+2.2 to +4.9).
+  The rule's point estimates sit between the two (AUC 0.737 against 0.724); that pair was not
+  bootstrapped.
+- **Stable across time:** rolling-origin AUC 0.744–0.764 for the model, 0.722–0.738 for the rule
+  and 0.714–0.726 for persistence across three cutoffs (these still read inspection-date features).
+- **Drivers (permutation importance):** business type, mean routine score on record, mean
   violations per visit, prior major-violation rate. Within type the gain holds: flagged
-  restaurants find a major 31% of the time against 19% for all restaurants; retail markets with a
-  deli 28% against 18%.
+  restaurants find a major 32% of the time against 19% for all restaurants; retail markets with a
+  deli 30% against 18%.
 - **It reorders visits every facility already gets.** Nothing here skips a facility or lowers how
   often it is inspected.
 
@@ -201,21 +189,24 @@ trains only on inspections from 2024-01-03, whose year is fully on the record.
 
 | variant (same 2025+ test) | ROC-AUC | top 20% share | days sooner, district month |
 |---|---|---|---|
-| **Since-2023 history, no ZIP, no permit age (headline)** | **0.758** | **47.9%** | **+6.2** |
-| Since-2023, with ZIP | 0.756 | 48.5% | +6.2 |
-| Since-2023, ZIP, permit age missing when impossible | 0.755 | 47.5% | |
-| As published: since-2023, ZIP, permit age as of the pull | 0.756 | 48.2% | +6.2 |
-| 12-month window, no ZIP (trained 2024) | 0.736 | 42.7% | +5.7 |
-| 12-month window, with ZIP (trained 2024) | 0.735 | 43.1% | |
-| 12-month window, with ZIP, trained 2023-24 | 0.738 | 43.3% | |
+| **Since-2023 history, no ZIP, no permit age (headline)** | **0.763** | **49.7%** | **+6.4** |
+| Since-2023, with ZIP | 0.756 | 47.2% | +6.2 |
+| Since-2023, ZIP, permit age missing when impossible | 0.756 | 47.8% | |
+| As published: since-2023, ZIP, permit age as of the pull | 0.756 | 47.1% | +6.2 |
+| 12-month window, no ZIP (trained 2024) | 0.739 | 42.7% | +5.9 |
+| 12-month window, with ZIP (trained 2024) | 0.738 | 43.6% | |
+| 12-month window, with ZIP, trained 2023-24 | 0.739 | 42.5% | |
+
+(AUC and share scored at the inspection date, where every variant is fitted; days sooner as of
+the 1st.)
 
 **The headline uses since-2023 history.** A third of test routine inspections (32.6%) have no
 routine score in the 365 days before them (a long gap, but also a closure or a first visit), so a
-12-month window misses the one score that matters most; it costs 0.022 AUC (0.017 to 0.028) and 5.2 points of the top-20% share
-(3.6 to 6.8), whatever the training years. The since-2023 forward test stays honest: every
-training row saw only what was on the record at the time, and the test rows simply have longer
-histories. The same holds for the rule: the mean routine score over the last 12 months does much
-worse than the mean on record (40.7% against 48.3%).
+12-month window misses the one score that matters most; it costs 0.024 AUC (0.019 to 0.029) and
+7.0 points of the top-20% share (5.6 to 8.6), whatever the training years. The since-2023 forward
+test stays honest: every training row saw only what was on the record at the time, and the test
+rows simply have longer histories. The same holds for the rule: the mean routine score over the
+last 12 months does much worse than the mean on record (43.2% against 47.8%).
 
 ## Finding major violations sooner (the operational claim)
 
@@ -223,19 +214,20 @@ Working an already-scheduled batch of routine inspections in a ranked order find
 violations sooner. Inspectors work areas, not one county-wide pool, so the realistic batch is **a
 City of San Diego council district's month** (outside the City, a ZIP3 area's month):
 
-| ordering, within a district / ZIP3 month | major violations found sooner than the order actually worked |
-|---|---|
-| **One-line rule** | **+5.8 d** (95% CI 5.5–6.2) |
-| **Research model** | **+6.2 d** (5.9–6.6) |
-| The old dashboard's risk × overdue weighting | +5.3 d (4.8–5.8) |
-| Persistence | +4.4 d (4.0–4.8) |
-| Mean routine score, last 12 months | +4.3 d (3.9–4.8) |
+| ordering, within a district / ZIP3 month | major violations found sooner than the order actually worked | as a share of the 277–303-day gap between routine inspections |
+|---|---|---|
+| **One-line rule** | **+5.8 d** (95% CI 5.4–6.1) | 1.9–2.1% |
+| **Research model** | **+6.4 d** (6.0–6.8) | 2.1–2.3% |
+| Persistence | +5.5 d (5.1–5.8) | 1.8–2.0% |
+| The old dashboard's risk × overdue weighting | +5.3 d (4.8–5.7) | 1.7–1.9% |
+| Mean routine score, last 12 months | +4.8 d (4.3–5.2) | 1.6–1.7% |
 
-- The model adds **0.4 day** over the rule (0.3–0.5) and **1.8 days** over persistence (1.6–2.1),
-  paired bootstrap over months. Clean facilities wait 0.8–0.9 day longer: the reorder is zero-sum
-  in inspection-days.
-- County-wide monthly pool: model +6.5 d, rule +6.1 d. A whole quarter treated as one pool: model
-  +19.6 d, rule +18.3 d; the effect scales with the reorder window, which is why the honest number
+- The model adds **0.7 day** over the rule (0.5–0.8), about 0.2% of the routine gap, and **1.0
+  day** over persistence (0.8–1.1), paired bootstrap over months. Clean facilities wait 0.8–0.9
+  day longer: the reorder is zero-sum in inspection-days.
+- Scored as of the 1st (above) or at the inspection date, the model's figure is the same +6.4 d.
+- County-wide monthly pool: model +6.7 d, rule +6.0 d. A whole quarter treated as one pool: model
+  +20.1 d, rule +18.1 d; the effect scales with the reorder window, which is why the honest number
   is the within-month one.
 - **Assumptions:** a facility's finding does not depend on the day of the month it is inspected,
   and routing is ignored (a reordered month may cost more driving). Council districts stand in for
@@ -245,29 +237,29 @@ City of San Diego council district's month** (outside the City, a ZIP3 area's mo
 - **What the number is.** Within a pool the gain for major violations is, to within a tenth of a
   day, (1 − base rate) × (AUC within the pool − 0.5) × the pool's span of days: every arm above
   fits about 24 × (AUC − 0.5). It restates ranking quality; it is not separate evidence. As a
-  share of the ~277–303-day gap between routine inspections, 6.2 days is about 2%.
+  share of the 277–303-day gap between routine inspections, 6.4 days is about 2%.
 - **It reorders the inspections that were actually done**, as if the month's schedule were known
-  on the 1st. The estimated due list covers about 72% of a month's routine inspections and is about
-  2.6 times the month's volume, so the list's own benefit is smaller than the simulation's.
+  on the 1st. The estimated due list covers about 67% of a month's routine inspections and is about
+  2.1 times the month's volume, so the list's own benefit is smaller than the simulation's.
 
 ## Survivorship
 
 **SD Food Info lists only facilities that exist today, so every cohort here holds survivors.**
 Only 12 of the 15,870 businesses in the data were last seen before 2025; a complete record would
 hold every place that closed in 2023-24. The pull's permit status shows the few closing places
-that remain: 196 of 16,728 businesses have an expired permit, and their 367 test inspections found
-a major 21.5% of the time against 12.5%. In 2024, 1,292 permits were opened, 9.7% of the
+that remain: 198 of 16,728 businesses have an expired permit, and their 369 test inspections found
+a major 21.4% of the time against 12.5%. In 2024, 1,292 permits were opened, 9.7% of the
 facilities on the record by then; in a stable population about as many close each year.
 
-**Bound** (`model_food.py`): add X% more test inspections from missing facilities with the
-expired group's major rate, then re-cut the top 20%.
+**Bound** (`model_food.py`, inspection-date scores): add X% more test inspections from missing
+facilities with the expired group's major rate, then re-cut the top 20%.
 
 | missing inspections | ranked like the listed expired facilities: model / rule | worst case, all ranked last: model / rule |
 |---|---|---|
-| 0% (as measured) | 47.9% / 48.3% | |
-| +5% | 47.1% / 48.1% | 45.5% / 45.8% |
-| +10% | 46.7% / 47.6% | 43.8% / 44.1% |
-| +20% | 45.6% / 46.7% | 40.2% / 40.8% |
+| 0% (as measured) | 49.7% / 47.8% | |
+| +5% | 49.3% / 47.7% | 47.1% / 45.3% |
+| +10% | 48.6% / 47.4% | 45.3% / 43.6% |
+| +20% | 47.7% / 46.9% | 41.1% / 40.3% |
 
 Even with a fifth more inspections from vanished facilities, ranked as badly as possible, the top
 20% of either ordering still holds about twice its share of major violations. The rule and the
@@ -276,28 +268,47 @@ permits included, remove the question.
 
 ## Fairness (see FAIRNESS.md)
 
-In the last run (before the fixes above) actual major-violation rates were nearly flat across ZIP
-income (0.95×, lowest to highest quartile), and so were the flag rates (model 0.97×, rule 1.07×,
-persistence 0.96×); in every income quartile the model found 45% to 51% of the major violations in
-its top 20%, and the rule 45% to 51%. **With about 24 ZIPs per quartile, spreads that size are
-within chance**, so the honest reading is "no detectable disparity", not "even". Two things the
-old table shows but did not report: the rule flagged the lowest-income quartile at 1.67× its
-actual rate against 1.49× for the highest, and its false-positive rate there was 16.2% against
-15.0%. The model's predicted rate ran 12–14% (relative) above the actual rate in every quartile
-(calibration-in-the-large only). The rerun adds ZIP-clustered intervals for all of these and days
-sooner by group under the proposed reordering. Keep routine inspections everywhere and monitor
-coverage by group in use.
+Scored as of the 1st, with whole ZIPs per income group and 95% intervals that resample whole ZIPs:
+
+- Actual major-violation rates are nearly flat across ZIP income (lowest quartile 0.95× the
+  highest, 0.76–1.19), and so are the flag rates: model 0.96× (0.74–1.22), rule 1.08×
+  (0.84–1.38), persistence 1.03× (0.83–1.29).
+- Share of each income quartile's major violations in the top 20%: model 47% to 51%, rule 44% to
+  52%, persistence 42% to 49%. Lowest minus highest quartile: model +1.8 points (−6.2 to +10.1),
+  rule +4.6 (−4.1 to +13.5), persistence +5.4 (−2.9 to +14.2).
+- **Every one of these intervals covers equality, so the audit finds no detectable difference** by
+  income, and none by %-Hispanic tercile for the three orderings. With about 24 ZIPs per quartile
+  it cannot rule out gaps of several points either way.
+- Under the proposed within-district reordering, major violations surface 6.0 to 6.8 days sooner
+  across income quartiles with the model and 5.2 to 6.2 with the rule, with overlapping intervals.
+- False-positive rates by quartile: model 14.9% to 16.9%, rule 14.8% to 17.1%. The rule's is 16.7%
+  in the lowest-income quartile against 15.3% in the highest; the per-group intervals overlap, and
+  the audit does not estimate the difference itself.
+- The model's predicted rate runs 0.9 to 1.2 points (7–10% relative) above the actual rate in
+  every quartile (calibration-in-the-large only).
+- The model with ZIP, which is not used, shows the audit's one detectable gap (above).
+
+Keep routine inspections everywhere and monitor coverage by group in use.
 
 ## Feedback loop (see feedback_check.py)
 
 The labels, and every facility's record, come from the inspections that get done, so targeting
-could go blind to places it stops visiting. The earlier one-round test dropped only the labels and
-kept every facility's full history, so it could not show that harm (it reported coverage moving by
-at most 1 point). `feedback_check.py` now deletes skipped inspections and their follow-ups from the
-record over four quarterly rounds of 2024, rebuilds the model, the rule and persistence from what
-is left, and scores all three on 2025+. On synthetic data the model loses about 0.04 AUC when only
-its top 40% are inspected. Numbers for San Diego: rerun. This concerns an inspect-less policy the
-project does not propose; reordering within the schedule removes no inspection.
+could go blind to places it stops visiting. `feedback_check.py` deletes skipped inspections and
+their follow-ups within 45 days from the record over four quarterly rounds of 2024, rebuilds the
+model, the rule and persistence from what is left, and scores all three on 2025+:
+
+| AUC on 2025+ | A: every inspection kept | B: only the model's top 40% inspected | C: top 40% plus a random 15% of the rest (3 seeds) |
+|---|---|---|---|
+| Model | 0.763 | 0.757 | 0.756 |
+| One-line rule | 0.736 | 0.722 | 0.725 |
+| Persistence | 0.723 | 0.708 | 0.711 |
+
+Inspecting only the model's picks (arm B removes 9,440 routine inspections) costs the model 0.006
+AUC and the rule and persistence 0.014 to 0.015: the rules read the same thinned record and lose
+more. A random 15% on top (arm C) barely changes that. Coverage by income quartile moves by at most
+3 points. Arms A and B are single deterministic runs, so these differences carry no interval. This
+concerns an inspect-less policy the project does not propose; reordering within the schedule
+removes no inspection (arm A).
 
 ## Monthly worklists for the City's council districts (`export_worklist.py`)
 
@@ -305,17 +316,18 @@ For a month (by default the one after the data end), one CSV per council distric
 `data/worklists/<yyyy-mm>/`, the source the staff API serves:
 
 - **Who is due** is estimated, since the public record has no schedule: a facility is listed when,
-  by the month's end, the days since its last routine inspection reach its business type's median
-  routine interval minus 30. In a backtest over 2025-01 to 2026-08, **72%** of each month's City
-  routine inspections (at facilities already on the record) came from that month's list; a list
-  runs about 2.6 times a month's volume. For October 2026: 2,279 facilities across the nine
+  by the month's end, the days since its last routine inspection reach its business type's
+  routine interval (a Kaplan–Meier median that counts still-open intervals) minus 30. In a backtest
+  over 2025-01 to 2026-08, **67%** of each month's City routine inspections (at facilities already
+  on the record) came from that month's list, and 32% of a list was inspected that month: a list
+  runs about 2.1 times a month's volume. For October 2026: 2,029 facilities across the nine
   districts.
 - **The order:** the published point card's points first (the site's rule, below), then places
   the card does not score by the one-line rule. Each row says why it sits where it does.
 - **A frozen copy** (read-only, timestamped, with sha256 hashes and every active facility's
   position under each ordering) lets a silent pilot be scored later against exactly what was sent:
   [docs/PILOT.md](docs/PILOT.md). In the backtest, two districts for three months are enough to
-  confirm a head start of the size above (power 0.79).
+  confirm a head start of the size above (power 0.80).
 
 ## Two sets of numbers
 
@@ -347,7 +359,7 @@ imports it. `model_food.py`, `sim_schedule.py`, `fairness_check.py`, `threshold_
 `export_dashboard.py` reads them, so the dashboard has no hand-typed figures.
 
 ```bash
-python -m pip install -r requirements.txt   # Python 3.14.4, pinned
+python -m pip install -r requirements.txt   # pinned; these figures: Python 3.13.14
 python fetch_sdfood.py     # pull the public search -> data/ (gitignored). Set SDFOOD_CONTACT first.
 python fetch_sdfood.py --csv-only   # rebuild the CSV from a saved pull, no network
 python model_food.py       # forward test, variants, baselines, survivorship bound -> food_gains.png

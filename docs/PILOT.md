@@ -3,15 +3,17 @@
 A proposal the City of San Diego can bring to the County's Food & Housing Division. In its
 first phase nothing about any inspection changes. Every number below comes from
 `sim_schedule.py` and `export_worklist.py` on the County's public results (SD Food Info),
-2023-01 to 2026-09; see the README.
+2023-01 to 2026-09 (the 2026-09-19 pull, rerun 2026-09-26); see the README.
 
 ## The question
 
 If a council district's routine inspections for a month were worked in the list's order,
 would major violations be found sooner than in the order actually worked? In the backtest,
 ordering each district's month by the one-line rule (lowest mean routine score on record
-first) finds them **5.8 days sooner** (95% CI 5.5 to 6.2), and the research model **6.2
-days** (5.9 to 6.6). The pilot checks this going forward, on the County's own schedule.
+first) finds them **5.8 days sooner** (95% CI 5.4 to 6.1), and the research model **6.4
+days** (6.0 to 6.8): about 2% of the 277–303 days between a facility's routine inspections. It
+is detection within a month's schedule, not prevented illness. The pilot checks this going
+forward, on the County's own schedule.
 
 ## Silent phase: three months
 
@@ -28,10 +30,10 @@ days** (5.9 to 6.6). The pilot checks this going forward, on the County's own sc
 
 **Due this month (an estimate).** The public record has no schedule. A facility is listed when,
 on the month's last day, the days since its last routine inspection reach its business type's
-median interval between routine inspections minus 30 days. In the backtest over 2025-01 to
-2026-08, **72%** of each month's City routine inspections (at facilities already on the record)
-were on that month's list, and 28% of a list was inspected that month: a list runs about 2.6
-times a month's volume. With the County's schedule this estimate is replaced by the real one.
+median interval between routine inspections (a Kaplan–Meier median that counts still-open
+intervals) minus 30 days. In the backtest over 2025-01 to 2026-08, **67%** of each month's City
+routine inspections (at facilities already on the record) were on that month's list, and 32% of a
+list was inspected that month: a list runs about 2.1 times a month's volume. With the County's schedule this estimate is replaced by the real one.
 
 ## Arms: orders compared on the same inspections
 
@@ -63,20 +65,20 @@ times a month's volume. With the County's schedule this estimate is replaced by 
 ## Power
 
 From the 184 City council district-months of 2025-26 with at least one major (median 10 majors
-each). Per district-month, the one-line rule's advantage over the order worked has mean **+5.8
-days** and SD **4.4 days**.
+each). Per district-month, the one-line rule's advantage over the order worked has mean **+5.7
+days** and SD **4.2 days**.
 
 | to detect (two-sided 5%, 80% power) | district-months needed (normal approximation) | power by resampling the observed district-months (t-test) |
 |---|---|---|
-| an advantage of the backtest's size (+5.8 d) | 5 | 0.32 with 3, 0.79 with 6, 0.94 with 9 |
-| a 2-day advantage | 38 | 0.14 with 6, 0.31 with 12, 0.67 with 27 |
+| an advantage of the backtest's size (+5.7 d) | 5 | 0.31 with 3, 0.80 with 6, 0.95 with 9 |
+| a 2-day advantage | 36 | 0.15 with 6, 0.32 with 12, 0.70 with 27 |
 | a 2-day difference between the model and the rule (SD of the difference 1.8 d) | 7 | |
-| the backtest's model-over-rule difference (+0.3 d) | 325 | |
+| the backtest's model-over-rule difference (+0.6 d) | 73 | |
 
 Two districts for three months (6 district-months) can confirm an advantage near the backtest's
-size. Confirming a 2-day minimum takes about all nine districts for four months. No practical
-silent pilot can separate the research model from the one-line rule, and this one does not try:
-the rule is the primary arm. (The list as sent is scored with the rule's spread as a proxy.)
+size. Confirming a 2-day minimum takes about all nine districts for four months. Separating the
+research model from the one-line rule would take about 73 district-months (all nine districts for
+about eight months), and this pilot does not try: the rule is the primary arm. (The list as sent is scored with the rule's spread as a proxy.)
 
 ## Later: a randomized active phase (optional)
 
