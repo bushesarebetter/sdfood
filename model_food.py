@@ -115,7 +115,7 @@ def load(path=DATA):
     rt_day = df[df["insp_type"].astype(str) == "Routine"].duplicated(["business_id", "completed_date"])
     if rt_day.any():
         raise ValueError(f"{int(rt_day.sum())} same-day duplicate routine rows in {path}: rebuild the CSV "
-                         "with fetch_sdfood.py, which merges them")
+                         "from the saved pull (python fetch_sdfood.py --csv-only; no network), which merges them")
     # The score the no-model rules read: a routine that ended in a health closure order has no score,
     # and counts as es.CLOSURE_SCORE, as in the published card (export_site.features_at). Without
     # this a place closed at its only routine ranked as a typical A. Model features keep real scores.
@@ -516,15 +516,21 @@ def main():
              "with ZIP": (WITH_ZIP, HEADLINE),
              "12-month window": (WINDOW, HEADLINE)}
     EW = {v: top_weights(P[v]) for pr in pairs.values() for v in pr}
+    WD = {k: top_weights(v) for k, v in deployed_scores.items()}
     codes = pd.factorize(dt["business_id"])[0]; ncl = codes.max() + 1
     rng = np.random.default_rng(0)
     draws = {k: {"auc": [], "cap": []} for k in comps + list(pairs)}
+    ddraws = {k: {"auc": [], "cap": []} for k in comps}   # the same pairs, scored as deployed
     for _ in range(BOOT):
         wt = np.bincount(rng.integers(0, ncl, ncl), minlength=ncl)[codes].astype(float)
         am = roc_auc_score(yte, p, sample_weight=wt); cm = (wt*W["Model"]*yte).sum() / (wt*yte).sum()
         for k in comps:
             draws[k]["auc"].append(am - roc_auc_score(yte, scores[k], sample_weight=wt))
             draws[k]["cap"].append(cm - (wt*W[k]*yte).sum() / (wt*yte).sum())
+        amd = roc_auc_score(yte, pm, sample_weight=wt); cmd = (wt*WD["Model"]*yte).sum() / (wt*yte).sum()
+        for k in comps:
+            ddraws[k]["auc"].append(amd - roc_auc_score(yte, deployed_scores[k], sample_weight=wt))
+            ddraws[k]["cap"].append(cmd - (wt*WD[k]*yte).sum() / (wt*yte).sum())
         va = {v: roc_auc_score(yte, P[v], sample_weight=wt) for v in EW}
         vc = {v: (wt*EW[v]*yte).sum() / (wt*yte).sum() for v in EW}
         for k, (a, b) in pairs.items():
@@ -539,6 +545,15 @@ def main():
         tag = " (best AUC baseline)" * (k == best_auc) + " (best top-20% baseline)" * (k == best_cap)
         print(f"  vs {k}{tag}: AUC {da:+.3f} [{diffs[k]['auc_ci'][0]:+.3f}, {diffs[k]['auc_ci'][1]:+.3f}]   "
               f"top-20% capture {dc*100:+.1f} pts [{diffs[k]['top20_recall_ci'][0]*100:+.1f}, {diffs[k]['top20_recall_ci'][1]*100:+.1f}]")
+    ddiffs = {}
+    print("=== the same, AS DEPLOYED (features as of the 1st of the month) ===")
+    for k in comps:
+        m, b = as_deployed["Model"], as_deployed[k]
+        da, dc = m["auc"] - b["auc"], m["top20_recall"] - b["top20_recall"]
+        ddiffs[k] = {"auc": round(da, 4), "auc_ci": ci(ddraws[k]["auc"]),
+                     "top20_recall": round(dc, 4), "top20_recall_ci": ci(ddraws[k]["cap"])}
+        print(f"  vs {k}: AUC {da:+.3f} [{ddiffs[k]['auc_ci'][0]:+.3f}, {ddiffs[k]['auc_ci'][1]:+.3f}]   "
+              f"top-20% capture {dc*100:+.1f} pts [{ddiffs[k]['top20_recall_ci'][0]*100:+.1f}, {ddiffs[k]['top20_recall_ci'][1]*100:+.1f}]")
     vdiffs = {}
     print("=== one change at a time (variant a minus variant b), same bootstrap ===")
     for k, (a, b) in pairs.items():
@@ -650,7 +665,7 @@ def main():
         "train_n": var_rows[HEADLINE]["train_n"], "test_n": int(te.sum()), "test_major_rate": round(float(yte.mean()), 4),
         "pr_auc": round(float(average_precision_score(yte, p)), 4),
         "rankings": {k: {c: round(float(tab.loc[k, c]), 4) for c in tab.columns} for k in tab.index},
-        "as_deployed": {"rankings": as_deployed, "rows_with_a_visit_inside_the_month": round(changed, 4),
+        "as_deployed": {"rankings": as_deployed, "rows_with_a_visit_inside_the_month": round(changed, 4), "vs": ddiffs,
                         "note": "features as of the 1st of each test inspection's month (month_start_rows)"},
         "best_auc_baseline": best_auc, "best_top20_baseline": best_cap, "vs": diffs,
         "variants": var_rows, "ablation": vdiffs, "age_leak": leak, "truncation": trunc,
