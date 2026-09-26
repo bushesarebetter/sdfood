@@ -1,5 +1,5 @@
 # The Python environment every figure in README.md, FAIRNESS.md and docs/ was produced with.
-# Python 3.14.4 (CPython, 64-bit, Windows 11). Install with: python -m pip install -r requirements.txt
+# Python 3.13.14 (CPython, 64-bit, Windows 11) for the 2026-09-26 figures. Install with: python -m pip install -r requirements.txt
 #
 # Imported by the scripts: model_food.py, sim_schedule.py, fairness_check.py, threshold_tradeoff.py,
 # feedback_check.py, export_dashboard.py, export_worklist.py, export_site.py, fetch_sdfood.py, api/, tests/.

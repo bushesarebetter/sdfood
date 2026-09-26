@@ -24,9 +24,9 @@ Model variants, all tested on the same 2025+ inspections:
     routine inspections come more than a year after the facility's previous routine, so the
     window misses the one score that matters most. The headline keeps since-2023 history; its
     forward test stays honest, because each training row saw only what was on the record then.
-  * ZIP: with and without. Without ZIP the model was as accurate, and in the last run its recall
-    of majors showed no detectable gap across ZIP income groups (fairness_check.py now adds
-    ZIP-clustered intervals; rerun); with ZIP the gap was larger. The headline has no
+  * ZIP: with and without. Without ZIP the model ranks slightly better, and its recall of majors
+    shows no detectable gap across ZIP income or %-Hispanic groups (fairness_check.py, whose
+    intervals resample whole ZIPs); with ZIP it shows one by %-Hispanic. The headline has no
     ZIP, as the public site's card has none.
 
 This file is also the research code's shared library: sim_schedule.py, fairness_check.py,

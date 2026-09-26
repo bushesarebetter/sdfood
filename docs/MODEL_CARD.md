@@ -2,9 +2,9 @@
 
 This card describes the rule behind the City staff API ([API.md](API.md)) and the gated public
 site (`food-dashboard/`): what it is, how it was chosen and tested, and what it is for. Every
-figure comes from `data/site/report.md` for the run `forward_2026-09-20`, which was built from the
-full SD Food Info pull of 2026-09-23/24, with inspections through 2026-09-19. Rerunning
-`export_site.py` regenerates the figures.
+figure comes from `data/site/report.md` for the run `forward_2026-09-19` (generated 2026-09-26),
+which was built from the SD Food Info pull of 2026-09-19, with inspections through 2026-09-18.
+Rerunning `export_site.py` regenerates the figures.
 
 ## In one paragraph
 
@@ -36,14 +36,14 @@ the inspection.
 ## Data
 
 - **Source.** SD Food Info, the County's published inspection results: 16,728 facilities and
-  102,762 inspection records, from 2023-01-03 to 2026-09-19. The data was pulled on
+  102,755 inspection records, from 2023-01-03 to 2026-09-18. The data was pulled on
   2026-09-19 by an earlier `fetch_sdfood.py` that rate-limited but sent a browser User-Agent; the
   current script identifies itself, records `data/pull_meta.json`, and stops for good on a refusal.
 - **Data rules** (`export_site.load_places`, tested; shared with the research CSV):
   - "No Access", "Self Closed" and "Status Verification" visits are not inspections (5,403
     records).
   - A routine visit within 30 days after a B, a C or a closure is a re-grade or reopening (1,823).
-  - For the model, same-day records of one type are one visit (4,949 merged). For display, every
+  - For the model, same-day records of one type are one visit (4,948 merged). For display, every
     County record is shown as published.
   - 0 means "not scored". Grades are the County's, and never derived.
   - Severity tiers come from the status text, and themes from the item text (the mobile-unit report
@@ -52,8 +52,9 @@ the inspection.
     Reopen" visit ended it.
 - **Listed places.** Restaurants, limited-preparation food service, and markets with a deli or food
   processing, inside the City (SANDAG council districts), visited in the last 18 months, with an
-  unexpired permit. 5,386 as of 2026-09-20.
-- **Scored places.** Restaurants with two rated routine inspections in the last two years: 3,653.
+  unexpired permit. 5,385 as of 2026-09-19.
+- **Scored places.** Restaurants with two rated routine inspections in the last two years: 3,655
+  (634 of them in the band).
 
 ## The rule
 
@@ -95,15 +96,16 @@ restaurants had a routine inspection in the following year, and 761 of them foun
 
 | | places | had a major at the next routine inspection | 95% interval | kept in refits |
 |---|---|---|---|---|
-| Band (41 points or more) | 618 | 37.2% | 33.4% to 41.3% | 93% |
+| Band (41 points or more) | 618 | 37.2% | 33.4% to 41.3% | 92% |
 | Other scored restaurants | 2,863 | 17.8% | 16.4% to 19.3% | |
 
 - **Why there is one band.** Bands are cut at whole point values, so a tie is never split. Adjacent
   bands whose intervals overlap are merged. At this origin the top 2.5%, 7.5% and 17.5% of the list
   could not be told apart, so they form one band.
-- **Refits.** Across 30 refits on resampled training data, 93% of today's band stayed in it.
+- **Refits.** Across 30 refits on resampled training data, 92% of today's band stayed in it.
 - **The persistence ordering.** Ranking by each restaurant's recent majors and scores reaches a
-  similar rate in a group of the same size (37.8%). The rule is a transparent way to see the
+  similar rate in a group of the same size (37.8%); among eligible restaurants the rule's AUC minus
+  persistence's is −0.010 to +0.014 (95%), no detectable difference. The rule is a transparent way to see the
   County's record, not a replacement for it.
 
 **Where the band lands.** The report tabulates, by council district, how many restaurants are in
@@ -112,13 +114,15 @@ Districts 8 (52%) and 3 (50%), and lowest in District 4 (15%, of 21).
 
 ## What the label is made of
 
-- 99.3% of graded routine inspections are an A, including 94.2% of those that found a major.
-- Scores gather at the A line: 2,930 routine inspections scored exactly 90, and 3 scored 89.
-- A major follows a major 29.9% of the time, against 10.9% after a clean routine inspection.
-- Different businesses at one address agree more on the same day than on different days. The
+- 99.2% of graded routine inspections are an A, including 94.1% of those that found a major.
+- Scores gather at the A line: 2,860 routine inspections scored exactly 90, and none scored 89.
+- A major follows a major 31.5% of the time, against 14.3% after a clean routine inspection.
+- Different businesses at one address agree more on the same day than on different days (a
+  correlation of 0.098 over 3,021 same-day pairs, against 0.062 for visits 60+ days apart). The
   record doesn't say which inspector made a visit, so inspector territories would sharpen any
   rule. The outreach asks the County for them.
-- The share of routine inspections with a major rose from 8.9% (2023 Q1) to 15.9% (2026 Q3).
+- The share of routine inspections with a major rose from 12.3% (2023 Q1) to 20.1% (2026 Q3,
+  through September 18).
 - **Survivorship.** SD Food Info lists facilities that exist today, so the backtest holds places
   that survived to the pull. An official extract that includes inactive permits would remove this.
 
