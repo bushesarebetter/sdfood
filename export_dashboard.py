@@ -118,6 +118,13 @@ def main():
     pct = lambda v: f"{v*100:.0f}%"
     rng2 = lambda v: f"{min(v):.2f}–{max(v):.2f}"
     ci2 = lambda c: f"{c[0]:.1f}–{c[1]:.1f}"
+    # days sooner as a share of the gap between routine inspections (277 d after a major, 303 after none)
+    gap = (M["premise"]["gap_after_major"], M["premise"]["gap_after_clean"])
+    share = lambda days, nd=1: f"{days/gap[1]*100:.{nd}f}–{days/gap[0]*100:.{nd}f}%"
+    CI = F["ci_income"]
+    rgap = lambda k, lo, hi: (f"{F[lo] - F[hi]:+.1f} pts (95% CI {CI[k]['recall_gap_low_minus_high_pts'][0]:+.1f} to "
+                              f"{CI[k]['recall_gap_low_minus_high_pts'][1]:+.1f})")
+    zab = M["ablation"]["with ZIP"]
     d = insp[insp["insp_type"].astype(str) == "Routine"]
     routine_2025 = int((d["completed_date"].dt.year == 2025).sum())
     major_2025 = int(((d["completed_date"].dt.year == 2025) & (d["major"] == 1)).sum())
@@ -142,6 +149,11 @@ def main():
         "days_over_rule": f"{MM[RL]['days']:.1f}", "days_over_rule_ci": ci2(MM[RL]["ci"]),
         "days_overdue": f"{A['Model x overdue (old dashboard)']['days_earlier']:.1f}",
         "clean_wait": f"{abs(A[RL]['clean_days']):.1f}",
+        "gap": f"{gap[0]}–{gap[1]}", "days_share": share(A["Model"]["days_earlier"]),
+        "days_rule_share": share(A[RL]["days_earlier"]), "days_over_rule_share": share(MM[RL]["days"], 2),
+        "recall_gap": rgap("model", "recall_low", "recall_high"),
+        "recall_gap_rule": rgap("rule", "rule_recall_low", "rule_recall_high"),
+        "zip_auc": f"{zab['auc']:+.3f}, 95% CI {zab['auc_ci'][0]:+.3f} to {zab['auc_ci'][1]:+.3f}",
         "flag_ratio": f"{F['flag_ratio']:.2f}×", "rule_flag_ratio": f"{F['rule_flag_ratio']:.2f}×",
         "actual_ratio": f"{F['actual_ratio']:.2f}×",
         "recall_model": rec("recall_of_crit_%"), "recall_rule": rec("rule_recall_%"), "recall_zip": rec("zip_recall_%"),
