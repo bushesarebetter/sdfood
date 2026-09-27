@@ -10,26 +10,51 @@ Sources backing the claims in this repo, grouped by what they support. Links ver
   - Repo: https://github.com/Chicago/food-inspections-evaluation
   - Project write-up: https://chicago.github.io/food-inspections-evaluation/
 
-## Regulatory context — inspection frequency is risk-based and set by the county, not fixed by the state
+## Regulatory context — who sets the schedule, and what San Diego says it does
 
-Supports the reframed premise: San Diego already tiers by facility category, and frequency is a
-local-agency decision — so risk-prioritizing *within* the required schedule is the right framing.
+Checked against the sources on 2026-09-27; [docs/COUNTY_METHOD.md](docs/COUNTY_METHOD.md) sets every
+claim this repository makes about the County beside what the County says and what the record shows.
 
-- **CDPH Retail Food Program** — states the California Retail Food Code is "enforced by 62 local
-  environmental health regulatory agencies" (frequency/enforcement is local discretion):
+- **CDPH Retail Food Program** — the California Retail Food Code is "primarily enforced by 62 local
+  environmental health regulatory agencies":
   https://www.cdph.ca.gov/Programs/CEH/DFDCS/Pages/FDBPrograms/FoodSafetyProgram/RetailFoodProgram.aspx
-- **California Retail Food Code (CalCode)** — Health & Safety Code, Division 104, Part 7 (full text):
+- **California Retail Food Code (CalCode)** — Health & Safety Code, Division 104, Part 7:
   https://leginfo.legislature.ca.gov/faces/codesTOCSelected.xhtml?tocCode=HSC
-  (a county-hosted PDF excerpt, if leginfo is slow: https://cns.ucdavis.edu/sites/g/files/dgvnsk416/files/inline-files/crfc_2.pdf )
-- **San Diego County DEH — Food Program** (the enforcing agency; risk-based methodology):
+  (an excerpt effective 2017: https://cns.ucdavis.edu/sites/g/files/dgvnsk416/files/inline-files/crfc_2.pdf ).
+  Its text sets no statewide number of routine inspections a year; the state evaluates each local
+  agency's program at least once every three years (§113713(c)).
+- **San Diego County DEHQ — SD Food Info (Food Facility Inspection Search)** — "approximately 14,000
+  retail food establishments are inspected on a routine basis"; "Unannounced inspections are
+  performed by a Registered Environmental Health Specialist"; "Our inspection methodology
+  prioritizes inspections based on relative risk": https://www.sandiegocounty.gov/content/sdc/deh/fhd/ffis/intro.html.html
+- **SD Food Info disclaimer** — the site shows results "for the past three years at each facility":
+  https://www.sandiegocounty.gov/content/sdc/deh/fhd/ffis/disclaimer.html
+- **San Diego County DEHQ — Food Program** — "risk-based inspections, which means we focus on items
+  that strongly affect food safety" (what an inspection looks at, not how often); the grading
+  system (a Major Risk Factor is four points, a Minor two, a Good Retail Practice one; A is 90 to
+  100); "more than 32,000 inspections at these food facilities each year":
   https://www.sandiegocounty.gov/content/sdc/deh/fhd/food/food.html
-- **San Diego County — Food Facility Inspection Search (FFIS)** (the public inspection records,
-  same data the app exposes): https://www.sandiegocounty.gov/content/sdc/deh/fhd/ffis.html
+- **Food Program FAQ** — "When major violations are found, they are immediately corrected or a
+  suitable alternative is implemented until they are corrected":
+  https://www.sandiegocounty.gov/content/sdc/deh/fhd/food/food_faq.html
+- **County Code of Regulatory Ordinances §61.107** (Ordinance 10218, 2012) — the letter grades; DEH
+  "may order a food facility permit holder receiving a grade of 'B' or 'C' to submit to subsequent
+  re-grade inspections within 30 days, until the facility receives an 'A' grade", at a fee; no grade
+  card when a facility is closed for an imminent health hazard:
+  https://files.amlegal.com/pdffiles/SanDiegoCo/ord10218.pdf
+- **Retail Food Facility Operator's Guide** (County DEH, third edition) — "Facilities must earn a grade
+  of A within 30 days of receiving a grade of B or C"; a re-grade inspection follows an
+  unscheduled-inspection fee; majors not corrected at once, or given a suitable alternative, may close
+  "the impacted areas or processes":
+  https://www.sandiegocounty.gov/content/dam/sdc/deh/fhd/food/pdf/publications_opguide.pdf
+- **Food complaints** (the site's complaint and illness lines, (858) 505-6903 and (858) 505-6814):
+  https://www.sandiegocounty.gov/content/sdc/deh/fhd/food/foodcomplaints.html
 
-> Note: CalCode does not fix a statewide number of inspections per year; the "risk-based, ~1–3×/yr"
-> practice is set per local enforcement agency. The "corr ≈ 0.06 between a facility's own history and
-> its cadence" claim is computed from the public inspection data in this repo, not from a policy
-> document — present it as such and let the county confirm.
+> No County source found states how often each kind of facility is routinely inspected, or how a
+> month's inspections are ordered. An earlier version of this file cited a "risk-based, ~1-3x/yr"
+> practice; no San Diego source supports those numbers, so they are gone. What this repository says
+> about cadence and order is measured from the public record (`model_food.py`, `sim_schedule.py`) and
+> labelled as measured; the County can confirm or correct it.
 
 ## Fairness data — ZIP income and ethnicity
 
