@@ -1721,13 +1721,20 @@ def contract_check(dirpath: Path, review=False):
     return [] if res.returncode == 0 else ["the export contract check failed:\n" + (res.stdout + res.stderr).strip()]
 
 
+def named_features(fc, meta):
+    """The places a published bands export names: in a named band, and inside the City. The export
+    lists every active place county-wide for the staff site, but the rule's backtest, its bands and
+    the district-parity gate are the City's, so a public list names no one outside it."""
+    return [f for f in fc["features"]
+            if f["properties"].get("band") in meta.get("named_bands", []) and f["properties"].get("council_district") is not None]
+
+
 def publish(out: Path, fc, details, meta, approval_path=APPROVAL, today=None):
-    """Stage the shipped files (named bands only), stamp meta.publication, check them, then copy."""
+    """Stage the shipped files (named City bands only), stamp meta.publication, check them, then copy."""
     today = today or date.today()
     shipped = fc
     if meta["mode"] == "bands":
-        shipped = {"type": "FeatureCollection",
-                   "features": [f for f in fc["features"] if f["properties"].get("band") in meta["named_bands"]]}
+        shipped = {"type": "FeatureCollection", "features": named_features(fc, meta)}
     stage = out / "publish"
     if stage.exists():
         shutil.rmtree(stage)
@@ -1779,7 +1786,7 @@ def main(argv=None):
             return 0
     size = (args.out / "facilities.geojson").stat().st_size / 1e6
     print(f"wrote {args.out} ({len(fc['features'])} places, index {size:.1f} MB) and report.md; facilities sha256 {facilities_sha}")
-    named_ids = [f["properties"]["facility_id"] for f in fc["features"] if f["properties"].get("band") in meta.get("named_bands", [])]
+    named_ids = [f["properties"]["facility_id"] for f in named_features(fc, meta)]
     problems = gates(meta, args.out, pull, date.today(), approval, facilities_sha, named_ids)
     problems += contract_check(args.out, review=True)
     if not args.publish:

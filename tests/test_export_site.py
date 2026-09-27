@@ -441,6 +441,13 @@ def test_publish_stages_named_bands_with_a_publication_stamp(built, tmp_path, mo
     fc, details, meta, _ = built
     meta = {**meta, "named_bands": ["1"], "contact": "owners@example.org",
             "operator": {"name": "C D", "contact": "cd@example.org"}}
+    # a band-1 place outside the City (the staff export lists the county): publishing never names it
+    city = next(f for f in fc["features"] if f["properties"].get("band") == "1")
+    county = json.loads(json.dumps(city))
+    county["properties"].update(facility_id="DEH2099-FFPP-000001", council_district=None)
+    fc = {**fc, "features": fc["features"] + [county]}
+    details = {**details, "DEH2099-FFPP-000001": {**details[city["properties"]["facility_id"]],
+                                                   "facility_id": "DEH2099-FFPP-000001", "council_district": None}}
     approval = tmp_path / "approval.json"
     approval.write_text("{}", encoding="utf-8")
     monkeypatch.setattr(es, "SITE_DATA", tmp_path / "public_data")
@@ -450,6 +457,8 @@ def test_publish_stages_named_bands_with_a_publication_stamp(built, tmp_path, mo
     idx = json.loads((tmp_path / "public_data" / "facilities.geojson").read_text(encoding="utf-8"))
     assert shipped["publication"]["facilities_sha256"] == es.sha256_file(tmp_path / "public_data" / "facilities.geojson")
     assert idx["features"] and all(f["properties"]["band"] == "1" for f in idx["features"])
+    assert all(f["properties"]["council_district"] is not None for f in idx["features"])
+    assert not (tmp_path / "public_data" / "place" / "DEH2099-FFPP-000001.json").exists()
 
 
 def test_archive_is_write_once_and_registration_is_single(built, tmp_path):

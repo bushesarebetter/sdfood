@@ -8,7 +8,7 @@ React, Tailwind, Google Maps with a deck.gl overlay, no router, installable.
 ## Modes
 
 The export sets `meta.mode` ([docs/FOOD_DATA_CONTRACT.md](../docs/FOOD_DATA_CONTRACT.md),
-version 3.1):
+version 3.2):
 
 - **`record`**, the default: search, the map with every place drawn alike, filters on record
   facts (kind of place, district, and the index's flags for the last year of the record), the list
