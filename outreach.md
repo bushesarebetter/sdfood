@@ -43,9 +43,9 @@ What we found, tested on 2025-26 inspections our methods had never seen:
 - No detectable coverage gap across neighborhood income (details below).
 
 The next step we would suggest is a silent pilot the City could propose to the County
-(docs/PILOT.md): one or two district supervisors get a frozen list before each month, inspectors
-change nothing, and after three months we compare when major violations would have been found in
-the list's order with the order actually worked.
+(docs/PILOT.md): district supervisors (ideally in all nine districts) get a frozen list before
+each month, inspectors change nothing, and after three months we check whether the list's order
+would have found major violations at least 2 days sooner than the order actually worked.
 
 Two disclosures. Our data come from the County's public SD Food Info search; we would switch to an
 official extract. And our repository also contains a public website that would show named City
@@ -113,6 +113,14 @@ Chenhao Zhang and Ayan Pendharkar · Adult point of contact: [NAME, ROLE, EMAIL]
 - **"Do you need the model?"** Mostly not. The one-line rule reaches 48% in the top 20% against
   the model's 50%, and 5.8 of the model's 6.4 days. The model's edge is real (the intervals exclude
   zero) but small: about 0.7 day, some 0.2% of the time between routine inspections.
+- **"Will it prevent food poisoning?"** We can't show that, and neither could a pilot this size:
+  foodborne illness is rare, under-reported and hard to trace to one visit, and the public record
+  has no illness data. What the ordering changes is timing. A major violation is corrected at the
+  inspection that finds it, so finding it about 6 days sooner means about 6 fewer days of an
+  uncorrected major, with the same inspectors, schedule and number of visits. At about 2,200 routine
+  inspections a year that find a major (2025), that is on the order of 13,000 facility-days a year,
+  if each violation was already there at the start of the month. It is a free scheduling change,
+  not a proven health intervention, and the silent pilot tests the timing before anything changes.
 - **"Why two sets of numbers?"** The research numbers score each routine inspection county-wide.
   The published rule scores City restaurants monthly and asks whether the next routine inspection
   within a year finds a major; it is shown as bands. Both say a facility's own record is a strong
