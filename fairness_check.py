@@ -130,11 +130,13 @@ def main():
     d = mf.routine_rows(df)
     d["zip5"] = d["zip"].astype(str).str.extract(r"(\d{5})")[0]
     te = (d["completed_date"] > pd.Timestamp(mf.TRAIN_END)).to_numpy()
-    # scored as deployed: features as of the 1st of each inspection's month (model_food.month_start_rows)
-    dm = mf.month_start_rows(df, d[te])
+    # as deployed: trained and scored on features as of the 1st of each inspection's month
+    # (model_food.month_start_rows, fit_as_deployed), as the monthly list is
+    ms = mf.month_start_rows(df, d)
+    dm = ms[te]
     t = d.loc[te, ["business_id", "completed_date", "major", "zip", "zip5", "lat", "lng"]].copy()
-    t["p"] = mf.Model(mf.HEADLINE).fit(d[mf.train_mask(d, mf.HEADLINE)]).predict(dm)
-    t["pz"] = mf.Model(mf.WITH_ZIP).fit(d[mf.train_mask(d, mf.WITH_ZIP)]).predict(dm)
+    t["p"] = mf.fit_as_deployed(ms, mf.train_mask(d, mf.HEADLINE)).predict(dm)
+    t["pz"] = mf.fit_as_deployed(ms, mf.train_mask(d, mf.WITH_ZIP), mf.WITH_ZIP).predict(dm)
     t["rule"] = dm[mf.BASELINES[mf.RULE]].values
     t["pers"] = dm["persistence"].values
     t["major"] = t["major"].astype(int)

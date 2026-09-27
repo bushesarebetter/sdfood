@@ -261,7 +261,7 @@ def model_orders(insp, month, f):
     start, _ = month_bounds(month)
     h = insp[insp["completed_date"] < start]
     hf = mf.add_features(h)
-    model = mf.Model(mf.HEADLINE).fit(mf.month_start_rows(hf, mf.routine_rows(hf)))
+    model = mf.fit_as_deployed(mf.month_start_rows(hf, mf.routine_rows(hf)))
     fx = mf.features_asof(h, start, ids=f.index)
     f = f.copy()
     f["model_risk"] = pd.Series(model.predict(fx), index=fx.index).reindex(f.index).round(4)
