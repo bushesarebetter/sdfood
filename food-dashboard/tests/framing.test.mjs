@@ -85,9 +85,9 @@ test("the place lines give the grade, then the band, its points and its backtest
 test("the grade-context figure always carries the County's rule", () => {
   assert.equal(
     gradeContextSentence(bandsMeta),
-    "Most routine inspections that find a major violation still end with an A: 94% of them did. The County requires each major violation to be corrected during the inspection, or the affected area is closed.",
+    "Most routine inspections that find a major violation still end with an A: 94% of them did. The County requires each major violation to be corrected immediately, or a suitable alternative put in place until it is; otherwise the affected area or process can be closed.",
   );
-  assert.match(gradeContextSentence({}), /corrected during the inspection/);
+  assert.match(gradeContextSentence({}), /corrected immediately, or a suitable alternative put in place/);
   assert.match(siteDescription(bandsMeta), /Independent student project, not affiliated with or endorsed by the County of San Diego\.$/);
 });
 

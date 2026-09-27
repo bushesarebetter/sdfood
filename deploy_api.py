@@ -82,9 +82,18 @@ def _gh(args):
     return subprocess.run(["gh", *args], check=True, capture_output=True, text=True, cwd=ROOT).stdout
 
 
+def registry_host(image):
+    """(host, path) as Docker reads a repository name: the first component is a registry host only if
+    it has a dot or a colon or is localhost (so "someone/x" is Docker Hub). A port is dropped."""
+    first, _, rest = image.partition("/")
+    if rest and ("." in first or ":" in first or first == "localhost"):
+        return first.split(":", 1)[0].lower(), rest
+    return "docker.io", image
+
+
 def github_package(image):
     """(owner, name) for a GitHub Container Registry image; None for any other registry."""
-    host, _, path = image.partition("/")
+    host, path = registry_host(image)
     if host != "ghcr.io" or "/" not in path:
         return None
     owner, name = path.split("/", 1)
@@ -106,10 +115,16 @@ def package_visibility(image, gh=_gh):
                       f"({(e.stderr or '').strip()}). Grant the scopes: gh auth refresh -s read:packages,write:packages")
 
 
-def ensure_private(image, pushed, gh=_gh):
-    """The image holds the export, so its package must be private (a new GitHub package is)."""
+def ensure_private(image, pushed, gh=_gh, confirmed_private=False):
+    """The image holds the export, so its package must be private (a new GitHub package is). On any
+    other registry this script cannot check, so it refuses unless the operator confirms it."""
     if github_package(image) is None:
-        print(f"note: {image} is not on ghcr.io; make sure that repository is private")
+        host, _ = registry_host(image)
+        if not confirmed_private:
+            raise Refused(f"{image} is on {host}, where this script cannot check that the repository is private "
+                          "(new Docker Hub repositories are public). Use ghcr.io, or create the repository as "
+                          "private yourself and pass --registry-is-private")
+        print(f"note: {image} is on {host}; you confirmed that repository is private")
         return
     vis = package_visibility(image, gh)
     if vis == "private" or (vis is None and not pushed):
@@ -246,6 +261,8 @@ def main(argv=None):
     ap.add_argument("--no-deploy", action="store_true", help="push, but do not call Render's deploy hook")
     ap.add_argument("--dry-run", action="store_true", help="print the steps; run nothing")
     ap.add_argument("--allow-expired", action="store_true", help="ship an export past its expiry date")
+    ap.add_argument("--registry-is-private", action="store_true",
+                    help="for a registry other than ghcr.io: you have made the repository private yourself")
     args = ap.parse_args(argv)
     dry = args.dry_run
     try:
@@ -259,7 +276,7 @@ def main(argv=None):
         print(f"export {meta['run']}: {meta['places']} places, inspections through "
               f"{meta['inspections_through']}, expires {meta['expires']}")
         if not (args.no_push or dry):
-            ensure_private(image, pushed=False)
+            ensure_private(image, pushed=False, confirmed_private=args.registry_is_private)
         sh(["docker", "build", "--platform", "linux/amd64", "--provenance=false", "--build-arg", f"SDFOOD_BUILD={build}",
             "-f", "api/Dockerfile", "-t", ref, "."], dry)
         smoke_test(ref, meta, build, dry)
@@ -268,7 +285,7 @@ def main(argv=None):
             return 0
         sh(["docker", "push", ref], dry)
         if not dry:
-            ensure_private(image, pushed=True)
+            ensure_private(image, pushed=True, confirmed_private=args.registry_is_private)
         sh(["docker", "tag", ref, f"{image}:{SERVICE_TAG}"], dry)
         sh(["docker", "push", f"{image}:{SERVICE_TAG}"], dry)
         if dry:

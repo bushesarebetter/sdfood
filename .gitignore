@@ -27,9 +27,15 @@ __pycache__/
 # food-dashboard (the public site)
 food-dashboard/node_modules/
 food-dashboard/dist/
+food-dashboard/dist-review/
 food-dashboard/.env
 food-dashboard/.env.*
 !food-dashboard/.env.example
 
 # local review configs that point at unpublished (named) exports
 food-dashboard/vite.review*.config.js
+
+# publication paperwork: personal contacts, insurance, and the list of places to be named before it is public
+docs/PUBLISH_APPROVAL.json
+docs/notices/
+docs/holds.json

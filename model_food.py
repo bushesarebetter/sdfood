@@ -24,8 +24,9 @@ Model variants, all tested on the same 2025+ inspections:
     routine inspections come more than a year after the facility's previous routine, so the
     window misses the one score that matters most. The headline keeps since-2023 history; its
     forward test stays honest, because each training row saw only what was on the record then.
-  * ZIP: with and without. Without ZIP the model is as accurate, and its recall of majors is
-    even across ZIP income groups (fairness_check.py); with ZIP it is not. The headline has no
+  * ZIP: with and without. Without ZIP the model ranks slightly better, and its recall of majors
+    shows no detectable gap across ZIP income or %-Hispanic groups (fairness_check.py, whose
+    intervals resample whole ZIPs); with ZIP it shows one by %-Hispanic. The headline has no
     ZIP, as the public site's card has none.
 
 This file is also the research code's shared library: sim_schedule.py, fairness_check.py,
@@ -43,9 +44,12 @@ RAW = "data/sd_businesses.json"
 RESULTS = "data/research_results.json"
 TRAIN_END = "2024-12-31"        # train on inspections up to here, test on the rest
 WINDOW_DAYS = es.WINDOW_DAYS    # 365: the 12-month window, as the public site's exporter
+SCORE_WINDOW_DAYS = es.SCORE_WINDOW_DAYS  # 730: how far back persistence reads the last score (as export_site)
 WINDOW_FROM = "2024-01-03"      # the record starts 2023-01-03: from here every window is whole
 FILL_SCORE = 97.0               # a facility with no routine score ranks as a typical A (as export_site)
 BOOT = 1000
+MAX_ITER = 300                  # boosting rounds, at most; the count is chosen on the last VAL_MONTHS of training
+VAL_MONTHS = 3
 
 CAT = ["business_type", "zip"]
 HIST = ["prior_n", "days_since_last", "last_score", "last_major", "prior_major_rate",
@@ -73,7 +77,7 @@ WINDOW = "window_nozip"         # the headline read over a 12-month window
 
 # the one-line rule (what outreach and the worklist lead with) and the other no-model orderings;
 # each is a column of the routine rows, higher = inspect first
-PERSIST = "Persistence (own record, last 12 mo)"
+PERSIST = "Persistence (own record: majors, last 12 mo; last score, 24 mo)"
 RULE = "Mean routine score on record (one-line rule)"
 BASELINES = {
     PERSIST: "persistence",
@@ -106,13 +110,28 @@ def load(path=DATA):
     # reopening visit) keeps its score in the CSV, but that is not the place's routine score.
     df.loc[df["insp_type"].astype(str) != "Routine", "score"] = np.nan
     df["major"] = (df["n_major"] > 0).astype(float)
+    # Two routine rows for one facility on one day would let the second see the first's outcome as
+    # "history" (add_features works row by row). fetch_sdfood's CSV builder merges them; refuse if not.
+    rt_day = df[df["insp_type"].astype(str) == "Routine"].duplicated(["business_id", "completed_date"])
+    if rt_day.any():
+        raise ValueError(f"{int(rt_day.sum())} same-day duplicate routine rows in {path}: rebuild the CSV "
+                         "from the saved pull (python fetch_sdfood.py --csv-only; no network), which merges them")
+    # The score the no-model rules read: a routine that ended in a health closure order has no score,
+    # and counts as es.CLOSURE_SCORE, as in the published card (export_site.features_at). Without
+    # this a place closed at its only routine ranked as a typical A. Model features keep real scores.
+    df["rated_score"] = df["score"]
+    if "closure" in df.columns:
+        closed = ((df["insp_type"].astype(str) == "Routine") & df["score"].isna()
+                  & (df["closure"].astype(str).str.lower() == "health"))
+        df.loc[closed, "rated_score"] = float(es.CLOSURE_SCORE)
     return _order(df)
 
 
-def persistence(df, days=WINDOW_DAYS):
+def persistence(df, days=WINDOW_DAYS, score_days=SCORE_WINDOW_DAYS):
     """export_site.persistence for every row, from the facility's record in the `days` before the
     row's date (strictly earlier dates): routine inspections with a major, then majors on routine /
-    re-inspection / follow-up visits, then the lowest last routine score. df sorted by _order."""
+    re-inspection / follow-up visits, then the lowest last routine score, read over `score_days`
+    as export_site does (a third of routine inspections come more than a year apart). df sorted by _order."""
     t = df["completed_date"].values.astype("datetime64[D]").astype(np.int64)
     typ = df["insp_type"].astype(str).values
     rt_ = typ == "Routine"; rec = np.isin(typ, ["Routine", "Re-inspection", "Follow-up"])
@@ -120,10 +139,11 @@ def persistence(df, days=WINDOW_DAYS):
     out = np.full((len(df), 3), np.nan)
     for ix in df.groupby("business_id", sort=False).indices.values():
         tt = t[ix]; hi = np.searchsorted(tt, tt, "left"); lo = np.searchsorted(tt, tt - days, "left")
+        lo_s = np.searchsorted(tt, tt - score_days, "left")
         c1 = np.r_[0, np.cumsum(rt_[ix] & (mj[ix] > 0))]; c2 = np.r_[0, np.cumsum(rec[ix] * mj[ix])]
         s = sc[ix]; lastpos = np.maximum.accumulate(np.where(np.isnan(s), -1, np.arange(len(ix))))
         lp = np.where(hi > 0, lastpos[np.maximum(hi - 1, 0)], -1)
-        out[ix] = np.c_[c1[hi] - c1[lo], c2[hi] - c2[lo], np.where(lp >= lo, s[np.maximum(lp, 0)], np.nan)]
+        out[ix] = np.c_[c1[hi] - c1[lo], c2[hi] - c2[lo], np.where(lp >= lo_s, s[np.maximum(lp, 0)], np.nan)]
     X = np.zeros((len(df), len(es.NUMERIC)))
     for j, c in enumerate(["routines_major", "majors", "last_score"]):
         X[:, es.NUMERIC.index(c)] = out[:, j]
@@ -170,17 +190,21 @@ def add_features(df):
     df["prior_major_rate"] = g["major"].transform(lambda s: s.shift().expanding().mean())
     df["prior_mean_score"] = g["score"].transform(lambda s: s.shift().expanding().mean())
     df["prior_mean_viol"]  = g["n_violations"].transform(lambda s: s.shift().expanding().mean())
+    rated = df["rated_score"] if "rated_score" in df.columns else df["score"]
+    df["prior_mean_rated"] = rated.groupby(df["business_id"], sort=False).transform(lambda s: s.shift().expanding().mean())
+    df["last_rated"]       = rated.groupby(df["business_id"], sort=False).transform(lambda s: s.shift().ffill())
     age = (df["completed_date"] - df["opened_date"]).dt.days / 365.25
     df["facility_age_asof_pull"] = age               # the permit in force at the pull: leaks, kept to measure it
     df["facility_age_yrs"] = age.where(age >= 0)     # missing when the permit was issued after the inspection
     df["month"] = df["completed_date"].dt.month
     w = window_features(df)
     df[w.columns] = w
+    w_rated = window_features(df.assign(score=rated))["w_mean_score"]
     df["persistence"] = persistence(df)
-    # the no-model rules, higher = first
-    df["rule_mean12"] = -df["w_mean_score"].fillna(FILL_SCORE)
-    df["rule_mean_all"] = -df["prior_mean_score"].fillna(FILL_SCORE)
-    df["rule_last"] = -df["last_score"].fillna(FILL_SCORE)
+    # the no-model rules, higher = first; they read closures as es.CLOSURE_SCORE (rated), like the card
+    df["rule_mean12"] = -w_rated.fillna(FILL_SCORE)
+    df["rule_mean_all"] = -df["prior_mean_rated"].fillna(FILL_SCORE)
+    df["rule_last"] = -df["last_rated"].fillna(FILL_SCORE)
     return df
 
 
@@ -199,8 +223,8 @@ def features_asof(df, T, ids=None):
     at T and add_features reads its history, strictly before T. Indexed by business_id."""
     T = pd.Timestamp(T)
     base = df[[c for c in df.columns if c in ("business_id", "business_type", "zip", "lat", "lng", "opened_date",
-                                               "insp_type", "completed_date", "score", "n_major", "n_violations",
-                                               "major")]]
+                                               "insp_type", "completed_date", "score", "rated_score", "n_major",
+                                               "n_violations", "major")]]
     last = base.groupby("business_id", sort=False).tail(1)
     if ids is not None:
         last = last[last["business_id"].isin(ids)]
@@ -208,6 +232,8 @@ def features_asof(df, T, ids=None):
     stub = last[["business_id", "business_type", "zip", "lat", "lng", "opened_date"]].copy()
     stub = stub.assign(insp_type="Routine", completed_date=T, score=np.nan, n_major=np.nan,
                        n_violations=np.nan, major=np.nan, _asof=True)
+    if "rated_score" in base.columns:        # only when the record has it: add_features falls back to score
+        stub["rated_score"] = np.nan
     full = _order(pd.concat([base[base["business_id"].isin(stub["business_id"])].assign(_asof=False), stub],
                             ignore_index=True))
     f = add_features(full)
@@ -215,6 +241,45 @@ def features_asof(df, T, ids=None):
     for c in CAT:
         f[c] = f[c].astype("string").fillna("NA")
     return f.set_index("business_id")
+
+
+STATIC = ["business_id", "business_type", "zip", "lat", "lng", "opened_date"]
+
+
+def month_start_rows(df, d):
+    """Each routine row of `d`, with every feature recomputed as of the first day of its month:
+    what a list scored that morning sees. History is strictly before the 1st, so no visit made
+    inside the month (a complaint two weeks before the routine, say) is used. add_features runs
+    on one stand-in row per facility and month, so training and the deployed list
+    (export_worklist.model_orders -> features_asof) read features the same way. Aligned to d.index;
+    the label and the real inspection date stay d's own."""
+    cols = [c for c in ("business_id", "business_type", "zip", "lat", "lng", "opened_date", "insp_type",
+                        "completed_date", "score", "rated_score", "n_major", "n_violations", "major", "closure")
+            if c in df.columns]
+    base = df[cols]
+    T = d["completed_date"].dt.to_period("M").dt.start_time
+    out = []
+    for t, idx in T.groupby(T).groups.items():
+        ids = d.loc[idx, "business_id"].unique()
+        hist = base[base["business_id"].isin(ids) & (base["completed_date"] < t)]
+        stub = d.loc[idx, [c for c in STATIC if c in d.columns]].drop_duplicates("business_id")
+        stub = stub.assign(insp_type="Routine", completed_date=t, score=np.nan, n_major=np.nan,
+                           n_violations=np.nan, major=np.nan, _asof=True)
+        if "rated_score" in base.columns:
+            stub["rated_score"] = np.nan
+        full = _order(pd.concat([hist.assign(_asof=False), stub], ignore_index=True))
+        f = add_features(full)
+        out.append(f[f["_asof"].astype(bool)].drop(columns="_asof").assign(_month=t))
+    feats = pd.concat(out, ignore_index=True).set_index(["business_id", "_month"])
+    key = pd.MultiIndex.from_arrays([d["business_id"].to_numpy(), T.to_numpy()])
+    m = feats.reindex(key)
+    m.index = d.index
+    keep = [c for c in m.columns if c not in ("insp_type", "completed_date", "score", "rated_score", "n_major",
+                                              "n_violations", "major", "closure")]
+    r = d[["insp_type", "completed_date", "major"] + [c for c in ("n_major",) if c in d.columns]].join(m[keep])
+    for c in CAT:
+        r[c] = r[c].astype("string").fillna("NA")
+    return r
 
 
 # ── the model ──────────────────────────────────────────────────────────────────────────
@@ -230,17 +295,43 @@ class Model:
         X[self.cat] = self.enc.transform(X[self.cat])
         return X
 
-    def fit(self, rows, y=None, sample_weight=None):
-        from sklearn.preprocessing import OrdinalEncoder
+    def _clf(self, X, max_iter):
         from sklearn.ensemble import HistGradientBoostingClassifier
+        return HistGradientBoostingClassifier(
+            max_iter=max_iter, learning_rate=0.08, max_leaf_nodes=48,
+            categorical_features=[X.columns.get_loc(c) for c in self.cat], l2_regularization=1.0,
+            early_stopping=False, random_state=0)
+
+    def fit(self, rows, y=None, sample_weight=None):
+        """Early stopping on TIME: the number of boosting rounds is chosen on the last VAL_MONTHS of
+        the training rows (a random 10% split, sklearn's default, puts a facility's inspections on
+        both sides and wastes 10% of the data), then the model is refit on every training row."""
+        from sklearn.metrics import log_loss
+        from sklearn.preprocessing import OrdinalEncoder
         self.enc = OrdinalEncoder(handle_unknown="use_encoded_value", unknown_value=-1, encoded_missing_value=-1)
         self.enc.fit(rows[self.cat])
         X = self._X(rows)
-        self.clf = HistGradientBoostingClassifier(
-            max_iter=300, learning_rate=0.08, max_leaf_nodes=48,
-            categorical_features=[X.columns.get_loc(c) for c in self.cat], l2_regularization=1.0,
-            early_stopping=True, n_iter_no_change=20, random_state=0)
-        self.clf.fit(X, rows["major"].values if y is None else y, sample_weight=sample_weight)
+        yv = np.asarray(rows["major"].values if y is None else y)
+        w = None if sample_weight is None else np.asarray(sample_weight)
+        self.n_iter = None
+        if "completed_date" in rows:
+            dt = pd.to_datetime(rows["completed_date"]).to_numpy()
+            cut = dt.max() - np.timedelta64(VAL_MONTHS * 30, "D")
+            fit_m, val_m = dt <= cut, dt > cut
+            if fit_m.sum() >= 1000 and val_m.sum() >= 300 and 0 < yv[val_m].sum() < val_m.sum():
+                c = self._clf(X, MAX_ITER).fit(X[fit_m], yv[fit_m], sample_weight=None if w is None else w[fit_m])
+                losses = [log_loss(yv[val_m], p[:, 1], labels=[0, 1], sample_weight=None if w is None else w[val_m])
+                          for p in c.staged_predict_proba(X[val_m])]
+                self.n_iter = int(np.argmin(losses)) + 1
+        if self.n_iter is None:              # too few rows for a time split: sklearn's own early stopping
+            from sklearn.ensemble import HistGradientBoostingClassifier
+            self.clf = HistGradientBoostingClassifier(
+                max_iter=MAX_ITER, learning_rate=0.08, max_leaf_nodes=48,
+                categorical_features=[X.columns.get_loc(c) for c in self.cat], l2_regularization=1.0,
+                early_stopping=True, n_iter_no_change=20, random_state=0).fit(X, yv, sample_weight=w)
+            self.n_iter = int(self.clf.n_iter_)
+            return self
+        self.clf = self._clf(X, self.n_iter).fit(X, yv, sample_weight=w)
         return self
 
     def predict(self, rows):
@@ -258,6 +349,43 @@ def train_mask(d, variant, end=TRAIN_END, start=None):
 
 def fit_predict(d, variant, tr, te):
     return Model(variant).fit(d[tr]).predict(d[te])
+
+
+def fit_as_deployed(ms, mask=None, variant=HEADLINE):
+    """The model the monthly list uses: trained on routine rows read as of the 1st of each one's
+    month, the way the list is scored. `ms` is month_start_rows(df, d), computed once and sliced;
+    `mask` picks the training rows of d (all of them when None). export_worklist.model_orders fits
+    the list's model with this, and every research figure "as deployed" does too."""
+    return Model(variant).fit(ms if mask is None else ms[mask])
+
+
+def facility_interval(codes, stat, boot=BOOT, seed=0):
+    """95% interval of stat(w) over facilities resampled with replacement: `codes` gives each row's
+    facility (pd.factorize), and stat takes one weight per row (a facility drawn k times weighs k)."""
+    n = int(codes.max()) + 1
+    rng = np.random.default_rng(seed)
+    vals = [stat(np.bincount(rng.integers(0, n, n), minlength=n)[codes].astype(float)) for _ in range(boot)]
+    return [round(float(x), 4) for x in np.percentile(vals, [2.5, 97.5])]
+
+
+def calibration_table(p, y, groups, codes, order=None, boot=BOOT):
+    """By group (in `order`, else sorted): rows, actual and mean predicted major-violation rate (%),
+    and actual minus predicted (points) with a 95% interval over facilities."""
+    p, y, groups = np.asarray(p, float), np.asarray(y, float), np.asarray(groups)
+    out = {}
+    for g in (order if order is not None else sorted(pd.unique(groups))):
+        m = groups == g
+        if not m.any():
+            continue
+        gap = lambda w, m=m: 100 * (w[m] * (y[m] - p[m])).sum() / max(w[m].sum(), 1e-9)
+        out[str(g)] = {"n": int(m.sum()), "actual_pct": round(100 * float(y[m].mean()), 1),
+                       "predicted_pct": round(100 * float(p[m].mean()), 1),
+                       "actual_minus_predicted_pts": round(100 * float((y[m] - p[m]).mean()), 1),
+                       "ci_pts": [round(v, 1) for v in facility_interval(codes, gap, boot)]}
+    return out
+
+
+PRIOR_N_BINS = ([-1, 0, 1, 2, 4, np.inf], ["0", "1", "2", "3-4", "5+"])   # visits on record before the row
 
 
 # ── ranking measures ───────────────────────────────────────────────────────────────────
@@ -290,15 +418,21 @@ def gains(score, yv):
 
 def business_status(path=RAW):
     """business_id -> permit status in the pull (Active, Expired, ...)."""
-    raw = json.load(open(path))
+    with open(path, encoding="utf-8") as fh:
+        raw = json.load(fh)
     return {int(b["business_id"]): (b.get("status") or "?") for b in raw}
 
 
 def save_results(key, value, path=RESULTS):
-    out = json.load(open(path)) if os.path.exists(path) else {}
+    out = {}
+    if os.path.exists(path):
+        with open(path, encoding="utf-8") as fh:
+            out = json.load(fh)
     out[key] = value
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    json.dump(out, open(path, "w"), indent=1)
+    with open(path + ".tmp", "w", encoding="utf-8") as fh:     # atomic: a reader never sees half a file
+        json.dump(out, fh, indent=1)
+    os.replace(path + ".tmp", path)
 
 
 # ── the analysis ───────────────────────────────────────────────────────────────────────
@@ -332,6 +466,28 @@ def main():
     print(f"corr(facility's routine major rate, its routine inspections/yr) = {premise['corr']:+.3f}")
     print(f"median days to the next routine: {premise['gap_after_major']} after a routine with a major, "
           f"{premise['gap_after_clean']} after one without")
+    # The County says its methodology "prioritizes inspections based on relative risk" (SD Food Info). In the
+    # record that shows as how often each kind of facility is visited; a facility's own record moves it little.
+    # Routines through 2025-06 whose next routine is on the record (14+ months to see it).
+    rt2 = rt.sort_values(["business_id", "completed_date"]).copy()
+    rt2["next_gap"] = (rt2.groupby("business_id")["completed_date"].shift(-1) - rt2["completed_date"]).dt.days
+    rated = rt2["rated_score"] if "rated_score" in rt2 else rt2["score"]
+    rt2["record"] = rated.groupby(rt2["business_id"]).transform(lambda v: v.expanding().mean())
+    obs = rt2[(rt2["completed_date"] <= pd.Timestamp("2025-06-30")) & rt2["next_gap"].notna()]
+    top = obs["business_type"].value_counts().head(8).index
+    premise["days_to_next_routine_by_type"] = {t: {"n": int((obs["business_type"] == t).sum()),
+                                                   "median": int(obs.loc[obs["business_type"] == t, "next_gap"].median())}
+                                               for t in top}
+    rq = pd.qcut(obs["record"].rank(method="first"), 5, labels=["best record", "2", "3", "4", "worst record"])
+    premise["days_to_next_routine_by_record_quintile"] = {str(k): int(v) for k, v in
+                                                          obs.groupby(rq, observed=True)["next_gap"].median().items()}
+    print("median days to the next routine, by kind of facility: " + "; ".join(
+        f"{t} {v['median']} (n {v['n']:,})" for t, v in premise["days_to_next_routine_by_type"].items()))
+    print("... and by the facility's mean routine score on record, best to worst quintile: " + ", ".join(
+        f"{v}" for v in premise["days_to_next_routine_by_record_quintile"].values()))
+    # the County reports "more than 32,000 inspections at these food facilities each year" (all kinds)
+    premise["inspections_by_year"] = {str(k): int(v) for k, v in df["completed_date"].dt.year.value_counts().sort_index().items()}
+    print("inspections on the record by year (after the data rules):", premise["inspections_by_year"])
 
     d = routine_rows(df)
     y = d["major"].values.astype(int)
@@ -391,6 +547,34 @@ def main():
     print(tab.round(3).to_string())
     print(f"PR-AUC   model={average_precision_score(yte,p):.3f}   base_rate={yte.mean():.3f}")
 
+    # ---- the same test, scored AS DEPLOYED: features as of the 1st of each inspection's month ----
+    # (the table above reads each row's history up to the inspection date, so a complaint visit two
+    # weeks earlier in the same month counts; the monthly list cannot know it on the 1st)
+    # The deployed list (export_worklist.model_orders) also TRAINS on month-start rows, so the
+    # headline model does too (fit_as_deployed). The variants above train and score at the inspection
+    # date; the same model trained that way but scored as of the 1st is kept for comparison.
+    ms = month_start_rows(df, d)          # every routine row, read as of the 1st of its month
+    dm = ms[te]
+    pm = fit_as_deployed(ms, train_mask(d, HEADLINE)).predict(dm)
+    pm_id = Model(HEADLINE).fit(d[train_mask(d, HEADLINE)]).predict(dm)
+    deployed_scores = {"Model": pm}
+    for k, c in BASELINES.items():
+        deployed_scores[k] = dm[c].values if c != "rule_major_rate" else dm["prior_major_rate"].fillna(
+            d.loc[trn, "major"].mean()).values
+    as_deployed = {}
+    for k, v in deployed_scores.items():
+        wk = top_weights(v)
+        prec = float((wk * yte).sum() / wk.sum())
+        as_deployed[k] = {"auc": round(float(roc_auc_score(yte, v)), 4),
+                          "top20_recall": round(float((wk * yte).sum() / yte.sum()), 4),
+                          "top20_precision": round(prec, 4), "lift": round(prec / float(yte.mean()), 4)}
+    changed = float((dt["prior_n"].values > dm["prior_n"].values).mean())   # a visit between the 1st and the inspection
+    print(f"\n=== the same test AS DEPLOYED (trained and scored as of the 1st of each month; {changed*100:.1f}% "
+          f"of test rows have a visit inside their month before the inspection) ===")
+    for k, r in as_deployed.items():
+        print(f"  {k:45s} AUC {r['auc']:.3f} (inspection-date features {tab.loc[k, 'auc']:.3f})  "
+              f"top-20% {r['top20_recall']*100:4.1f}%")
+
     # ---- paired bootstrap over facilities ----
     base_names = list(BASELINES)
     best_auc = max(base_names, key=lambda k: tab.loc[k, "auc"])
@@ -402,15 +586,25 @@ def main():
              "with ZIP": (WITH_ZIP, HEADLINE),
              "12-month window": (WINDOW, HEADLINE)}
     EW = {v: top_weights(P[v]) for pr in pairs.values() for v in pr}
+    WD = {k: top_weights(v) for k, v in deployed_scores.items()}
+    WID = top_weights(pm_id)
     codes = pd.factorize(dt["business_id"])[0]; ncl = codes.max() + 1
     rng = np.random.default_rng(0)
     draws = {k: {"auc": [], "cap": []} for k in comps + list(pairs)}
+    ddraws = {k: {"auc": [], "cap": []} for k in comps}   # the same pairs, scored as deployed
+    dtrain = {"auc": [], "cap": []}                       # inspection-date minus deployed training
     for _ in range(BOOT):
         wt = np.bincount(rng.integers(0, ncl, ncl), minlength=ncl)[codes].astype(float)
         am = roc_auc_score(yte, p, sample_weight=wt); cm = (wt*W["Model"]*yte).sum() / (wt*yte).sum()
         for k in comps:
             draws[k]["auc"].append(am - roc_auc_score(yte, scores[k], sample_weight=wt))
             draws[k]["cap"].append(cm - (wt*W[k]*yte).sum() / (wt*yte).sum())
+        amd = roc_auc_score(yte, pm, sample_weight=wt); cmd = (wt*WD["Model"]*yte).sum() / (wt*yte).sum()
+        for k in comps:
+            ddraws[k]["auc"].append(amd - roc_auc_score(yte, deployed_scores[k], sample_weight=wt))
+            ddraws[k]["cap"].append(cmd - (wt*WD[k]*yte).sum() / (wt*yte).sum())
+        dtrain["auc"].append(roc_auc_score(yte, pm_id, sample_weight=wt) - amd)
+        dtrain["cap"].append((wt*WID*yte).sum() / (wt*yte).sum() - cmd)
         va = {v: roc_auc_score(yte, P[v], sample_weight=wt) for v in EW}
         vc = {v: (wt*EW[v]*yte).sum() / (wt*yte).sum() for v in EW}
         for k, (a, b) in pairs.items():
@@ -425,6 +619,25 @@ def main():
         tag = " (best AUC baseline)" * (k == best_auc) + " (best top-20% baseline)" * (k == best_cap)
         print(f"  vs {k}{tag}: AUC {da:+.3f} [{diffs[k]['auc_ci'][0]:+.3f}, {diffs[k]['auc_ci'][1]:+.3f}]   "
               f"top-20% capture {dc*100:+.1f} pts [{diffs[k]['top20_recall_ci'][0]*100:+.1f}, {diffs[k]['top20_recall_ci'][1]*100:+.1f}]")
+    ddiffs = {}
+    print("=== the same, AS DEPLOYED (features as of the 1st of the month) ===")
+    for k in comps:
+        m, b = as_deployed["Model"], as_deployed[k]
+        da, dc = m["auc"] - b["auc"], m["top20_recall"] - b["top20_recall"]
+        ddiffs[k] = {"auc": round(da, 4), "auc_ci": ci(ddraws[k]["auc"]),
+                     "top20_recall": round(dc, 4), "top20_recall_ci": ci(ddraws[k]["cap"])}
+        print(f"  vs {k}: AUC {da:+.3f} [{ddiffs[k]['auc_ci'][0]:+.3f}, {ddiffs[k]['auc_ci'][1]:+.3f}]   "
+              f"top-20% capture {dc*100:+.1f} pts [{ddiffs[k]['top20_recall_ci'][0]*100:+.1f}, {ddiffs[k]['top20_recall_ci'][1]*100:+.1f}]")
+    idt = {"auc": round(float(roc_auc_score(yte, pm_id)), 4), "top20_recall": round(capture(pm_id, yte), 4)}
+    idt["minus_deployed_training"] = {
+        "auc": round(idt["auc"] - as_deployed["Model"]["auc"], 4), "auc_ci": ci(dtrain["auc"]),
+        "top20_recall": round(idt["top20_recall"] - as_deployed["Model"]["top20_recall"], 4),
+        "top20_recall_ci": ci(dtrain["cap"])}
+    t = idt["minus_deployed_training"]
+    print(f"  the same model trained on inspection-date rows, scored as of the 1st: AUC {idt['auc']:.3f}, top-20% "
+          f"{idt['top20_recall']*100:.1f}%; minus the deployed training: AUC {t['auc']:+.3f} [{t['auc_ci'][0]:+.3f}, "
+          f"{t['auc_ci'][1]:+.3f}]   top-20% {t['top20_recall']*100:+.1f} pts [{t['top20_recall_ci'][0]*100:+.1f}, "
+          f"{t['top20_recall_ci'][1]*100:+.1f}]")
     vdiffs = {}
     print("=== one change at a time (variant a minus variant b), same bootstrap ===")
     for k, (a, b) in pairs.items():
@@ -481,11 +694,11 @@ def main():
     style = {"Model": ("#1d6a97", 2.6, "-"), PERSIST: ("#c9741a", 2.0, "-"), RULE: ("#2f7d5b", 2.0, "-."),
              "Mean routine score, last 12 months": ("#6e9e86", 1.1, ":"),
              "Prior major-violation rate": ("#8a6fae", 1.2, "--"), "Last routine score alone": ("#5a6b78", 1.2, ":")}
-    for k, v in scores.items():
+    for k, v in deployed_scores.items():
         gx, gy = gains(v, yte); col, lw, ls = style[k]
-        ax.plot(gx, gy, color=col, lw=lw, ls=ls, label=f"{k} (top 20% → {tab.loc[k,'top20_recall']*100:.0f}%)")
+        ax.plot(gx, gy, color=col, lw=lw, ls=ls, label=f"{k} (top 20% → {as_deployed[k]['top20_recall']*100:.0f}%)")
     ax.plot([0, 100], [0, 100], ls="--", color="#b8c2c9", lw=1.2, label="Routine calendar, no targeting (20%)")
-    m20, s20, p20 = (tab.loc[k, "top20_recall"]*100 for k in ("Model", RULE, PERSIST))
+    m20, s20, p20 = (as_deployed[k]["top20_recall"]*100 for k in ("Model", RULE, PERSIST))
     ax.axvline(20, color="#d7e0e6", lw=1, zorder=0)
     ax.scatter([20, 20, 20], [m20, s20, p20], color=["#1d6a97", "#2f7d5b", "#c9741a"], zorder=5, s=36)
     ax.annotate(f"Top 20%: model {m20:.0f}%, one-line rule {s20:.0f}%,\npersistence {p20:.0f}% of all major violations",
@@ -493,7 +706,8 @@ def main():
     ax.set_xlabel("% of routine inspections done, in ranked order")
     ax.set_ylabel("% of all major violations found")
     ax.set_title("Risk-ranking vs what an inspector already knows\n"
-                 "San Diego County, forward test on 2025+ routine inspections", fontsize=12.5, fontweight="bold", loc="left")
+                 "San Diego County, forward test on 2025+ routine inspections, as of the 1st of each month",
+                 fontsize=12.5, fontweight="bold", loc="left")
     ax.set_xlim(0, 100); ax.set_ylim(0, 100); ax.legend(frameon=False, fontsize=7.6, loc="lower right")
     for sp in ["top", "right"]: ax.spines[sp].set_visible(False)
     ax.grid(color="#eee")
@@ -506,14 +720,14 @@ def main():
 
     # ---- what drives it + precision within type ----
     from sklearn.inspection import permutation_importance
-    m = Model(HEADLINE).fit(d[train_mask(d, HEADLINE)])
-    Xte = m._X(dt); idx = np.random.default_rng(0).choice(len(Xte), min(8000, len(Xte)), replace=False)
+    m = fit_as_deployed(ms, train_mask(d, HEADLINE))
+    Xte = m._X(dm); idx = np.random.default_rng(0).choice(len(Xte), min(8000, len(Xte)), replace=False)
     pi = permutation_importance(m.clf, Xte.iloc[idx], yte[idx], n_repeats=5, scoring="roc_auc", random_state=0)
     imp = pd.Series(pi.importances_mean, index=Xte.columns).sort_values(ascending=False)
     print("\n=== permutation importance (AUC drop) ===")
     print(imp.round(4).to_string())
 
-    res = pd.DataFrame({"p": p, "y": yte, "type": dt["business_type"].astype(str).values})
+    res = pd.DataFrame({"p": pm, "y": yte, "type": dt["business_type"].astype(str).values})
     flagged = res.sort_values("p", ascending=False).head(int(0.2*len(res)))
     print("\n=== is the flagged top-20% just one business type? ===")
     comp = pd.DataFrame({"flagged_top20%": flagged["type"].value_counts(normalize=True),
@@ -528,6 +742,38 @@ def main():
                 print(f"  {t[:34]:34s} flagged {len(fl):4d}  precision {fl['y'].mean():.2f}  base {gp['y'].mean():.2f}")
                 within[t] = {"precision": round(float(fl['y'].mean()), 3), "base": round(float(gp['y'].mean()), 3)}
 
+    # ---- calibration as deployed: by quarter, and by history length ----
+    # The share of routine inspections with a major rises over the record, and so does every
+    # facility's count of prior visits (left truncation: the record starts in 2023). If prior_n
+    # carried the trend like a clock, the model would lean on it; within one year, the major rate
+    # should then not rise with prior_n.
+    from sklearn.linear_model import LogisticRegression
+    q = dt["completed_date"].dt.to_period("Q").astype(str).values
+    nb = pd.cut(dm["prior_n"], *PRIOR_N_BINS[:1], labels=PRIOR_N_BINS[1]).astype(str).values
+    lg = np.log(np.clip(pm, 1e-6, 1 - 1e-6) / (1 - np.clip(pm, 1e-6, 1 - 1e-6))).reshape(-1, 1)
+    fit = LogisticRegression(C=1e6, max_iter=1000).fit(lg, yte)
+    ms_all = ms.assign(year=d["completed_date"].dt.year.values,
+                       nb=pd.cut(ms["prior_n"], *PRIOR_N_BINS[:1], labels=PRIOR_N_BINS[1]).astype(str))
+    by_year_nb = (ms_all.groupby(["year", "nb"], observed=True)["major"].agg(["size", "mean"]).reset_index())
+    cal = {"by_quarter": calibration_table(pm, yte, q, codes),
+           "by_prior_n": calibration_table(pm, yte, nb, codes, order=PRIOR_N_BINS[1]),
+           "slope": round(float(fit.coef_[0][0]), 3), "intercept": round(float(fit.intercept_[0]), 3),
+           "train_major_rate": round(float(y[trn].mean()), 4), "test_major_rate": round(float(yte.mean()), 4),
+           "major_rate_by_year_and_prior_n": {f"{int(r.year)} {r.nb}": {"n": int(r.size), "pct": round(100 * r.mean, 1)}
+                                              for r in by_year_nb.itertuples()}}
+    print("\n=== calibration as deployed (actual minus predicted major rate, points; 95% CI over facilities) ===")
+    print(f"logistic recalibration of the test labels on the model's log-odds: slope {cal['slope']:.2f}, "
+          f"intercept {cal['intercept']:+.2f} (1 and 0 = calibrated); major rate {cal['train_major_rate']*100:.1f}% "
+          f"in training, {cal['test_major_rate']*100:.1f}% in the test")
+    for name, tabl in (("by quarter", cal["by_quarter"]), ("by prior visits on record (as of the 1st)", cal["by_prior_n"])):
+        print(f"  {name}:")
+        for g, r in tabl.items():
+            print(f"    {g:6s} n {r['n']:>6,}  actual {r['actual_pct']:5.1f}%  predicted {r['predicted_pct']:5.1f}%  "
+                  f"gap {r['actual_minus_predicted_pts']:+5.1f} [{r['ci_pts'][0]:+.1f}, {r['ci_pts'][1]:+.1f}]")
+    print("  major rate by year and prior visits on record (all routine rows, as of the 1st):")
+    piv = by_year_nb.pivot(index="year", columns="nb", values="mean").reindex(columns=PRIOR_N_BINS[1]) * 100
+    print(piv.round(1).to_string())
+
     save_results("model", {
         "n_inspections": int(len(df)), "n_facilities": int(df["business_id"].nunique()),
         "n_routine": int(len(d)), "major_rate": round(float(d["major"].mean()), 4),
@@ -536,11 +782,14 @@ def main():
         "train_n": var_rows[HEADLINE]["train_n"], "test_n": int(te.sum()), "test_major_rate": round(float(yte.mean()), 4),
         "pr_auc": round(float(average_precision_score(yte, p)), 4),
         "rankings": {k: {c: round(float(tab.loc[k, c]), 4) for c in tab.columns} for k in tab.index},
+        "as_deployed": {"rankings": as_deployed, "rows_with_a_visit_inside_the_month": round(changed, 4), "vs": ddiffs,
+                        "inspection_date_training": idt,
+                        "note": "features as of the 1st of each test inspection's month (month_start_rows)"},
         "best_auc_baseline": best_auc, "best_top20_baseline": best_cap, "vs": diffs,
         "variants": var_rows, "ablation": vdiffs, "age_leak": leak, "truncation": trunc,
         "test_no_12mo_score": round(miss12, 4), "survivorship": surv,
         "importance": {k: round(float(v), 4) for k, v in imp.head(6).items()}, "within_type": within,
-        "premise": premise,
+        "premise": premise, "calibration": cal,
     })
     print(f"\nwrote {RESULTS}")
 

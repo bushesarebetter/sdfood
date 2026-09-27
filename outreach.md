@@ -1,8 +1,10 @@
 # Outreach kit: San Diego food inspections, for City staff
 
 For City of San Diego staff and council offices. Fill in the `[brackets]`. Link the
-de-identified dashboard (`dashboard.html`, `[dashboard link]`), never the public site. Every number
-here is from the README and FAIRNESS.md.
+research dashboard (`dashboard.html`, `[dashboard link]`; counts only, no facility rows), never the public site. Every number
+here is from the README and FAIRNESS.md, regenerated on 2026-09-27 after the fixes of September
+2026. When quoting days sooner, say what they are: about 2% of the 277–303 days between a
+facility's routine inspections, found earlier within the month; never prevented illness.
 
 ## Three questions only the County can answer
 
@@ -33,22 +35,24 @@ What we found, tested on 2025-26 inspections our methods had never seen:
 - **Most of the gain needs no model.** Ordering a month's routine inspections by each facility's
   average routine score, lowest first, puts **48%** of major violations in the first 20% of
   inspections, and within a council district's month finds them **5.8 days sooner** than the
-  order actually worked. Our model reaches 6.2 days.
+  order actually worked, about 2% of the time between a facility's routine inspections. Our model
+  reaches 49% and 6.4 days.
 - Restaurants in the published rule's top band had a major violation at their next routine
-  inspection at **about twice the rate** of other restaurants (37.2% against 17.8%).
-- Coverage is even across neighborhoods (details below).
+  inspection at **about twice the rate** of other restaurants (37.2% against 17.8%), about what a
+  ranking by recent majors and scores reaches too (37.8%); the rule's value is that it is transparent.
+- No detectable coverage gap across neighborhood income (details below).
 
 The next step we would suggest is a silent pilot the City could propose to the County
-(docs/PILOT.md): one or two district supervisors get a frozen list before each month, inspectors
-change nothing, and after three months we compare when major violations would have been found in
-the list's order with the order actually worked.
+(docs/PILOT.md): district supervisors (ideally in all nine districts) get a frozen list before
+each month, inspectors change nothing, and after three months we check whether the list's order
+would have found major violations at least 2 days sooner than the order actually worked.
 
 Two disclosures. Our data come from the County's public SD Food Info search; we would switch to an
 official extract. And our repository also contains a public website that would show named City
 restaurants from the County's data. Today it shows only invented sample data, and we will not
 publish real names without the County's review.
 
-A de-identified summary is here: [dashboard link]. Could we have 20 minutes to show you the API?
+A summary with counts only is here: [dashboard link]. Could we have 20 minutes to show you the API?
 
 Thank you,
 Chenhao Zhang and Ayan Pendharkar, Canyon Crest Academy
@@ -58,7 +62,7 @@ Chenhao Zhang and Ayan Pendharkar, Canyon Crest Academy
 
 Hi [Name], floating this back up. The short version: ordering each district's routine inspections
 by each facility's own record would have found major violations about 6 days sooner within the
-month, on the County's 2025-26 data, and a silent pilot could confirm it without changing any
+month (about 2% of the time between routine inspections), on the County's 2025-26 data, and a silent pilot could confirm it without changing any
 inspection. Happy to send a one-page summary instead of a call. Chenhao and Ayan
 
 ## Note to the County (before anything is published)
@@ -73,10 +77,13 @@ each facility's own record would find major violations sooner. We are sharing in
 by-district tools with City staff, and we would like your comment before anything is published.
 We are independent, not affiliated with or endorsed by the County.
 
-- **What we saw:** routine cadence is set by category, and follow-up visits respond to findings.
-  The next routine came a median 277 days after one that found a major, against 303 after one
-  that did not. Within that schedule, ordering by the facility's average routine score found
-  major violations about 5.8 days sooner in a council district's month.
+- **What we saw in your published record:** how often a place is routinely inspected depends
+  mostly on what kind of place it is (school kitchens about twice as often as restaurants), and a B
+  or C is re-graded within 30 days. The next routine came a median 277 days after one that found a
+  major, against 303 after one that did not. Within a month, the order inspections were done in did
+  not put the places with worse records first; ordering by the facility's average routine score
+  would have found major violations about 5.8 days sooner in a council district's month, about 2% of
+  that interval. We would like to know whether that matches how you schedule.
 - **What we would like to learn:** the three questions at the top of this kit.
 - **What would make it better:** your inspection data through an official extract, including
   inactive permits, and **inspector or territory ids**, which let an analysis separate a place
@@ -92,28 +99,42 @@ Chenhao Zhang and Ayan Pendharkar · Adult point of contact: [NAME, ROLE, EMAIL]
 
 ## The 20-second version
 
-> "San Diego did about 18,700 routine food inspections in 2025. The County sets how often by
-> facility category. We tested ordering each month's inspections by each facility's own record:
+> "San Diego did about 18,700 routine food inspections in 2025. How often each place is inspected
+> is the County's call, and we leave it alone. We tested ordering each month's inspections by each
+> facility's own record:
 > a one-line rule, lowest average routine score first, would have found major violations about
-> six days sooner within a council district's month, on the County's own 2025-26 data. A silent
+> six days sooner within a council district's month, on the County's own 2025-26 data: about 2%
+> of the time between a facility's routine inspections. A silent
 > pilot could confirm it without changing a single inspection."
 
 ## If they ask
 
-- **"Is it reliable?"** It was tested forward in time: built on 2023-24, checked on 32,552 routine
+- **"Is it reliable?"** It was tested forward in time: built on 2023-24, checked on 32,548 routine
   inspections from 2025-26. Accuracy holds across three separate cutoffs (AUC 0.72 to 0.76), and
-  every comparison has a 95% interval. The top 20% of the list finds major violations at 2.4 times
+  the main comparisons carry 95% intervals. The top 20% of the list finds major violations at 2.4 times
   the base rate. It reorders visits everyone already gets; it skips no one.
-- **"Do you need the model?"** Mostly not. The one-line rule reaches the same 48% in the top 20%
-  and 5.8 of the model's 6.2 days. The model adds about 0.4 day.
+- **"Do you need the model?"** Mostly not. The one-line rule reaches 48% in the top 20% against
+  the model's 49%, and 5.8 of the model's 6.4 days. The model's edge is real (the intervals exclude
+  zero) but small: about 0.6 day, some 0.2% of the time between routine inspections.
+- **"Will it prevent food poisoning?"** We can't show that, and neither could a pilot this size:
+  foodborne illness is rare, under-reported and hard to trace to one visit, and the public record
+  has no illness data. What the ordering changes is timing. A major violation is corrected at the
+  inspection that finds it, so finding it about 6 days sooner means about 6 fewer days of an
+  uncorrected major, with the same inspectors, schedule and number of visits. Summed over the
+  majors, the one-line rule's head start comes to about 13,800 facility-days a year (95% CI 12,900
+  to 14,700), if each violation was already there at the start of the month. It is a free scheduling change,
+  not a proven health intervention, and the silent pilot tests the timing before anything changes.
 - **"Why two sets of numbers?"** The research numbers score each routine inspection county-wide.
   The published rule scores City restaurants monthly and asks whether the next routine inspection
   within a year finds a major; it is shown as bands. Both say a facility's own record is a strong
   guide.
-- **"Does it target poor or immigrant neighborhoods?"** From FAIRNESS.md: "Neither lower-income
-  nor higher-Hispanic areas are over-targeted." "Under a single top-20% cut, the model finds 45% to
-  51% of each income quartile's major violations and the one-line rule 45% to 51%, with the
-  lowest-income quartile at the top of both ranges." The model uses no ZIP code.
+- **"Does it target poor or immigrant neighborhoods?"** From FAIRNESS.md: flag rates and actual
+  rates were both nearly flat across ZIP income, and under a single top-20% cut the model found
+  46% to 52% of each income quartile's major violations (the rule 44% to 52%). The gap between the
+  lowest- and highest-income quartiles is +3.4 points for the model (95% CI −4.6 to +11.7) and
+  +4.6 for the rule (−4.1 to +13.5): "no detectable difference", not proof of evenness. The rule's
+  false-positive rate is 16.7% in the lowest-income quartile against 15.3% in the highest, with
+  overlapping intervals. The model uses no ZIP code, and coverage by group is monitored in any pilot.
 - **"What would it take?"** Someone has to produce and send each month's list. Our script builds
   the lists from refreshed data; someone at the County would still pass a district's list to its
   supervisor. The estimate assumes a finding does not depend on the day of the month, and it
