@@ -32,7 +32,9 @@ Tied scores share their slots' mean date (the expectation under a random order w
 
 Power (docs/PILOT.md): from the City council district-months of the test period, the spread of the
 per-district-month difference between an ordering and the order actually worked, and the number of
-district-months a silent pilot needs to detect a 2-day difference; and, for a later randomized
+district-months a silent pilot needs to detect a 2-day difference, and to show (its primary test)
+that the rule's head start exceeds a 2-day minimum, if the true head start is as observed or
+smaller; and, for a later randomized
 phase, the spread of the mean day of the month on which majors were found, and the district-months
 per arm it needs.
 
@@ -44,6 +46,8 @@ import model_food as mf
 
 BOOT = 2000
 Z = 1.959964 + 0.841621          # two-sided 5%, 80% power
+Z1 = 1.644854 + 0.841621         # one-sided 5%, 80% power (the pilot's primary test)
+MARGIN = 2.0                     # the smallest head start, in days, the pilot must clear (docs/PILOT.md)
 H, RULE = mf.HEADLINE, mf.RULE
 OVERDUE = "Model x overdue (old dashboard)"
 
@@ -233,6 +237,27 @@ def main():
     print(f"  randomized phase: mean day of the month a major is found, usual order: {power['day_mean']:.1f}, "
           f"SD across district-months {sd_day:.1f} d -> {power['randomized_n_per_arm_for_2d']} district-months per arm "
           f"to detect 2 days")
+
+    # The pilot's primary test (docs/PILOT.md): not "head start > 0", which any ranking better than chance
+    # passes, but "head start > MARGIN", the smallest worth acting on, one-sided at 5%. A list made on the
+    # 1st misses a third of the month's inspections, so the head start may shrink: power at smaller truths.
+    from scipy.stats import t as tdist
+
+    def margin_power(vals, n, true, reps=4000):
+        x = vals - vals.mean() + true
+        smp = x[rng.integers(0, len(x), (reps, n))]
+        tstat = (smp.mean(1) - MARGIN) / (smp.std(1, ddof=1) / np.sqrt(n))
+        return float((tstat > tdist.ppf(0.95, n - 1)).mean())
+
+    obs = float(w["rule"].mean())
+    power["margin"] = MARGIN
+    power["margin_n"] = {f"{t:g}": int(np.ceil((Z1 * sd_rule / (t - MARGIN)) ** 2)) for t in (round(obs, 1), 4.0, 3.0)}
+    power["margin_power"] = {f"{t:g}": {str(n): round(margin_power(w["rule"].values, n, t), 3) for n in (6, 9, 12, 18, 27, 36)}
+                             for t in (round(obs, 1), 4.0, 3.0)}
+    print(f"  primary test, head start > {MARGIN:g} d (one-sided 5%, 80%): district-months needed if the true head "
+          "start is " + ", ".join(f"{t} d: {n}" for t, n in power["margin_n"].items()))
+    for t, p in power["margin_power"].items():
+        print(f"    empirical power if it is {t} d, at n = " + ", ".join(f"{k}: {v:.2f}" for k, v in p.items()))
 
     # ---- chart: days earlier by ordering and window ----
     import matplotlib; matplotlib.use("Agg"); import matplotlib.pyplot as plt

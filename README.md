@@ -29,7 +29,8 @@ identifying User-Agent (2026-09-22): it sent a browser User-Agent. Later pulls i
 - **What "days sooner" is.** Within a month it is the ranking's AUC restated (about
   24 × (AUC − 0.5) days in a district's month), and 6 days is about 2% of the 277–303-day gap
   between routine inspections. It is detection latency within an already-scheduled month, not
-  prevented illness.
+  prevented illness, which the public record cannot measure. The case for it is that a major found
+  sooner is corrected sooner, at no cost in inspections (outreach.md, "Will it prevent food poisoning?").
 - **For the City and the County:** monthly worklists per council district (`export_worklist.py`)
   and a pre-registered silent pilot the City can propose to the County ([docs/PILOT.md](docs/PILOT.md)).
 
@@ -143,7 +144,11 @@ extract should replace it.
   deployed list reads). Only 0.8% of test inspections had a visit between the 1st and the
   inspection, so scoring at the inspection date gives nearly the same figures (below, for comparison).
 - **Deployment model** (worklists, dashboard) is fitted on **all** routine inspections before the
-  list's month; the accuracy figures come only from the held-out test.
+  list's month, each read as of the 1st of its month, the way the list is scored; the accuracy
+  figures come only from the held-out test, where the research model trains on inspection-date
+  rows. On that test the deployed training scores AUC 0.763 and 49.4% in the top 20%: −0.001
+  (−0.003 to +0.001) and −0.2 points (−1.1 to +0.6) against the research figures, no detectable
+  difference.
 - **Orderings that need no model:** the **one-line rule** (mean routine score on record, lowest
   first); **persistence** (routine inspections with a major in the prior 12 months, then majors,
   then the lowest last routine score over two years; `export_site.persistence`); the last routine
@@ -326,8 +331,9 @@ For a month (by default the one after the data end), one CSV per council distric
   the card does not score by the one-line rule. Each row says why it sits where it does.
 - **A frozen copy** (read-only, timestamped, with sha256 hashes and every active facility's
   position under each ordering) lets a silent pilot be scored later against exactly what was sent:
-  [docs/PILOT.md](docs/PILOT.md). In the backtest, two districts for three months are enough to
-  confirm a head start of the size above (power 0.80).
+  [docs/PILOT.md](docs/PILOT.md). The pilot's primary test is whether the rule's head start is
+  above 2 days, not above zero; all nine districts for three months give it 0.80 power even if the
+  head start shrinks from the backtest's +5.7 d to +4 d.
 
 ## Two sets of numbers
 
