@@ -23,10 +23,10 @@ which day of the month it is inspected, and it ignores routing: a reordered mont
 driving than the order actually worked. The magnitude scales with the reorder window, so it
 measures the reorder horizon, not a bigger real-world benefit. Three windows:
   * within a month, county-wide: one pool per month;
-  * within a month, within an area: inspectors work areas, not one county-wide pool, so each month
+  * within a month, within an area: inspectors are assumed to work areas, not one county-wide pool, so each month
     is split by City of San Diego council district (export_site.district_lookup) and, outside the
-    City, by ZIP3; each area's month is reordered on its own (the headline). The County's real
-    unit is an inspector's territory, which the public record does not carry;
+    City, by ZIP3; each area's month is reordered on its own (the headline). How the County assigns
+    routine inspections is not published (inspector territories, probably), and the record carries none;
   * within a quarter, county-wide: shown only to make the window-dependence explicit.
 Tied scores share their slots' mean date (the expectation under a random order within the tie).
 
@@ -73,6 +73,39 @@ def areas(rows):
                               "Z" + rows["zip"].astype("string").str[:3].fillna("NA")), index=rows.index), di
 
 
+def within_window_auc(score, keys, y, boot=BOOT, seed=0):
+    """How often an inspection that found a major is ranked ahead of a clean one in the SAME window
+    (higher score = earlier), pooled over windows (a stratified Mann-Whitney AUC), with a 95% interval
+    resampling windows. 0.5: the ordering does not put majors first. Windows without both are skipped."""
+    from scipy.stats import rankdata
+    y = np.asarray(y).astype(int)
+    num, den = [], []
+    for ix in pd.Series(np.arange(len(y))).groupby(keys, sort=False).indices.values():
+        n1 = int(y[ix].sum()); n0 = len(ix) - n1
+        if n1 and n0:
+            num.append(rankdata(score[ix])[y[ix] == 1].sum() - n1 * (n1 + 1) / 2)
+            den.append(n1 * n0)
+    num, den = np.array(num), np.array(den, dtype=float)
+    k = np.random.default_rng(seed).integers(0, len(num), (boot, len(num)))
+    ci = np.percentile(num[k].sum(1) / den[k].sum(1), [2.5, 97.5])
+    return round(float(num.sum() / den.sum()), 3), [round(float(v), 3) for v in ci], len(num)
+
+
+def within_window_spearman(x, keys, day, boot=BOOT, seed=0, min_n=10):
+    """Mean over windows (of min_n+ rows) of the rank correlation between being done EARLIER in the
+    month and x, with a 95% interval resampling windows. 0: the order does not follow x."""
+    from scipy.stats import spearmanr
+    x, day = np.asarray(x, float), np.asarray(day, float)
+    rho = []
+    for ix in pd.Series(np.arange(len(x))).groupby(keys, sort=False).indices.values():
+        ok = ix[np.isfinite(x[ix])]
+        if len(ok) >= min_n and np.ptp(x[ok]) > 0 and np.ptp(day[ok]) > 0:
+            rho.append(spearmanr(-day[ok], x[ok]).correlation)
+    rho = np.array(rho)
+    k = np.random.default_rng(seed).integers(0, len(rho), (boot, len(rho)))
+    return round(float(rho.mean()), 3), [round(float(v), 3) for v in np.percentile(rho[k].mean(1), [2.5, 97.5])], len(rho)
+
+
 def overdue_ratio(df, rows, interval):
     """Days from the facility's last visit before the start of the row's month to that month's
     start, over its type's median routine interval (floor 120 days), clipped to 0.2-2, as the old
@@ -93,8 +126,12 @@ def main():
     y = d["major"].values.astype(int)
     date = d["completed_date"]
 
-    # ---- rolling-origin backtest: is AUC stable across cutoffs? ----
-    print("=== rolling-origin backtest (train <= cutoff, test the next 6 months) ===")
+    # Every routine row read as of the 1st of its month, as the list is: the arms below train and
+    # score on these (model_food.fit_as_deployed), like export_worklist.model_orders.
+    ms = mf.month_start_rows(df, d)
+
+    # ---- rolling-origin backtest: is AUC stable across cutoffs? (as deployed) ----
+    print("=== rolling-origin backtest (train <= cutoff, test the next 6 months; trained and scored as of the 1st) ===")
     rolling = []
     for cut in ["2024-06-30", "2024-12-31", "2025-06-30"]:
         cd = pd.Timestamp(cut)
@@ -102,11 +139,11 @@ def main():
         row = {"cutoff": cut, "n": int(te.sum())}
         for v, key in ((H, "auc"), (mf.WINDOW, "auc_window")):
             tr = mf.train_mask(d, v, end=cut)
-            row[key] = round(roc_auc_score(y[te], mf.fit_predict(d, v, tr, te)), 3)
+            row[key] = round(roc_auc_score(y[te], mf.fit_as_deployed(ms, tr, v).predict(ms[te])), 3)
             if v == H:
                 row["train_n"] = int(tr.sum())
         for c, key in (("persistence", "auc_persistence"), ("rule_mean_all", "auc_rule"), ("rule_mean12", "auc_rule_12m")):
-            row[key] = round(roc_auc_score(y[te], d.loc[te, c]), 3)
+            row[key] = round(roc_auc_score(y[te], ms.loc[te, c]), 3)
         rolling.append(row)
         print(f"  cutoff {cut}: train {row['train_n']:>6,} test {row['n']:>6,} major {y[te].mean()*100:4.1f}%  AUC model "
               f"{row['auc']:.3f}  12-month model {row['auc_window']:.3f}  persistence {row['auc_persistence']:.3f}  "
@@ -122,11 +159,11 @@ def main():
     s = d.loc[te, ["business_id", "completed_date", "major", "zip", "lat", "lng"]].copy()
     s["area"], s["district"] = areas(s)
     # Reordering a month's inspections on the 1st can only use what was known on the 1st: the
-    # arms score features as of the month's first day (mf.month_start_rows), as the deployed list
-    # does. Scoring at the inspection date instead let a visit made inside the month (a complaint
-    # a week before the routine) move that routine to the 1st; that version is kept, labelled.
-    dm = mf.month_start_rows(df, d[te])
-    Pm = {v: mf.Model(v).fit(d[mf.train_mask(d, v)]).predict(dm) for v in (H, mf.WITH_ZIP, mf.WINDOW, "published")}
+    # arms are trained and scored as of the month's first day, as the deployed list is. Scoring at
+    # the inspection date instead let a visit made inside the month (a complaint a week before the
+    # routine) move that routine to the 1st; that version is kept, labelled.
+    dm = ms[te]
+    Pm = {v: mf.fit_as_deployed(ms, mf.train_mask(d, v), v).predict(dm) for v in (H, mf.WITH_ZIP, mf.WINDOW, "published")}
     ARMS = {"Model": Pm[H], "Model with ZIP": Pm[mf.WITH_ZIP], "Model, 12-month window": Pm[mf.WINDOW],
             "Model as published (age leak)": Pm["published"], RULE: dm[mf.BASELINES[RULE]].values,
             "Mean routine score, last 12 months": dm["rule_mean12"].values,
@@ -137,6 +174,35 @@ def main():
     print(f"areas: {s.loc[s['district'].notna(), 'district'].nunique()} council districts "
           f"({s['district'].notna().mean()*100:.0f}% of test inspections) + "
           f"{s.loc[s['district'].isna(), 'area'].nunique()} ZIP3 areas outside the City")
+
+    # ---- the baseline: does the order the County actually worked already put majors first? ----
+    # The County says its inspection methodology "prioritizes inspections based on relative risk". If that
+    # reached the order within a month, the actual order would rank majors ahead of clean inspections.
+    tday = s["completed_date"].values.astype("datetime64[D]").astype(float)
+    mon = s["completed_date"].dt.to_period("M").astype(str).values
+    usual = {}
+    for name, keys in (("district_month", [mon, s["area"].values]), ("county_month", [mon])):
+        a, ci, n = within_window_auc(-tday, keys, y[te])
+        usual[name] = {"p_major_first": a, "ci": ci, "windows": n}
+    rule_a, rule_ci, _ = within_window_auc(ARMS[RULE], [mon, s["area"].values], y[te])
+    dom = s["completed_date"].dt.day.values
+    usual["rule_district_month"] = {"p_major_first": rule_a, "ci": rule_ci}
+    # ...or due dates? (the facilities longest since their last visit, as of the 1st, first)
+    for name, x in (("follows_days_since_last_visit", dm["days_since_last"].values), ("follows_the_rule", ARMS[RULE])):
+        r, rci, n = within_window_spearman(x, [mon, s["area"].values], dom)
+        usual[name] = {"spearman": r, "ci": rci, "windows": n}
+    usual["mean_day_major"] = round(float(dom[y[te] == 1].mean()), 2)
+    usual["mean_day_clean"] = round(float(dom[y[te] == 0].mean()), 2)
+    print(f"the order actually worked: a major came before a clean inspection in the same district/ZIP3-month "
+          f"{usual['district_month']['p_major_first']*100:.1f}% of the time (95% CI {usual['district_month']['ci'][0]*100:.1f} "
+          f"to {usual['district_month']['ci'][1]*100:.1f}; 50% = no risk ordering; county-wide months "
+          f"{usual['county_month']['p_major_first']*100:.1f}%); the one-line rule: {rule_a*100:.1f}%. Mean day of the "
+          f"month: majors {usual['mean_day_major']:.1f}, clean {usual['mean_day_clean']:.1f}")
+    print(f"within a district/ZIP3-month, being done earlier follows the days since the last visit (as of the 1st): "
+          f"Spearman {usual['follows_days_since_last_visit']['spearman']:+.3f} (95% CI "
+          f"{usual['follows_days_since_last_visit']['ci'][0]:+.3f} to {usual['follows_days_since_last_visit']['ci'][1]:+.3f}), "
+          f"and the facility's record by the rule: {usual['follows_the_rule']['spearman']:+.3f} "
+          f"({usual['follows_the_rule']['ci'][0]:+.3f} to {usual['follows_the_rule']['ci'][1]:+.3f})")
 
     def simulate(label, wfreq, by_area):
         """Days earlier than the actual order, per arm, with paired bootstrap CIs over windows."""
@@ -158,11 +224,17 @@ def main():
         rng = np.random.default_rng(0)
         C = np.stack([np.bincount(rng.integers(0, nw, nw), minlength=nw) for _ in range(BOOT)])   # windows resampled
         ci = lambda v: [round(float(x), 2) for x in np.percentile(v, [2.5, 97.5])]
-        res = {"label": label, "windows": int(nw), "n_critical": int(mj.sum()), "arms": {}, "model_minus": {}}
+        res = {"label": label, "windows": int(nw), "n_critical": int(mj.sum()), "years": round(YEARS, 3),
+               "majors_per_year": round(float(mj.sum()) / YEARS), "arms": {}, "model_minus": {}}
         for a in ARMS:
+            # the head start summed over the majors: facility-days by which majors were found (and so
+            # corrected) sooner, per year of the test; the reorder moves the same days onto clean visits
             res["arms"][a] = {"days_earlier": round(float(de[a][mj].mean()), 2), "ci": ci(C @ Sm[a] / (C @ N)),
                               "share_earlier": round(float((de[a][mj] > 0).mean()), 3),
-                              "clean_days": round(float(de[a][~mj].mean()), 2)}
+                              "clean_days": round(float(de[a][~mj].mean()), 2),
+                              "facility_days_per_year": round(float(de[a][mj].sum()) / YEARS),
+                              "facility_days_per_year_ci": [round(v * float(mj.sum()) / YEARS)
+                                                            for v in ci(C @ Sm[a] / (C @ N))]}
         for a in ARMS:
             if a == "Model":
                 continue
@@ -172,13 +244,15 @@ def main():
         for a, r in res["arms"].items():
             print(f"    {a:32s} majors {r['days_earlier']:+.1f} days earlier than the actual order "
                   f"(95% CI {r['ci'][0]:+.1f} to {r['ci'][1]:+.1f}); {r['share_earlier']*100:.0f}% found earlier; "
-                  f"clean facilities {r['clean_days']:+.1f} days")
+                  f"clean facilities {r['clean_days']:+.1f} days; {r['facility_days_per_year']:,} facility-days a year "
+                  f"({r['facility_days_per_year_ci'][0]:,} to {r['facility_days_per_year_ci'][1]:,})")
         for a, r in res["model_minus"].items():
             print(f"    model minus {a:32s} {r['days']:+.1f} days (paired 95% CI {r['ci'][0]:+.1f} to {r['ci'][1]:+.1f})")
         return res, pd.DataFrame({"w": wid, "major": mj, "t": t, "area": s2["area"].values,
                                   "ms": s2["completed_date"].dt.to_period("M").dt.start_time.values
                                   .astype("datetime64[D]").astype(float), **{a: de[a] for a in ARMS}})
 
+    YEARS = (s["completed_date"].max() - pd.Timestamp(mf.TRAIN_END)).days / 365.25   # the test span
     print("\n=== DETECTION LATENCY: how much sooner majors surface under each ordering ===")
     print("(reorder a window's scheduled inspections; slots = the actual inspection dates; CIs resample windows.)")
     month, _ = simulate("within-month, county-wide pool", "M", False)
@@ -300,7 +374,7 @@ def main():
     print("saved food_days_earlier.png")
 
     mf.save_results("sim", {"rolling": rolling, "windows": {k: r for k, r in zip(["month", "month_area", "quarter"], results)},
-                            "power": power, "overdue_interval_from": "2023-24 routine gaps by type"})
+                            "power": power, "usual_order": usual, "overdue_interval_from": "2023-24 routine gaps by type"})
     print(f"wrote {mf.RESULTS}")
 
 

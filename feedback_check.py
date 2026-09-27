@@ -16,7 +16,11 @@ Here, in each quarter of 2024:
      and follow-ups in the FOLLOWUP_DAYS after it (the visits it would have triggered).
 Then the model, the one-line rule and persistence are rebuilt from the censored record and scored
 on the real 2025+ inspections (whose labels are all observed), with recall broken out by ZIP
-income group. Arm C runs over several seeds.
+income group. Arm C runs over several seeds. As everywhere else, the model is trained and every
+ordering scored as the monthly list would be: on features as of the 1st of each month
+(model_food.month_start_rows, fit_as_deployed). The test inspections are the same in every arm (the
+censoring only touches 2024), so each arm's AUC minus arm A's gets a paired 95% interval over
+facilities (arm C: the mean over its seeds).
 
 Scope: this simulates an INSPECT-LESS policy, which this project does not propose. Reordering
 visits within the County's schedule removes none, so it is arm A by construction."""
@@ -53,10 +57,13 @@ def simulate(raw, keep_share, base_share, seed):
     dropped = 0
     for start, end in ROUNDS if keep_share is not None else []:
         s, e = pd.Timestamp(start), pd.Timestamp(end)
-        d = mf.routine_rows(mf.add_features(rec))
-        tr = d[d["completed_date"] < s]
-        cand = d[(d["completed_date"] >= s) & (d["completed_date"] <= e)]
-        p = mf.Model(mf.HEADLINE).fit(tr).predict(cand)
+        rf = mf.add_features(rec)
+        d = mf.routine_rows(rf)
+        d = d[d["completed_date"] <= e]
+        ms = mf.month_start_rows(rf, d)                      # what a list made on each 1st would read
+        dt_ = d["completed_date"]
+        cand = ms[((dt_ >= s) & (dt_ <= e)).to_numpy()]
+        p = mf.fit_as_deployed(ms, (dt_ < s).to_numpy()).predict(cand)
         keep = p >= np.quantile(p, 1 - keep_share)
         rest = np.flatnonzero(~keep)
         if base_share and len(rest):
@@ -64,20 +71,34 @@ def simulate(raw, keep_share, base_share, seed):
         drop = cand.index[~keep]
         dropped += len(drop)
         rec = censor(rec, drop)
-    d = mf.routine_rows(mf.add_features(rec))
+    rf = mf.add_features(rec)
+    d = mf.routine_rows(rf)
+    ms = mf.month_start_rows(rf, d)
     te = (d["completed_date"] > pd.Timestamp(mf.TRAIN_END)).to_numpy()
-    model = mf.Model(mf.HEADLINE).fit(d[mf.train_mask(d, mf.HEADLINE)])
-    return d[te], {"Model": model.predict(d[te]), "One-line rule": d.loc[te, mf.BASELINES[mf.RULE]].values,
-                   "Persistence": d.loc[te, "persistence"].values}, dropped
+    model = mf.fit_as_deployed(ms, mf.train_mask(d, mf.HEADLINE))
+    t = d[te].assign(days_since_last=ms.loc[te, "days_since_last"].values)   # as of the 1st, like the scores
+    return t, {"Model": model.predict(ms[te]), "One-line rule": ms.loc[te, mf.BASELINES[mf.RULE]].values,
+               "Persistence": ms.loc[te, "persistence"].values}, dropped
+
+
+def paired_auc_interval(y, codes, base, others, boot=mf.BOOT):
+    """95% interval of mean(AUC of each score in `others`) minus AUC of `base`, over facilities
+    resampled with replacement (codes); every score is on the same rows as y."""
+    def stat(w):
+        return np.mean([roc_auc_score(y, o, sample_weight=w) for o in others]) - roc_auc_score(y, base, sample_weight=w)
+    return mf.facility_interval(codes, stat, boot)
 
 
 def main():
     raw = mf.load()
-    inc = json.load(open("acs_cache.json")).get("inc", {}) if os.path.exists("acs_cache.json") else {}
+    inc = {}
+    if os.path.exists("acs_cache.json"):
+        with open("acs_cache.json", encoding="utf-8") as fh:
+            inc = json.load(fh).get("inc", {})
     arms = {"A no censoring (= reordering only)": (None, 0.0, (0,)),
             f"B inspect only the model's top {KEEP:.0%}": (KEEP, 0.0, (0,)),
             f"C top {KEEP:.0%} + random {BASELINE:.0%} of the rest": (KEEP, BASELINE, SEEDS)}
-    out = {}
+    out, kept = {}, {}                  # kept: each arm's test rows and scores, for the paired intervals
     print(f"four quarterly rounds in 2024; unkept routine inspections and their follow-ups within "
           f"{FOLLOWUP_DAYS} days are deleted from the record; everything is rebuilt from what is left\n")
     for name, (ks, bs, seeds) in arms.items():
@@ -96,6 +117,7 @@ def main():
                         **{g: round(float(100 * (flag * y)[grp.values == g].sum() / max(y[grp.values == g].sum(), 1)), 1)
                            for g in GROUPS}}
             runs.append(r)
+            kept.setdefault(name, []).append((t["inspection_id"].to_numpy(), y, scores))
         agg = {a: {k: round(float(np.mean([r[a][k] for r in runs])), 3 if k == "auc" else 1)
                    for k in ["auc"] + GROUPS} for a in ("Model", "One-line rule", "Persistence")}
         out[name] = {"runs": runs, "mean": agg, "dropped_routine": runs[0]["dropped_routine"]}
@@ -104,6 +126,22 @@ def main():
         for a, m in agg.items():
             print(f"    {a:14s} AUC {m['auc']:.3f}   recall of majors (top 20%) by income quartile: " +
                   "  ".join(f"{g.split()[0]} {m[g]:.0f}%" for g in GROUPS))
+    # ---- each arm minus arm A, paired over facilities (the same 2025+ inspections in every arm) ----
+    ids_a, y_a, sc_a = kept[next(iter(arms))][0]
+    codes = pd.factorize(pd.Series(ids_a).map(dict(zip(raw["inspection_id"], raw["business_id"]))))[0]
+    print("\n=== each arm minus A: AUC, paired 95% interval over facilities ===")
+    for name in list(arms)[1:]:
+        out[name]["minus_A"] = {}
+        for a in ("Model", "One-line rule", "Persistence"):
+            others = []
+            for ids, y, sc in kept[name]:
+                assert len(ids) == len(ids_a), "arms must score the same test inspections"
+                others.append(pd.Series(sc[a], index=ids).reindex(ids_a).to_numpy())
+            diff = float(np.mean([roc_auc_score(y_a, o) for o in others]) - roc_auc_score(y_a, sc_a[a]))
+            ci = paired_auc_interval(y_a, codes, sc_a[a], others)
+            out[name]["minus_A"][a] = {"auc": round(diff, 4), "ci": ci}
+            print(f"  {name[:34]:34s} {a:14s} {diff:+.4f} [{ci[0]:+.4f}, {ci[1]:+.4f}]")
+
     print("\nRead: B's losses against A are what inspecting only the model's picks would cost, for the model AND for")
     print("the rules that read the same record; C shows how much a random baseline gives back. Reordering visits")
     print("within the schedule removes none (arm A). Recall by group still has to be monitored live.")

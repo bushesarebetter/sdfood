@@ -134,3 +134,82 @@ def test_km_median_is_exact_at_one_half_and_small_fits_stop_early(tmp_path):
     d = mf.routine_rows(mf.add_features(_load(rows, tmp_path)))
     m = mf.Model(mf.HEADLINE).fit(d)                     # 360 rows: too few for a time split
     assert m.n_iter < mf.MAX_ITER, "sklearn's early stopping, not a fixed 300 rounds"
+
+
+def test_facility_interval_resamples_whole_facilities():
+    codes = np.repeat(np.arange(40), 5)                  # 40 facilities, 5 rows each
+    x = np.repeat(np.linspace(0, 1, 40), 5)              # constant within a facility
+    lo, hi = mf.facility_interval(codes, lambda w: (w * x).sum() / w.sum(), boot=400)
+    assert lo < x.mean() < hi and hi - lo < 0.4
+    assert mf.facility_interval(codes, lambda w: 3.0, boot=50) == [3.0, 3.0]
+
+
+def test_calibration_table_orders_groups_and_reports_the_gap():
+    rng = np.random.default_rng(1)
+    g = np.array(["b"] * 500 + ["a"] * 500)
+    p = np.r_[np.full(500, 0.10), np.full(500, 0.30)]
+    y = (rng.random(1000) < np.r_[np.full(500, 0.20), np.full(500, 0.30)]).astype(int)
+    codes = np.arange(1000)
+    t = mf.calibration_table(p, y, g, codes, order=["b", "a"], boot=200)
+    assert list(t) == ["b", "a"] and t["b"]["predicted_pct"] == 10.0
+    assert t["b"]["actual_minus_predicted_pts"] == round(100 * (y[:500].mean() - 0.10), 1)
+    lo, hi = t["b"]["ci_pts"]
+    assert lo > 0 and lo <= t["b"]["actual_minus_predicted_pts"] <= hi       # under-predicted, detectably
+    assert t["a"]["ci_pts"][0] < 0 < t["a"]["ci_pts"][1]                     # calibrated: covers 0
+    assert list(mf.calibration_table(p, y, g, codes, boot=10)) == ["a", "b"]  # no order given: sorted
+
+
+def test_equal_opportunity_cuts_hit_the_target_recall_in_every_group():
+    import threshold_tradeoff as tt
+    rng = np.random.default_rng(2)
+    grp = np.repeat(["low", "high"], 2000)
+    y = (rng.random(4000) < 0.2).astype(int)
+    p = rng.random(4000) + 0.5 * y + np.where(grp == "high", 0.3, 0.0)   # different score scales per group
+    cuts = tt.equal_opportunity_cuts(p, y, grp, 0.5)
+    for g in ("low", "high"):
+        m = (grp == g) & (y == 1)
+        assert abs((p[m] >= cuts[g]).mean() - 0.5) < 0.01
+    assert cuts["high"] > cuts["low"]
+
+
+def test_feedback_paired_interval_is_zero_for_identical_arms_and_sees_a_real_loss():
+    import feedback_check as fb
+    rng = np.random.default_rng(3)
+    y = (rng.random(3000) < 0.2).astype(int)
+    codes = np.arange(3000) // 3
+    good = rng.random(3000) + y
+    assert fb.paired_auc_interval(y, codes, good, [good.copy()], boot=100) == [0.0, 0.0]
+    worse = good + rng.normal(0, 1.5, 3000)
+    lo, hi = fb.paired_auc_interval(y, codes, good, [worse], boot=200)
+    assert hi < 0                                         # the noisier arm is detectably worse
+
+
+def test_within_window_auc_compares_majors_and_clean_inspections_inside_each_window_only():
+    import sim_schedule as ss
+    rng = np.random.default_rng(4)
+    win = np.repeat(np.arange(60), 20)
+    y = (rng.random(1200) < 0.2).astype(int)
+    assert ss.within_window_auc(y + 0.0, [win], y, boot=50)[0] == 1.0          # majors always first
+    assert ss.within_window_auc(-y + 0.0, [win], y, boot=50)[0] == 0.0
+    a, (lo, hi), n = ss.within_window_auc(rng.random(1200), [win], y, boot=300)
+    assert lo < 0.5 < hi and abs(a - 0.5) < 0.05                               # a random order: no ranking
+    # a window-level shift (every inspection in a high-major window scored higher) is not a ranking within it
+    shifted = win.astype(float) + rng.random(1200) * 0.01
+    y2 = (win % 2 == 0).astype(int) * (rng.random(1200) < 0.5)
+    a2, _, n2 = ss.within_window_auc(shifted, [win], y2, boot=50)
+    assert abs(a2 - 0.5) < 0.1 and n2 == 30                                    # windows with no major are skipped
+
+
+def test_within_window_spearman_sees_an_order_that_follows_x_and_none_that_does_not():
+    import sim_schedule as ss
+    rng = np.random.default_rng(5)
+    win = np.repeat(np.arange(40), 25)
+    x = rng.random(1000)
+    day = np.empty(1000)
+    for w in range(40):                                   # each window worked in descending x: x first
+        ix = np.flatnonzero(win == w)
+        day[ix[np.argsort(-x[ix])]] = np.arange(1, 26)
+    r, (lo, hi), n = ss.within_window_spearman(x, [win], day, boot=200)
+    assert r > 0.99 and n == 40
+    r0, (lo0, hi0), _ = ss.within_window_spearman(rng.random(1000), [win], day, boot=300)
+    assert lo0 < 0 < hi0                                   # an unrelated x: no ordering
