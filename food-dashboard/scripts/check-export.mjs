@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 /**
  * Check the export the site is about to ship against the contract
- * (docs/FOOD_DATA_CONTRACT.md, version 3.1): the index, every place file,
+ * (docs/FOOD_DATA_CONTRACT.md, version 3.2): the index, every place file,
  * and meta.json.
  *
  * Fails on:
- *  - an index larger than 3 MB, a mode outside record|bands, or meta.places
- *    that does not count the index;
+ *  - an index larger than 3 MB (8 MB with --review: an unpublished export
+ *    lists every active place county-wide), a mode outside record|bands, or
+ *    meta.places that does not count the index;
  *  - a feature property not in the contract (rank, percentile, oof_rank,
  *    score, shap_features, is_known_positive, or anything else unlisted);
  *  - a place without a unique facility_id, a name, an address or a kind, or
@@ -25,7 +26,8 @@
  *    meta.publication (written only by `export_site.py --publish`), a
  *    publication for another run, a facilities_sha256 that is not the sha256
  *    of the shipped facilities.geojson, no meta.contact, and in bands mode
- *    empty named_bands or a listed place outside them.
+ *    empty named_bands, a listed place outside them, or a listed place
+ *    outside the City (no council district).
  *
  * `--review` checks an unpublished export (data/site): the publication and
  * named-band gates are reported as a warning, "review export: not
@@ -51,8 +53,12 @@ const { THEMES, TYPE_LABELS, MODES, PUBLIC_TYPES, VISIT_TYPES, SEVERITIES, CLOSU
 const { sampleProblems } = await lib("sampleProof.js");
 const FRESH_DAYS = 14;   // export_site.FRESH_DAYS: expires = inspections_through + 14 days
 
-// An index this size is about 300 KB gzipped; the host must serve .geojson compressed.
+// What the public site ships (named City places only) stays under 3 MB, about 300 KB gzipped. An
+// unpublished review or City-staff export lists every active place county-wide (about 11,000 places
+// and 4.6 MB in September 2026, 560 KB gzipped by city_site/server.mjs); it may reach 8 MB, so a
+// runaway export still fails. Either way the host must serve .geojson compressed.
 const MAX_INDEX_BYTES = 3 * 1024 * 1024;
+const MAX_REVIEW_INDEX_BYTES = 8 * 1024 * 1024;
 const INDEX_KEYS = new Set(["facility_id", "name", "address", "facility_type", "council_district", "last_visit", "grade", "flags", "band", "points", "on_hold"]);
 const DETAIL_KEYS = new Set(["business_type", "inspections", "violations", "score_card", "band_stability"]);
 const FORBIDDEN = ["rank", "percentile", "oof_rank", "score", "shap_features", "is_known_positive"];
@@ -96,7 +102,8 @@ const sample = meta?.sample === true && !pretend.length;
 const mode = meta?.mode;
 const bands = mode === "bands";
 
-if (indexBytes.length > MAX_INDEX_BYTES) fail(`the index is ${(indexBytes.length / 1e6).toFixed(2)} MB, over 3 MB (about 300 KB gzipped at that size; the host must serve .geojson compressed)`);
+const maxIndex = review ? MAX_REVIEW_INDEX_BYTES : MAX_INDEX_BYTES;
+if (indexBytes.length > maxIndex) fail(`the index is ${(indexBytes.length / 1e6).toFixed(2)} MB, over ${maxIndex / 1024 / 1024} MB${review ? " (the limit for an unpublished review or staff export)" : " (what the public site ships; the host must serve .geojson compressed)"}`);
 if (!MODES.includes(mode)) fail(`meta.mode is ${JSON.stringify(mode)}, not one of ${MODES.join("|")}`);
 if (meta?.places !== features.length) fail(`meta.places is ${meta?.places}, but the index lists ${features.length}`);
 
@@ -289,6 +296,9 @@ if (!sample) {
       const outside = features.filter((f) => !named.includes(String(f.properties?.band ?? ""))).length;
       if (outside) gates.push(`${outside} listed ${outside === 1 ? "place is" : "places are"} in no named band`);
     }
+    // The rule's backtest and its district-parity gate cover City restaurants; a public list names no one else.
+    const county = features.filter((f) => f.properties?.council_district == null).length;
+    if (county) gates.push(`${county} listed ${county === 1 ? "place is" : "places are"} outside the City (no council district)`);
   }
   if (gates.length) {
     if (review) warn(`review export: not publishable (${gates.join("; ")})`);

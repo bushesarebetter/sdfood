@@ -44,6 +44,7 @@ real export is ever published, deploy the built site from a private build.
 | A cost ratio C/B below 1 is co-signed by an independent reviewer | The people who built the list do not set their own threshold. |
 | Every named band keeps at least 80% of its places across refits | A band that reshuffles is not a fact about the places in it. |
 | No council district carries more than 1.25 times its share of wrongly named places, or 1.5 times the City's false-positive rate, and no district's interval reaches 2 | The cost of a named list should not fall on one part of the City. |
+| Every named place is inside the City: it has a council district (`export_site.named_features`; `check-export.mjs` refuses a published export with any other) | The staff export lists places county-wide, but the rule's backtest, its bands and the district gate above cover City restaurants only. |
 | Every named place was sent a notice at least 14 days earlier (`docs/notices/<run>.csv`: `facility_id,date_sent,method`) | Owners hear first, and can respond. |
 | A frozen run was registered (`export_site.py --register`, with `docs/prospective/REGISTERED.json` committed) at least 90 days before, and held up on 300 or more later routine inspections (`--monitor`) | Only inspections made after a list was frozen are untouched evidence. |
 | The site's contract check passes on the staged export, which carries `meta.publication` | The site can render every field, and its build accepts only a stamped export. |
