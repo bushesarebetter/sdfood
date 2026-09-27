@@ -3,7 +3,7 @@
 A proposal the City of San Diego can bring to the County's Food & Housing Division. In its
 first phase nothing about any inspection changes. Every number below comes from
 `sim_schedule.py` and `export_worklist.py` on the County's public results (SD Food Info),
-2023-01 to 2026-09 (the 2026-09-19 pull, rerun 2026-09-26); see the README.
+2023-01 to 2026-09 (the 2026-09-19 pull, rerun 2026-09-27); see the README.
 
 ## The question
 
@@ -11,7 +11,7 @@ If a council district's routine inspections for a month were worked in the list'
 would major violations be found sooner than in the order actually worked? In the backtest,
 ordering each district's month by the one-line rule (lowest mean routine score on record
 first) finds them **5.8 days sooner** (95% CI 5.4 to 6.1), and the research model **6.4
-days** (6.0 to 6.8): about 2% of the 277–303 days between a facility's routine inspections. It
+days** (6.0 to 6.7): about 2% of the 277–303 days between a facility's routine inspections. It
 is detection within a month's schedule, not prevented illness. The pilot checks this going
 forward, on the County's own schedule.
 
@@ -38,7 +38,9 @@ list was inspected that month: a list runs about 2.1 times a month's volume. Wit
 
 ## Arms: orders compared on the same inspections
 
-- **Usual order:** the dates the inspections were actually done.
+- **Usual order:** the dates the inspections were actually done. In 2025-26 it put an inspection
+  that found a major ahead of a clean one in the same district-month no more often than chance
+  ([COUNTY_METHOD.md](COUNTY_METHOD.md)); the pilot checks that again on the County's own schedule.
 - **The list as sent:** the published point card's points first, then the one-line rule for
   places the card does not score.
 - **The one-line rule alone:** lowest mean routine score on record first.
@@ -102,11 +104,11 @@ For comparison, other questions (two-sided 5%, 80% power):
 |---|---|---|
 | any head start of the backtest's size (+5.7 d) against zero | 5 | 0.31 with 3, 0.80 with 6, 0.95 with 9 |
 | a 2-day head start against zero | 36 | 0.15 with 6, 0.32 with 12, 0.70 with 27 |
-| a 2-day difference between the model and the rule (SD of the difference 1.8 d) | 7 | |
-| the backtest's model-over-rule difference (+0.6 d) | 73 | |
+| a 2-day difference between the model and the rule (SD of the difference 1.7 d) | 6 | |
+| the backtest's model-over-rule difference (+0.5 d) | 86 | |
 
-Separating the research model from the one-line rule would take about 73 district-months (all
-nine districts for about eight months), and this pilot does not try: the rule is the primary arm.
+Separating the research model from the one-line rule would take about 86 district-months (all
+nine districts for about ten months), and this pilot does not try: the rule is the primary arm.
 (The list as sent is scored with the rule's spread as a proxy.)
 
 ## Later: a randomized active phase (optional)
@@ -123,8 +125,9 @@ month, and driving time.
 
 - A facility's finding does not depend on which day of the month it is inspected.
 - Reordering ignores routing: a reordered month may cost more driving. The active phase measures it.
-- Council districts stand in for the County's real unit, an inspector's territory. With the
-  County's data we would use its actual inspector assignments.
+- Council districts stand in for the County's unit of assignment, which it does not publish
+  (probably an inspector's territory). With the County's data we would use its actual inspector
+  assignments.
 - The public data hold only facilities that exist today (survivorship; see the README).
 
 ## What the County would need to share

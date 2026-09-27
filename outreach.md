@@ -2,7 +2,7 @@
 
 For City of San Diego staff and council offices. Fill in the `[brackets]`. Link the
 research dashboard (`dashboard.html`, `[dashboard link]`; counts only, no facility rows), never the public site. Every number
-here is from the README and FAIRNESS.md, regenerated on 2026-09-26 after the fixes of September
+here is from the README and FAIRNESS.md, regenerated on 2026-09-27 after the fixes of September
 2026. When quoting days sooner, say what they are: about 2% of the 277–303 days between a
 facility's routine inspections, found earlier within the month; never prevented illness.
 
@@ -36,7 +36,7 @@ What we found, tested on 2025-26 inspections our methods had never seen:
   average routine score, lowest first, puts **48%** of major violations in the first 20% of
   inspections, and within a council district's month finds them **5.8 days sooner** than the
   order actually worked, about 2% of the time between a facility's routine inspections. Our model
-  reaches 50% and 6.4 days.
+  reaches 49% and 6.4 days.
 - Restaurants in the published rule's top band had a major violation at their next routine
   inspection at **about twice the rate** of other restaurants (37.2% against 17.8%), about what a
   ranking by recent majors and scores reaches too (37.8%); the rule's value is that it is transparent.
@@ -77,11 +77,13 @@ each facility's own record would find major violations sooner. We are sharing in
 by-district tools with City staff, and we would like your comment before anything is published.
 We are independent, not affiliated with or endorsed by the County.
 
-- **What we saw:** routine cadence is set by category, and follow-up visits respond to findings.
-  The next routine came a median 277 days after one that found a major, against 303 after one
-  that did not. Within that schedule, ordering by the facility's average routine score found
-  major violations about 5.8 days sooner in a council district's month, about 2% of that
-  interval.
+- **What we saw in your published record:** how often a place is routinely inspected depends
+  mostly on what kind of place it is (school kitchens about twice as often as restaurants), and a B
+  or C is re-graded within 30 days. The next routine came a median 277 days after one that found a
+  major, against 303 after one that did not. Within a month, the order inspections were done in did
+  not put the places with worse records first; ordering by the facility's average routine score
+  would have found major violations about 5.8 days sooner in a council district's month, about 2% of
+  that interval. We would like to know whether that matches how you schedule.
 - **What we would like to learn:** the three questions at the top of this kit.
 - **What would make it better:** your inspection data through an official extract, including
   inactive permits, and **inspector or territory ids**, which let an analysis separate a place
@@ -97,8 +99,9 @@ Chenhao Zhang and Ayan Pendharkar · Adult point of contact: [NAME, ROLE, EMAIL]
 
 ## The 20-second version
 
-> "San Diego did about 18,700 routine food inspections in 2025. The County sets how often by
-> facility category. We tested ordering each month's inspections by each facility's own record:
+> "San Diego did about 18,700 routine food inspections in 2025. How often each place is inspected
+> is the County's call, and we leave it alone. We tested ordering each month's inspections by each
+> facility's own record:
 > a one-line rule, lowest average routine score first, would have found major violations about
 > six days sooner within a council district's month, on the County's own 2025-26 data: about 2%
 > of the time between a facility's routine inspections. A silent
@@ -111,15 +114,15 @@ Chenhao Zhang and Ayan Pendharkar · Adult point of contact: [NAME, ROLE, EMAIL]
   the main comparisons carry 95% intervals. The top 20% of the list finds major violations at 2.4 times
   the base rate. It reorders visits everyone already gets; it skips no one.
 - **"Do you need the model?"** Mostly not. The one-line rule reaches 48% in the top 20% against
-  the model's 50%, and 5.8 of the model's 6.4 days. The model's edge is real (the intervals exclude
-  zero) but small: about 0.7 day, some 0.2% of the time between routine inspections.
+  the model's 49%, and 5.8 of the model's 6.4 days. The model's edge is real (the intervals exclude
+  zero) but small: about 0.6 day, some 0.2% of the time between routine inspections.
 - **"Will it prevent food poisoning?"** We can't show that, and neither could a pilot this size:
   foodborne illness is rare, under-reported and hard to trace to one visit, and the public record
   has no illness data. What the ordering changes is timing. A major violation is corrected at the
   inspection that finds it, so finding it about 6 days sooner means about 6 fewer days of an
-  uncorrected major, with the same inspectors, schedule and number of visits. At about 2,200 routine
-  inspections a year that find a major (2025), that is on the order of 13,000 facility-days a year,
-  if each violation was already there at the start of the month. It is a free scheduling change,
+  uncorrected major, with the same inspectors, schedule and number of visits. Summed over the
+  majors, the one-line rule's head start comes to about 13,800 facility-days a year (95% CI 12,900
+  to 14,700), if each violation was already there at the start of the month. It is a free scheduling change,
   not a proven health intervention, and the silent pilot tests the timing before anything changes.
 - **"Why two sets of numbers?"** The research numbers score each routine inspection county-wide.
   The published rule scores City restaurants monthly and asks whether the next routine inspection
@@ -127,8 +130,8 @@ Chenhao Zhang and Ayan Pendharkar · Adult point of contact: [NAME, ROLE, EMAIL]
   guide.
 - **"Does it target poor or immigrant neighborhoods?"** From FAIRNESS.md: flag rates and actual
   rates were both nearly flat across ZIP income, and under a single top-20% cut the model found
-  47% to 51% of each income quartile's major violations (the rule 44% to 52%). The gap between the
-  lowest- and highest-income quartiles is +1.8 points for the model (95% CI −6.2 to +10.1) and
+  46% to 52% of each income quartile's major violations (the rule 44% to 52%). The gap between the
+  lowest- and highest-income quartiles is +3.4 points for the model (95% CI −4.6 to +11.7) and
   +4.6 for the rule (−4.1 to +13.5): "no detectable difference", not proof of evenness. The rule's
   false-positive rate is 16.7% in the lowest-income quartile against 15.3% in the highest, with
   overlapping intervals. The model uses no ZIP code, and coverage by group is monitored in any pilot.

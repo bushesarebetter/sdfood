@@ -2,7 +2,7 @@
 
 This card describes the rule behind the City staff API ([API.md](API.md)) and the gated public
 site (`food-dashboard/`): what it is, how it was chosen and tested, and what it is for. Every
-figure comes from `data/site/report.md` for the run `forward_2026-09-19` (generated 2026-09-26),
+figure comes from `data/site/report.md` for the run `forward_2026-09-19` (generated 2026-09-27),
 which was built from the SD Food Info pull of 2026-09-19, with inspections through 2026-09-18.
 Rerunning `export_site.py` regenerates the figures.
 
@@ -22,8 +22,8 @@ Restaurants with 41 points or more (the band, about the top 18% of scored restau
 violation at their next routine inspection **at about twice the rate of other restaurants**: 37.2%
 against 17.8% in the backtest. The rule is fully transparent, and each restaurant's worksheet
 shows exactly how its points add up from the County's record. Most inspections that find a major
-violation still end with an A, and 94% did; the County requires each major to be corrected during
-the inspection.
+violation still end with an A, and 94% did; the County requires each major to be corrected
+immediately, or a suitable alternative put in place until it is ([COUNTY_METHOD.md](COUNTY_METHOD.md)).
 
 ## Intended use
 

@@ -150,6 +150,8 @@ def main():
         "days_overdue": f"{A['Model x overdue (old dashboard)']['days_earlier']:.1f}",
         "clean_wait": f"{abs(A[RL]['clean_days']):.1f}",
         "gap": f"{gap[0]}–{gap[1]}", "days_share": share(A["Model"]["days_earlier"]),
+        "facility_days_rule": f"{A[RL]['facility_days_per_year']:,}",
+        "facility_days_rule_ci": "{:,}–{:,}".format(*A[RL]["facility_days_per_year_ci"]),
         "days_rule_share": share(A[RL]["days_earlier"]), "days_over_rule_share": share(MM[RL]["days"], 2),
         "recall_gap": rgap("model", "recall_low", "recall_high"),
         "recall_gap_rule": rgap("rule", "rule_recall_low", "rule_recall_high"),
