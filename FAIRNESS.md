@@ -3,97 +3,178 @@
 An enforcement-targeting ordering has to answer: **does it send inspectors disproportionately to
 lower-income or immigrant neighborhoods, and does it protect every neighborhood equally?** This
 is the check. Reproduce with `python fairness_check.py` (needs `data/` from `fetch_sdfood.py`).
-Numbers are from the September 2026 rerun: history since 2023-01, no ZIP code, no permit age
-(see README, "What changed").
+Numbers are from the rerun of 2026-09-27 on the 2026-09-19 pull: history since 2023-01, no ZIP
+code, no permit age (see README, "What changed"), and every model trained and scored as of the 1st
+of each inspection's month, as the monthly list is.
 
 ## Method
 
-- Out-of-fold predictions (train ≤ 2024, test 2025+, 32,552 routine inspections the model never saw).
+- Out-of-fold predictions (train ≤ 2024, test 2025+, 32,548 routine inspections the model never saw).
 - Each facility joined to its ZIP's **median household income** and **% Hispanic** ([ACS](https://www.census.gov/programs-surveys/acs)
   5-yr via [Census Reporter](https://censusreporter.org): tables [B19013](https://censusreporter.org/tables/B19013/)
   income, [B03002](https://censusreporter.org/tables/B03002/) ethnicity; 99.8% of test inspections
   covered, 97/109 ZIPs matched).
-- Grouped by income quartile and %-Hispanic tercile, four orderings of the same inspections,
-  each flagging its top 20% (ties split pro rata):
+- **Whole ZIPs per group:** income quartiles and %-Hispanic terciles are cut so that each ZIP sits
+  in one group, with about equal inspection counts per group.
+- Four orderings of the same inspections, each flagging its top 20% county-wide (ties split pro rata):
   - the **research model** (no ZIP);
   - the same model **with ZIP**, to see whether ZIP carries a gap;
   - the **one-line rule**: lowest mean routine score on record first;
   - **persistence**: routine inspections with a major in the prior 12 months, then majors, then
-    the lowest last routine score.
+    the lowest last routine score over two years.
 - For each: the **flag rate** against the **actual** major-violation rate (is targeting driven by
-  real risk?), **calibration** (predicted against actual rate within each group), and **equal
-  opportunity** (the share of each group's major violations in the top 20%, "recall").
+  real risk?), the **false-positive rate** (the share of each group's clean inspections flagged),
+  **calibration** (predicted against actual rate within each group), **equal opportunity** (the
+  share of each group's major violations in the top 20%, "recall"), and **days sooner** by group
+  under the policy actually proposed: reordering each council district's (or ZIP3 area's) month.
+- **95% intervals resample whole ZIPs** (a ZIP-clustered bootstrap), so they reflect how few ZIPs
+  each group holds. If an interval covers equality (0 for a gap, 1 for a ratio), the data cannot
+  tell the groups apart.
 - Every test inspection is at a facility that still exists: SD Food Info lists only those
   (README, "Survivorship"). The figures describe coverage among surviving facilities.
 
 ## Results
 
-By ZIP median income (Q1 = lowest):
+By ZIP median income (Q1 = lowest), research model:
 
-| group | n | actual major % | model flag % | model predicted % | model recall % | rule flag % | rule recall % | persistence recall % | model with ZIP: recall % |
-|---|---|---|---|---|---|---|---|---|---|
-| Q1 low | 8,383 | 12.3 | 19.5 | 14.0 | 50.5 | 20.5 | 51.2 | 42.7 | 41.3 |
-| Q2 | 7,936 | 13.0 | 21.4 | 14.6 | 49.1 | 21.9 | 49.7 | 42.2 | 51.2 |
-| Q3 | 8,263 | 12.3 | 18.9 | 14.0 | 45.0 | 18.5 | 44.9 | 39.5 | 44.4 |
-| Q4 high | 7,915 | 12.9 | 20.2 | 14.4 | 47.0 | 19.2 | 47.6 | 41.7 | 57.1 |
+| group | ZIPs | n | actual major % | flag % | predicted % | recall % (95% CI) | false-positive rate % (95% CI) | days sooner (95% CI) |
+|---|---|---|---|---|---|---|---|---|
+| Q1 low | 25 | 8,380 | 12.3 | 19.6 | 13.6 | 52.1 (45.3–59.4) | 15.0 (11.5–18.6) | +6.8 (5.7–7.8) |
+| Q2 | 16 | 7,936 | 13.0 | 21.2 | 14.4 | 50.2 (43.7–58.0) | 16.8 (14.4–19.0) | +6.5 (5.1–8.3) |
+| Q3 | 26 | 8,262 | 12.3 | 19.0 | 13.8 | 46.5 (39.7–52.3) | 15.1 (12.5–17.9) | +5.8 (5.0–6.7) |
+| Q4 high | 30 | 7,915 | 12.9 | 20.3 | 14.2 | 48.7 (44.5–52.5) | 16.1 (14.0–18.2) | +6.3 (5.4–7.3) |
 
-By ZIP % Hispanic (low to high tercile): actual rates 14.0%, 12.4%, 11.5%; model flag rate 21.5%,
-19.4%, 19.1%; recall 47.4%, 47.3%, 49.2% for the model, 46.9%, 48.3%, 50.3% for the one-line rule,
-and 40.7%, 42.5%, 41.4% for persistence. The model with ZIP: 56.3%, 45.7%, 41.8%.
+The other orderings, same groups:
+
+| group | rule flag % | rule recall % (95% CI) | rule false-positive % (95% CI) | rule days sooner (95% CI) | persistence recall % | model with ZIP: recall % |
+|---|---|---|---|---|---|---|
+| Q1 low | 21.0 | 51.6 (44.7–58.5) | 16.7 (13.5–20.4) | +6.2 (4.9–7.3) | 49.4 | 42.1 |
+| Q2 | 21.3 | 49.3 (41.9–57.8) | 17.1 (14.1–21.3) | +6.0 (4.7–7.5) | 49.3 | 49.5 |
+| Q3 | 18.3 | 43.6 (37.5–48.7) | 14.8 (12.0–17.5) | +5.2 (4.3–6.2) | 41.6 | 44.7 |
+| Q4 high | 19.4 | 47.0 (41.6–51.7) | 15.3 (13.3–17.3) | +5.7 (4.7–6.7) | 44.0 | 55.9 |
+
+Lowest against highest income quartile:
+
+| | recall gap, Q1 minus Q4 (95% CI) | flag rate, Q1 ÷ Q4 (95% CI) |
+|---|---|---|
+| Research model | +3.4 points (−4.6 to +11.7) | 0.97× (0.74–1.24) |
+| One-line rule | +4.6 (−4.1 to +13.5) | 1.08× (0.84–1.38) |
+| Persistence | +5.4 (−2.9 to +14.2) | 1.03× (0.83–1.29) |
+| Model with ZIP (not used) | −13.8 (−30.2 to +4.8) | 0.60× (0.31–1.01) |
+| Actual major-violation rate | | 0.95× (0.76–1.19) |
+
+By ZIP % Hispanic (low to high tercile): actual rates 14.0%, 12.4%, 11.6% (lowest ÷ highest
+1.21×, 1.01–1.44); model flag rate 21.8%, 19.1%, 19.0% (1.15×, 0.94–1.38); recall 49.6%, 47.6%,
+50.9% for the model (gap −1.3 points, −8.2 to +5.0), 45.9%, 47.1%, 50.9% for the one-line rule
+(−5.0, −12.1 to +1.9) and 43.5%, 46.0%, 49.3% for persistence (−5.8, −12.8 to +1.0). The model with
+ZIP: 57.0%, 44.8%, 40.7% (+16.3, +2.4 to +29.3), flagging the lowest-%-Hispanic tercile 1.96× as often
+as the highest (1.28–3.26). Days sooner under the within-district reordering: model +6.1, +6.5, +6.5;
+rule +5.4, +6.1, +5.8, with overlapping intervals.
 
 ## What it means
 
-1. **Targeting tracks real risk.** Actual major-violation rates are nearly flat across income
-   (lowest quartile 0.95× the highest), and so are the flag rates: the model flags low-income
-   ZIPs at **0.97×** the rate of high-income ZIPs, the one-line rule at **1.07×**, persistence at
-   **0.96×**. Neither lower-income nor higher-Hispanic areas are over-targeted.
-2. **Calibrated evenly.** The model's predicted rate sits 1.5 to 1.7 points above the actual rate
-   in every income quartile: the same small offset everywhere, and no group is scored below its
-   real rate (see `food_fairness.png`).
-3. **Even protection.** Under a single top-20% cut, the model finds **45% to 51%** of each income
-   quartile's major violations and the one-line rule **45% to 51%**, with the lowest-income
-   quartile at the top of both ranges. By %-Hispanic tercile the model covers 47% to 49% and the
-   rule 47% to 50%. Both cover every group more fully than persistence (40% to 43%).
-4. **Why the model has no ZIP.** With ZIP as a feature the model was just as accurate (README),
-   but it flagged low-income ZIPs at 0.62× the rate of high-income ones and covered **41% vs
-   57%** of their major violations. Without ZIP the gap closes (50% vs 47%). The research model,
-   like the public site's point card, now uses no ZIP code.
-5. **Safeguards that stay:** keep routine inspections everywhere, so the ordering reprioritizes
+Each income quartile holds 16 to 30 ZIPs, and ZIPs differ from one another for reasons that have
+nothing to do with income, so the intervals are wide: most can't rule out gaps of 5 to 10 points
+either way. "No detectable difference" below means exactly that, not that coverage is even.
+
+1. **Flag rates and actual rates.** Actual major-violation rates are nearly flat across income
+   (lowest quartile 0.95× the highest), and so are the flag rates: the model flags low-income ZIPs
+   at **0.97×** the rate of high-income ZIPs, the one-line rule at **1.08×**, persistence at
+   **1.03×**. Every interval covers 1: no detectable difference. Per group, the rule flags the
+   lowest-income quartile at 1.71× its actual rate against 1.50× for the highest, and its
+   false-positive rate there is 16.7% against 15.3%. The per-group intervals overlap, and the
+   audit does not estimate that difference itself. By %-Hispanic tercile the *actual* rate does
+   differ detectably (1.21× higher in the lowest-%-Hispanic ZIPs), and the model's flag rate
+   follows it (1.15×, interval covering 1).
+2. **Calibration, in the large only.** The model's predicted rate sits 1.3 to 1.5 points above the
+   actual rate in every income quartile, 10–12% relative: the same offset everywhere, and no group
+   scored below its real rate. The offset is not a fairness finding: the model over-predicts
+   across the whole test period, because what a long record means drifted after training (README,
+   "Calibration"). Group means are not calibration within groups; the plot shows only the means.
+3. **Coverage.** Under a single top-20% cut, the model finds **46% to 52%** of each income
+   quartile's major violations, the one-line rule **44% to 52%** and persistence **42% to 49%**. By
+   %-Hispanic tercile the model covers 48% to 51%, the rule 46% to 51% and persistence 44% to 49%.
+   Every lowest-minus-highest gap for these three covers 0: no detectable difference.
+4. **Days sooner by group.** Under the proposed within-district reordering, major violations
+   surface 5.8 to 6.8 days sooner across income quartiles with the model and 5.2 to 6.2 with the
+   rule, with overlapping intervals: no group is left behind that the data can see.
+5. **Why the model has no ZIP.** With ZIP as a feature the model ranks slightly worse (AUC −0.006,
+   −0.011 to −0.002; README) and it covers the lowest-%-Hispanic ZIPs' major violations at 57%
+   against 41% for the highest: a gap of +16.3 points (+2.4 to +29.3), and it flags those ZIPs 1.96×
+   as often (1.28–3.26), the only differences in this audit the data can detect. By income its gap
+   (−13.8 points, 42% against 56%) is large but its interval covers 0. The research model, like the
+   public site's point card, uses no ZIP code.
+6. **Safeguards that stay:** keep routine inspections everywhere, so the ordering reprioritizes
    within the schedule and never zeroes out an area, and monitor coverage by group once it is in
    use (the pilot's monitoring rule is in docs/PILOT.md).
 
 ## Equalizing coverage exactly (`threshold_tradeoff.py`)
 
-The recall gap above is at a *single global* top-20% cut. A global threshold can't equalize recall
-across groups with different score distributions — only per-group thresholds
+The recall figures above are at a *single global* top-20% cut. A global threshold can't equalize
+recall across groups with different score distributions — only per-group thresholds
 ([equal-opportunity](https://arxiv.org/abs/1610.02413), Hardt et al. 2016) can. `threshold_tradeoff.py`
-quantifies both. Targeting the best group's recall (50%) everywhere:
+tests both, twice.
+
+**In sample** (cuts set on the test set's own labels, so this is what equalizing would have cost had
+the labels been known). Targeting the best group's recall (52%) everywhere:
 
 | income group | global (top-20%) recall | equal-opportunity recall (per-group cut) | flag rate, global → per-group |
 |---|---|---|---|
-| Q1 low | 50.5% | 50.0% | 19.5% → 19.2% |
-| Q2 | 49.1% | 50.0% | 21.4% → 21.9% |
-| Q3 | 45.0% | 50.0% | 18.9% → 22.6% |
-| Q4 high | 47.0% | 50.0% | 20.2% → 22.0% |
+| Q1 low | 52.1% | 52.0% | 19.6% → 19.5% |
+| Q2 | 50.2% | 52.0% | 21.2% → 22.2% |
+| Q3 | 46.5% | 52.0% | 19.0% → 22.3% |
+| Q4 high | 48.7% | 52.0% | 20.3% → 21.9% |
 
-With the recall already this even, per-group cuts would move the total flag budget only from 20%
-to 21.4%, but they mean a different decision rule per income group, keyed off a ZIP/income proxy:
-disparate *treatment*, which a government enforcement program should avoid. **Recommendation: one
-global order, a baseline of routine inspections everywhere, and coverage monitored by group.**
-(The script also prints the global precision/recall trade: flagging 20% gives 30% precision, 2.4×
-the base rate; flagging 50% reaches 82% of major violations for the model, 78% for the rule and
-71% for persistence.)
+The total flag budget would move from 20.0% to 21.5%.
+
+**Out of sample** (every cut set on the 2025 inspections and applied, unchanged, to 2026's 13,855):
+
+| income group | global cut: flag %, recall % | per-group cuts: flag %, recall % |
+|---|---|---|
+| Q1 low | 22.4, 60.0 | 23.2, 61.7 |
+| Q2 | 24.3, 54.5 | 24.4, 54.5 |
+| Q3 | 21.5, 49.2 | 23.6, 52.6 |
+| Q4 high | 23.9, 55.9 | 27.6, 61.4 |
+| total | 23.0 | 24.7 |
+
+Set in advance, the per-group cuts cost **1.7 more points of all inspections flagged (95% CI +1.3 to
++2.1, whole ZIPs resampled)** and barely even out coverage: recall still spans 9.1 points across the
+groups, against 10.8 under the global cut. They are also a different decision rule per income group,
+keyed off a ZIP/income proxy: disparate *treatment*, which a government enforcement program should
+avoid, to close gaps the data cannot tell from zero. **Recommendation: one global order, a baseline of
+routine inspections everywhere, and coverage monitored by group.** (The script also prints the global
+precision/recall trade: flagging 20% gives the model 31% precision, 2.5× the base rate, and the rule
+30%; flagging 50% reaches 83% of major violations for the model, 78% for the rule and 77% for
+persistence.)
 
 ## Feedback loop
 
 Because inspections generate the labels the model trains on, targeting could compound over time
 ([runaway feedback loops](https://arxiv.org/abs/1706.09847), Ensign et al. 2018).
-`feedback_check.py` tests one round of "only label what we flagged": trained on all 2023-24
-labels, the model covers 50% / 49% / 45% / 47% of each income quartile's majors; trained only on
-what a 2023 model flagged in 2024, 49% / 50% / 46% / 48%; with a 15% random baseline added, 49% /
-50% / 46% / 47%. The one-line rule and persistence are not trained, so this cannot touch them
-(51% / 50% / 45% / 48% and 43% / 42% / 40% / 42%). One round cannot show multi-cycle compounding,
-so coverage by group is monitored in use.
+The earlier version of `feedback_check.py` tested one round of "only label what we flagged" and
+found coverage moving by at most a point. It could not have found more. It dropped only the
+labels and kept every facility's full history, and it selected purely on the model's own
+features. A skipped inspection also leaves no score, no "days since" and no majors on the record,
+which is what the rule and persistence read too.
+
+The script now deletes skipped inspections, and the follow-ups within 45 days they would have
+triggered, from the record over four quarterly rounds of 2024, choosing each round as a list made on
+the 1st would. It rebuilds the model, the rule and persistence from what is left and scores them on
+2025+. The test inspections are the same in every arm, so each arm's loss against arm A has a
+paired 95% interval over facilities:
+
+| AUC on 2025+ | A: every inspection kept | B: only the model's top 40% inspected (change from A, 95% CI) | C: top 40% plus a random 15% of the rest, 3 seeds (change from A) |
+|---|---|---|---|
+| Model | 0.763 | 0.756 (−0.007, −0.010 to −0.004) | 0.756 (−0.006, −0.009 to −0.004) |
+| One-line rule | 0.737 | 0.722 (−0.015, −0.018 to −0.011) | 0.725 (−0.012, −0.015 to −0.009) |
+| Persistence | 0.724 | 0.709 (−0.014, −0.018 to −0.011) | 0.713 (−0.011, −0.014 to −0.008) |
+
+Inspecting only the model's picks (arm B removes 9,622 routine inspections, and the mean time since
+a facility's last visit in 2025+ rises from 266 to 340 days) costs every ordering a detectable
+loss, and the rule and persistence, which read the same thinned record, lose about twice what the
+model does: their intervals do not overlap the model's. A random 15% on top (arm C) gives a little
+back. Coverage by income quartile moves by at most 3 points. This concerns an inspect-less policy; reordering within the schedule removes no inspection.
+Coverage by group is still monitored in use.
 
 ## Limits
 

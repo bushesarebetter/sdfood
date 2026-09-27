@@ -8,13 +8,17 @@ band, district summaries and per-district monthly worklists.
     SDFOOD_API_KEYS=key1,key2 uvicorn api.main:app --reload       # http://localhost:8000/docs
 
 Every data endpoint needs an `X-API-Key` header with one of SDFOOD_API_KEYS. The interactive docs
-(/docs, /redoc) and /health carry no data and are open. See docs/API.md."""
+(/docs, /redoc) and /health carry no data and are open; set SDFOOD_API_DOCS=0 to turn the docs off
+in production. See docs/API.md."""
 from __future__ import annotations
 
 import csv
+import hashlib
 import io
 import json
+import logging
 import os
+import re
 import secrets
 from datetime import date
 from functools import lru_cache
@@ -22,6 +26,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, Security
+from fastapi import Path as PathParam
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 from fastapi.security import APIKeyHeader
@@ -29,6 +34,26 @@ from pydantic import BaseModel, ConfigDict, Field
 
 ROOT = Path(__file__).resolve().parents[1]
 FLAGS = ("major", "closed", "bc", "repeat")
+MONTH = r"^\d{4}-(0[1-9]|1[0-2])$"
+log = logging.getLogger("sdfood.api")
+if not log.handlers:                         # uvicorn configures only its own loggers: without a handler
+    _h = logging.StreamHandler()             # and a level, these INFO lines would never be written
+    _h.setFormatter(logging.Formatter("%(levelname)s:     sdfood.api %(message)s"))
+    log.addHandler(_h)
+    log.setLevel(logging.INFO)
+    log.propagate = False
+
+
+def csv_cell(v):
+    """A value as written to CSV. Text that a spreadsheet would run as a formula (=, +, -, @, tab,
+    carriage return) gets a leading apostrophe; numbers, and text that is just a number, are left alone."""
+    if isinstance(v, str) and v[:1] in ("=", "+", "-", "@", "\t", "\r"):
+        try:
+            float(v)
+            return v
+        except ValueError:
+            return "'" + v
+    return v
 
 
 # ── the data ──────────────────────────────────────────────────────────────────────────
@@ -41,17 +66,23 @@ class Store:
         self.load()
 
     def load(self):
+        """Read everything first and swap it in only when all of it parsed: a failed reload leaves the
+        service serving the previous export, never a new meta over old places."""
         meta_path, index_path = self.data_dir / "meta.json", self.data_dir / "facilities.geojson"
         if not meta_path.exists() or not index_path.exists():
             raise RuntimeError(f"no export in {self.data_dir}: run `python export_site.py` first")
-        self.meta = json.loads(meta_path.read_text(encoding="utf-8"))
-        fc = json.loads(index_path.read_text(encoding="utf-8"))
-        self.places = []
-        for f in fc["features"]:
-            lon, lat = f["geometry"]["coordinates"]
-            self.places.append({**f["properties"], "lon": lon, "lat": lat})
-        self.by_id = {p["facility_id"]: p for p in self.places}
-        self.research = json.loads(self.research_file.read_text(encoding="utf-8")) if self.research_file.exists() else {}
+        try:
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            fc = json.loads(index_path.read_text(encoding="utf-8"))
+            places = []
+            for f in fc["features"]:
+                lon, lat = f["geometry"]["coordinates"]
+                places.append({**f["properties"], "lon": lon, "lat": lat})
+            by_id = {p["facility_id"]: p for p in places}
+            research = json.loads(self.research_file.read_text(encoding="utf-8")) if self.research_file.exists() else {}
+        except (ValueError, KeyError, TypeError) as e:
+            raise RuntimeError(f"the export in {self.data_dir} could not be read: {type(e).__name__}") from e
+        self.meta, self.places, self.by_id, self.research = meta, places, by_id, research
         self.detail.cache_clear()
 
     @lru_cache(maxsize=2048)
@@ -85,12 +116,23 @@ def get_store() -> Store:
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False, description="One of the keys in SDFOOD_API_KEYS.")
 
 
-def require_key(key: str | None = Security(api_key_header)):
+def key_id(key: str) -> str:
+    """A short, non-reversible label for a key, so the log shows which office made a request."""
+    return hashlib.sha256(key.encode("utf-8", "surrogatepass")).hexdigest()[:8]
+
+
+def require_key(request: Request, key: str | None = Security(api_key_header)):
     keys = [k.strip() for k in os.environ.get("SDFOOD_API_KEYS", "").split(",") if k.strip()]
     if not keys:
         raise HTTPException(503, "No API keys are configured (set SDFOOD_API_KEYS); data is not served without one.")
-    if not key or not any(secrets.compare_digest(key, k) for k in keys):
+    # Compare bytes (compare_digest refuses non-ASCII str), against every key without stopping early.
+    given = (key or "").encode("utf-8", "surrogatepass")
+    ok = False
+    for k in keys:
+        ok |= secrets.compare_digest(given, k.encode("utf-8"))
+    if not key or not ok:
         raise HTTPException(401, "A valid X-API-Key header is required.")
+    log.info("key %s %s %s", key_id(key), request.method, request.url.path)
     return key
 
 
@@ -182,6 +224,9 @@ app = FastAPI(
         "published inspection results (SD Food Info) and SANDAG council districts. Independent student project by "
         "Chenhao Zhang and Ayan Pendharkar; not affiliated with or endorsed by the County of San Diego."
     ),
+    docs_url="/docs" if os.environ.get("SDFOOD_API_DOCS", "1") != "0" else None,
+    redoc_url="/redoc" if os.environ.get("SDFOOD_API_DOCS", "1") != "0" else None,
+    openapi_url="/openapi.json" if os.environ.get("SDFOOD_API_DOCS", "1") != "0" else None,
     openapi_tags=[
         {"name": "facilities", "description": "Search and look up places"},
         {"name": "districts", "description": "Council-district summaries"},
@@ -201,7 +246,7 @@ async def stale_header(request: Request, call_next):
     try:
         if get_store().stale:
             response.headers["X-Data-Stale"] = "true"
-    except RuntimeError:
+    except Exception:          # no export, or one that cannot be read: the endpoint itself reports it
         pass
     return response
 
@@ -238,7 +283,8 @@ def health():
         return {"status": "ok", "run": s.meta.get("run"), "inspections_through": s.meta.get("inspections_through"),
                 "stale": s.stale, "places": len(s.places), "build": build}
     except RuntimeError as e:
-        return {"status": "no data", "detail": str(e), "build": build}
+        log.warning("health: %s", e)          # the path stays in the server log, not in the response
+        return {"status": "no data", "build": build}
 
 
 @app.get("/v1/summary", response_model=Summary, tags=["results"], dependencies=[Depends(require_key)],
@@ -311,10 +357,11 @@ def export_csv(district: list[int] | None = Query(None), band: list[str] | None 
     w.writerow(cols + ["list_run", "list_expires"])
     for p in _sort(_filter(s, district, band, kind, flag, q), "band"):
         g, lv = p.get("grade") or {}, p.get("last_visit") or {}
-        w.writerow([p["facility_id"], p["name"], p["address"], p["facility_type"], p.get("council_district"),
+        w.writerow([csv_cell(v) for v in [
+                    p["facility_id"], p["name"], p["address"], p["facility_type"], p.get("council_district"),
                     p.get("band") or "", p.get("points") if p.get("points") is not None else "", g.get("grade", ""),
                     g.get("date", ""), lv.get("date", ""), lv.get("type", ""), " ".join(p.get("flags") or []),
-                    p["lon"], p["lat"], s.meta["run"], s.meta.get("expires") or ""])
+                    p["lon"], p["lat"], s.meta["run"], s.meta.get("expires") or ""]])
     return Response(buf.getvalue(), media_type="text/csv",
                     headers={"Content-Disposition": f'attachment; filename="sd-food-{s.meta["run"]}.csv"'})
 
@@ -350,7 +397,13 @@ def district(n: int):
 
 
 def _worklist_path(s: Store, month: str, n: int) -> Path:
-    return s.worklists_dir / month / f"district-{n}.csv"
+    if not re.fullmatch(MONTH, month) or not 1 <= n <= 9:
+        raise HTTPException(404, "no such worklist")
+    root = s.worklists_dir.resolve()
+    path = (root / month / f"district-{n}.csv").resolve()
+    if root not in path.parents:
+        raise HTTPException(404, "no such worklist")
+    return path
 
 
 @app.get("/v1/worklists", tags=["worklists"], dependencies=[Depends(require_key)],
@@ -369,16 +422,24 @@ def worklists():
 
 @app.get("/v1/worklists/{month}/districts/{n}", tags=["worklists"], dependencies=[Depends(require_key)],
          summary="A council district's worklist for a month (JSON, or CSV with format=csv)")
-def worklist(month: str, n: int, format: Literal["json", "csv"] = "json"):
+def worklist(month: str = PathParam(pattern=MONTH, description="yyyy-mm"),
+             n: int = PathParam(ge=1, le=9, description="Council district, 1-9"),
+             format: Literal["json", "csv"] = "json"):
     s = get_store()
     path = _worklist_path(s, month, n)
     if not path.exists():
         raise HTTPException(404, f"no worklist for district {n} in {month} (run `python export_worklist.py`)")
     text = path.read_text(encoding="utf-8")
     if format == "csv":
-        return Response(text, media_type="text/csv",
+        out = io.StringIO()
+        csv.writer(out).writerows([[csv_cell(v) for v in row] for row in csv.reader(io.StringIO(text))])
+        return Response(out.getvalue(), media_type="text/csv",
                         headers={"Content-Disposition": f'attachment; filename="worklist-{month}-district-{n}.csv"'})
     rows = list(csv.DictReader(io.StringIO(text)))
+    for r in rows:                           # export_worklist wrote "'=..." so spreadsheets do not run it;
+        for k, v in r.items():               # JSON readers get the text as the County wrote it
+            if isinstance(v, str) and v[:1] == "'" and v[1:2] in ("=", "+", "-", "@", "\t", "\r"):
+                r[k] = v[1:]
     for r in rows:                           # numbers as numbers, blanks as null
         for k in ("rule_order", "rule_points", "last_routine_score", "mean_routine_score_12m"):
             v = (r.get(k) or "").strip()
@@ -394,5 +455,9 @@ def worklist(month: str, n: int, format: Literal["json", "csv"] = "json"):
           summary="Reload the export and worklists from disk after a refresh")
 def reload():
     s = get_store()
-    s.load()
+    try:
+        s.load()
+    except RuntimeError as e:
+        log.error("reload failed: %s", e)
+        raise HTTPException(500, "The new export could not be read; the previous export is still being served.")
     return {"status": "reloaded", "run": s.meta.get("run"), "places": len(s.places)}

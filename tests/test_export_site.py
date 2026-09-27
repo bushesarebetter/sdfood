@@ -4,6 +4,7 @@ builds on an invented county whose output must pass the site's own contract chec
 import csv
 import gzip
 import json
+import re
 import shutil
 import subprocess
 from datetime import date, timedelta
@@ -376,8 +377,15 @@ PULL = {"started": "2026-09-20", "finished": "2026-09-21", "complete": True}
 
 
 @pytest.fixture(scope="module")
-def built():
-    return es.build(invented_county(), DISTRICTS, pull=PULL, approval=None, today=date(2026, 9, 22), refits=2, log=lambda *_: None)
+def built(tmp_path_factory):
+    # A real export must carry the sha256 of the pull it was built from. Hand the build an invented
+    # pull file, so the test does not depend on a data/ folder that only exists on the author's machine.
+    raw = invented_county()
+    pull = tmp_path_factory.mktemp("pull") / "sd_businesses.json"
+    pull.write_text(json.dumps(raw), encoding="utf-8")
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(es, "RAW", pull)
+        return es.build(raw, DISTRICTS, pull=PULL, approval=None, today=date(2026, 9, 22), refits=2, log=lambda *_: None)
 
 
 def test_build_lists_every_county_place_with_scores_where_eligible(built):
@@ -433,6 +441,13 @@ def test_publish_stages_named_bands_with_a_publication_stamp(built, tmp_path, mo
     fc, details, meta, _ = built
     meta = {**meta, "named_bands": ["1"], "contact": "owners@example.org",
             "operator": {"name": "C D", "contact": "cd@example.org"}}
+    # a band-1 place outside the City (the staff export lists the county): publishing never names it
+    city = next(f for f in fc["features"] if f["properties"].get("band") == "1")
+    county = json.loads(json.dumps(city))
+    county["properties"].update(facility_id="DEH2099-FFPP-000001", council_district=None)
+    fc = {**fc, "features": fc["features"] + [county]}
+    details = {**details, "DEH2099-FFPP-000001": {**details[city["properties"]["facility_id"]],
+                                                   "facility_id": "DEH2099-FFPP-000001", "council_district": None}}
     approval = tmp_path / "approval.json"
     approval.write_text("{}", encoding="utf-8")
     monkeypatch.setattr(es, "SITE_DATA", tmp_path / "public_data")
@@ -442,6 +457,8 @@ def test_publish_stages_named_bands_with_a_publication_stamp(built, tmp_path, mo
     idx = json.loads((tmp_path / "public_data" / "facilities.geojson").read_text(encoding="utf-8"))
     assert shipped["publication"]["facilities_sha256"] == es.sha256_file(tmp_path / "public_data" / "facilities.geojson")
     assert idx["features"] and all(f["properties"]["band"] == "1" for f in idx["features"])
+    assert all(f["properties"]["council_district"] is not None for f in idx["features"])
+    assert not (tmp_path / "public_data" / "place" / "DEH2099-FFPP-000001.json").exists()
 
 
 def test_archive_is_write_once_and_registration_is_single(built, tmp_path):
@@ -481,6 +498,14 @@ def test_the_committed_site_data_is_the_invented_sample():
     """Real names never enter the repository: the site's committed data is the sample."""
     meta = json.loads((SITE / "public" / "data" / "meta.json").read_text(encoding="utf-8"))
     assert meta["sample"] is True
+    # ...and proven to be, not just flagged: the flag alone switches off every publication gate.
+    assert meta["run"] == "sample" and meta["source"]["url"] is None and meta["provenance"]["code_sha"] == "sample"
+    fc = json.loads((SITE / "public" / "data" / "facilities.geojson").read_text(encoding="utf-8"))
+    ids = [f["properties"]["facility_id"] for f in fc["features"]]
+    assert ids and all(re.fullmatch(r"SAMPLE-FFPP-\d{5}", i) for i in ids)
+    assert all(f["properties"]["name"].startswith("Sample ") for f in fc["features"])
+    places = sorted(p.stem for p in (SITE / "public" / "data" / "place").glob("*.json"))
+    assert places == sorted(ids), "no place file outside the sample index"
 
 
 def test_facility_ids_are_unique_even_when_the_county_repeats_one():

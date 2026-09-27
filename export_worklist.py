@@ -20,9 +20,10 @@ The record is read strictly before the month's first day.
 Which facilities are due (an estimate: the public record has no schedule)
   * Active: visited in the 550 days before the month starts, permit not expired in the pull,
     at least one routine inspection on record, inside a City council district.
-  * Interval: for each business type, the median number of days between consecutive routine
-    inspections of the same facility on the record before the month (all types pooled when a
-    type has fewer than 30 such gaps).
+  * Interval: for each business type, the Kaplan-Meier median number of days between consecutive
+    routine inspections of the same facility on the record before the month, counting each active
+    facility's still-open interval (a plain median of finished gaps runs short); all types pooled
+    when a type has fewer than 30 finished gaps.
   * due_estimate = the last routine inspection's date + its type's median interval.
   * On the month's list when, on the month's last day, the time since the last routine is at
     least that interval minus 30 days (due within 30 days after the month, or overdue).
@@ -37,7 +38,8 @@ The order within a district
   * Then everything the card does not score (markets, limited-preparation places, restaurants
     without two rated routine inspections, other facility types), rule_points left blank, by the
     one-line rule: lowest mean routine score on record (since 2023-01) first, then the earlier
-    due_estimate, then facility_id. A facility with no scored routine counts as 97.
+    due_estimate, then facility_id. A routine that ended in a health closure order counts as 70
+    (as the published card counts it); a facility with no scored or closed routine counts as 97.
   * Without data/site (or when it holds the invented sample), every place is ordered by the
     one-line rule, rule_points = 100 minus its mean routine score (to 0.1), and the manifest's
     `method` says so.
@@ -66,10 +68,11 @@ METHOD = ("Due estimate: active facilities (visited in the 550 days before the m
           "pull, at least one routine inspection on record, inside a City council district) are listed when, on "
           "the month's last day, the days since their last routine inspection reach their business type's median "
           "interval between routine inspections minus 30. due_estimate = last routine date + that median. Medians "
-          "come from the public record before the month (all types pooled below 30 gaps). Computed from the "
+          "are Kaplan-Meier medians from the public record before the month, counting each active facility's "
+          "still-open interval (all types pooled below 30 finished gaps). Computed from the "
           "County's published results (SD Food Info) strictly before the month's first day.")
-MEAN_RULE = ("lowest mean routine inspection score on record (since 2023-01) first; a facility with no scored "
-             "routine counts as 97")
+MEAN_RULE = ("lowest mean routine inspection score on record (since 2023-01) first; a routine that ended in a "
+             "health closure order counts as 70; a facility with no scored or closed routine counts as 97")
 FALLBACK = (" No published card export (data/site) was found, so every district is in the one-line rule's order: "
             "rule_points = 100 minus the mean routine score on record.")
 
@@ -121,22 +124,65 @@ def rule_text(card):
             "due_estimate, then facility_id. rule_order is 1..N per district; why says which ordering placed each row.")
 
 
-def intervals(rt):
-    """Median days between consecutive routine inspections of the same facility, by type."""
+def km_median(durations, events):
+    """Kaplan-Meier median in days: the first time the survival estimate falls to 0.5 or below.
+    None when it never does (too few intervals have ended)."""
+    d = np.asarray(durations, dtype=float)
+    e = np.asarray(events, dtype=bool)
+    s = 1.0
+    for t in np.unique(d[e]):
+        s *= 1.0 - ((d == t) & e).sum() / (d >= t).sum()
+        if s <= 0.5 + 1e-9:                  # exactly one half, up to float rounding
+            return float(t)
+    return None
+
+
+def intervals(rt, asof=None, last_visit=None):
+    """Median days between consecutive routine inspections of the same facility, by type.
+
+    Only finished gaps are observed, and within a record that starts in 2023 the long ones are the
+    ones still open at the cutoff, so a plain median of finished gaps runs short (worse the earlier
+    the cutoff). With ``asof``, each active facility's open interval (last routine to asof) enters
+    as censored and the median is Kaplan-Meier. A facility not seen for ACTIVE_DAYS is taken to
+    have closed and adds no open interval."""
     gap = rt.groupby("business_id")["completed_date"].diff().dt.days
     g = rt.assign(gap=gap).dropna(subset=["gap"])
-    by = g.groupby("business_type")["gap"].agg(["median", "size"])
-    overall = float(g["gap"].median()) if len(g) else 365.0
-    return by.loc[by["size"] >= MIN_GAPS, "median"].to_dict(), overall
+    if asof is None:
+        by = g.groupby("business_type")["gap"].agg(["median", "size"])
+        overall = float(g["gap"].median()) if len(g) else 365.0
+        return by.loc[by["size"] >= MIN_GAPS, "median"].to_dict(), overall
+    last = rt.groupby("business_id").agg(business_type=("business_type", "last"), last=("completed_date", "max"))
+    if last_visit is not None:
+        last = last[(pd.Timestamp(asof) - last_visit.reindex(last.index)).dt.days <= ACTIVE_DAYS]
+    open_ = pd.DataFrame({"business_type": last["business_type"], "gap": (pd.Timestamp(asof) - last["last"]).dt.days,
+                          "event": False})
+    allg = pd.concat([g[["business_type", "gap"]].assign(event=True), open_], ignore_index=True)
+    overall = km_median(allg["gap"], allg["event"])
+    if overall is None:
+        overall = float(g["gap"].median()) if len(g) else 365.0
+    out = {}
+    for t, gt in allg.groupby("business_type"):
+        if gt["event"].sum() >= MIN_GAPS:
+            m = km_median(gt["gap"], gt["event"])
+            if m is not None:
+                out[t] = m
+    return out, overall
 
 
-def _why(scores, majors, n, *, points=None, band=None, card=False):
+def _why(scores, majors, n, *, closures=0, points=None, band=None, card=False):
     """Which ordering placed the row, and the facts behind it."""
     lead = (f"Published card: {int(points)} points{f', band {band}' if band else ''}. " if points is not None
             else "Not scored by the published card; placed after its places, by lowest mean routine score. "
             if card else "")
-    rec = (f"Routine scores since 2023-01: {', '.join(f'{v:g}' for v in scores)} (mean {np.mean(scores):.1f})."
-           if scores else "No scored routine inspection on record since 2023-01; counted as a typical A (97).")
+    rated = scores + [float(mf.es.CLOSURE_SCORE)] * closures
+    shut = (f" {closures} routine inspection{'s' if closures > 1 else ''} ended in a health closure order "
+            f"(counted as {mf.es.CLOSURE_SCORE})." if closures else "")
+    if scores:
+        rec = f"Routine scores since 2023-01: {', '.join(f'{v:g}' for v in scores)} (mean {np.mean(rated):.1f}).{shut}"
+    elif closures:
+        rec = f"No scored routine inspection on record since 2023-01.{shut} Mean {np.mean(rated):.1f}."
+    else:
+        rec = "No scored routine inspection on record since 2023-01; counted as a typical A (97)."
     return lead + rec + (f" {majors} of {n} routine inspections found a major violation." if majors else "")
 
 
@@ -151,13 +197,15 @@ def worklist(insp, info, month, lookup, *, card=None, use_status=True, why=True,
     rt = h[h["insp_type"].astype(str) == "Routine"].sort_values(["business_id", "completed_date"])
     if rt.empty:
         return pd.DataFrame()
-    by_type, overall = intervals(rt)
+    by_type, overall = intervals(rt, asof=start, last_visit=last_visit)
     g = rt.groupby("business_id")
     last = g.tail(1).set_index("business_id")
     f = pd.DataFrame({"business_type": last["business_type"].astype(str),
                       "last_routine_date": last["completed_date"], "last_routine_score": last["score"],
                       "lat": last["lat"], "lng": last["lng"]})
     f["mean_all"] = g["score"].mean()
+    # the rule's mean counts a routine that ended in a health closure as CLOSURE_SCORE, as the card does
+    f["mean_rated"] = (g["rated_score"] if "rated_score" in rt.columns else g["score"]).mean()
     w12 = rt[rt["completed_date"] >= start - pd.Timedelta(days=mf.WINDOW_DAYS)]
     f["mean_routine_score_12m"] = w12.groupby("business_id")["score"].mean()
     f["last_visit"] = last_visit
@@ -172,7 +220,7 @@ def worklist(insp, info, month, lookup, *, card=None, use_status=True, why=True,
     f["interval"] = f["business_type"].map(by_type).fillna(overall)
     f["due_estimate"] = f["last_routine_date"] + pd.to_timedelta(f["interval"].round(), unit="D")
     f["due_this_month"] = (end - f["last_routine_date"]).dt.days >= f["interval"] - DUE_MARGIN
-    f["mean_points"] = (100 - f["mean_all"].fillna(mf.FILL_SCORE)).round(1)
+    f["mean_points"] = (100 - f["mean_rated"].fillna(mf.FILL_SCORE)).round(1)
     f = f.join(info[["facility_id", "name", "address"]], how="left")
     f["facility_id"] = f["facility_id"].fillna(pd.Series(f.index.astype(str), index=f.index))
     f["card_points"] = f["facility_id"].map(card["points"]) if card else np.nan
@@ -181,9 +229,11 @@ def worklist(insp, info, month, lookup, *, card=None, use_status=True, why=True,
     if why:
         rows = rt[rt["business_id"].isin(f.index)]
         sc = rows.groupby("business_id")["score"].apply(lambda s: [float(v) for v in s.dropna()])
+        cl = (rows.assign(_c=rows["rated_score"].notna() & rows["score"].isna())
+                  .groupby("business_id")["_c"].sum() if "rated_score" in rows.columns else pd.Series(dtype=int))
         mj = rows.groupby("business_id")["n_major"].apply(lambda s: int((s > 0).sum()))
         nr = rows.groupby("business_id").size()
-        f["why"] = [_why(sc.get(b, []), mj.get(b, 0), nr.get(b, 0),
+        f["why"] = [_why(sc.get(b, []), mj.get(b, 0), nr.get(b, 0), closures=int(cl.get(b, 0)),
                          points=None if pd.isna(p) else p, band=None if pd.isna(bd) else bd, card=bool(card))
                     for b, p, bd in zip(f.index, f["card_points"], f["card_band"])]
     return rank(f)
@@ -205,11 +255,13 @@ def rank(f):
 
 def model_orders(insp, month, f):
     """The research model's risk for each active facility's next routine inspection, fitted on
-    every routine inspection before the month, and its order within each district."""
+    every routine inspection before the month, and its order within each district. It trains on
+    features as of the 1st of each inspection's month (month_start_rows), the way it scores the
+    list (features_asof), so training and scoring read the record the same way."""
     start, _ = month_bounds(month)
     h = insp[insp["completed_date"] < start]
-    d = mf.routine_rows(mf.add_features(h))
-    model = mf.Model(mf.HEADLINE).fit(d)
+    hf = mf.add_features(h)
+    model = mf.fit_as_deployed(mf.month_start_rows(hf, mf.routine_rows(hf)))
     fx = mf.features_asof(h, start, ids=f.index)
     f = f.copy()
     f["model_risk"] = pd.Series(model.predict(fx), index=fx.index).reindex(f.index).round(4)
@@ -245,6 +297,17 @@ def _points(r):
     return str(int(r["rule_points"])) if pd.notna(r["card_points"]) else f"{r['rule_points']:.1f}"
 
 
+def csv_text(v):
+    """Scraped text as a CSV cell: a leading =, +, -, @, tab or carriage return would make a
+    spreadsheet run the cell as a formula, so such text gets a leading apostrophe."""
+    if isinstance(v, str) and v[:1] in ("=", "+", "-", "@", "\t", "\r"):
+        try:
+            float(v)
+        except ValueError:
+            return "'" + v
+    return v
+
+
 def write_month(f, month, out=OUT, generated=None, freeze=True, card=None):
     """district-<n>.csv for n in 1..9 and manifest.json; with freeze, a read-only timestamped
     copy with scoring.csv. Returns the month's folder and the frozen folder (or None)."""
@@ -259,10 +322,11 @@ def write_month(f, month, out=OUT, generated=None, freeze=True, card=None):
             wr = csv.writer(fh)
             wr.writerow(COLUMNS)
             for _, r in rows.iterrows():
-                wr.writerow([r["facility_id"], r["name"], r["address"], r["business_type"],
+                wr.writerow([csv_text(r["facility_id"]), csv_text(r["name"]), csv_text(r["address"]),
+                             csv_text(r["business_type"]),
                              _fmt(r["last_routine_date"]), _fmt(r["last_routine_score"]),
                              _fmt(r["mean_routine_score_12m"]), _fmt(r["due_estimate"]),
-                             int(r["rule_order"]), _points(r), r["why"]])
+                             int(r["rule_order"]), _points(r), csv_text(r["why"])])
         files[str(n)] = sha256(path)
     manifest = {"month": month, "generated": generated.isoformat(),
                 "method": METHOD + (FALLBACK if card is None else ""), "rule": rule_text(card), "files": files}

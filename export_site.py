@@ -43,7 +43,7 @@ Data rules (checked against the pull; counts in report.md)
 
   python export_site.py                  # bands review export -> data/site/ (with report.md, archive/)
   python export_site.py --mode record    # the record-only export -> data/site/
-  python export_site.py --publish        # ...then, if every gate passes, into food-dashboard/public/data/
+  python export_site.py --publish        # ...then, if every gate passes, into data/site-publish/ (outside git)
   python export_site.py --register       # register this run as the frozen prospective test (commit the file)
   python export_site.py --monitor        # score archived runs against the inspections made since
 Needs data/sd_businesses.json (fetch_sdfood.py). Council districts come from SANDAG and are cached
@@ -73,7 +73,9 @@ PULL = ROOT / "data" / "pull_meta.json"
 DISTRICTS = ROOT / "data" / "council_districts.geojson"
 DISTRICTS_URL = "https://geo.sandag.org/server/rest/directories/downloads/Council_Districts.geojson"
 OUT = ROOT / "data" / "site"
-SITE_DATA = ROOT / "food-dashboard" / "public" / "data"
+# A published export is staged OUTSIDE git (/data/ is ignored) and built into the site with
+# SDFOOD_SITE_DATA=data/site-publish (food-dashboard/scripts/exportGate.mjs). public/data stays the sample.
+SITE_DATA = ROOT / "data" / "site-publish"
 CHECK = ROOT / "food-dashboard" / "scripts" / "check-export.mjs"
 APPROVAL = ROOT / "docs" / "PUBLISH_APPROVAL.json"
 NOTICES = ROOT / "docs" / "notices"          # docs/notices/<run>.csv: notice sent to each named place
@@ -92,6 +94,8 @@ MAX_VIOLATIONS = 60
 FRESH_DAYS = 14         # a list older than this is not published, and the site shows search only after it
 NOTICE_DAYS = 14        # a named place is told this long before publication
 MIN_COST_RATIO = 1.0    # C/B below this only with an independent reviewer's signature
+COST_RATIO_RANGE = (0.25, 10.0)   # C/B outside this is not a judgement anyone can sign (0 or less names every band)
+EMAIL = re.compile(r"[^@\s]+@[^@\s]+\.[^@\s]+")
 ELIGIBLE_DAYS = 730     # a place is named only with two scored routine inspections in this window
 COMPLAINT_DAYS = 60     # a reinspection this soon after a complaint visit does not count for the card
 KS = (50, 100, 200, 500, 800, 1000)
@@ -875,6 +879,8 @@ def merge_overlapping(cuts, points, positive, labelled, elig):
 def named_bands(rows, cost_ratio):
     """Bands whose interval clears p > C/(B+C): naming a place is worth it in expectation only when
     a hit is that likely. `cost_ratio` is C/B."""
+    if cost_ratio is None or not cost_ratio > 0:      # 0 or less would name every band; -1 divides by zero
+        return []
     bar = cost_ratio / (1 + cost_ratio)
     return [r["band"] for r in rows if r["interval"][0] is not None and r["interval"][0] > bar]
 
@@ -1126,7 +1132,9 @@ def sha256_file(path: Path):
     return h.hexdigest()
 
 
-def provenance(raw_path=RAW):
+def provenance(raw_path=None):
+    raw_path = RAW if raw_path is None else raw_path     # read at call time, so tests can point it elsewhere
+
     def git(*a):
         try:
             return subprocess.run(["git", *a], cwd=ROOT, capture_output=True, text=True, timeout=20).stdout.strip()
@@ -1159,20 +1167,35 @@ def load_corrections(path=CORRECTIONS):
 APPROVAL_FIELDS = ("approver", "date", "run", "facilities_sha256", "contact", "reason", "insurance")
 
 
-def check_approval(a, mode, meta, facilities_sha):
-    """Every reason docs/PUBLISH_APPROVAL.json does not approve this export ([] when it does)."""
+def _date_or_none(v):
+    try:
+        return date.fromisoformat(str(v))
+    except ValueError:
+        return None
+
+
+def check_approval(a, mode, meta, facilities_sha, today=None):
+    """Every reason docs/PUBLISH_APPROVAL.json does not approve this export ([] when it does).
+    With ``today``, dates after it are refused too (gates() passes it; tests may leave it out)."""
     if not a:
         return ["no docs/PUBLISH_APPROVAL.json: naming or publishing is a decision people sign (docs/PUBLISHING.md)"]
     p = []
     for k in APPROVAL_FIELDS:
         if not a.get(k) or any(t in str(a[k]) for t in ("Full names", "an address that", "YYYY", "sha256 of")):
             p.append(f"approval field `{k}` is missing or still the template")
-    try:
-        date.fromisoformat(str(a.get("date")))
-    except ValueError:
+    generated = _date_or_none(meta.get("generated"))
+    signed = _date_or_none(a.get("date"))
+    if signed is None:
         p.append("approval `date` is not a date")
-    if "@" not in str(a.get("contact", "")):
+    elif generated and (signed - generated).days < -FRESH_DAYS:
+        p.append(f"approval `date` {signed} is more than {FRESH_DAYS} days before this export was generated ({generated})")
+    elif today and signed > today:
+        p.append(f"approval `date` {signed} is in the future")
+    if not EMAIL.fullmatch(str(a.get("contact", "")).strip()):
         p.append("approval `contact` is not an email address")
+    ra = a.get("responsible_adult") if isinstance(a.get("responsible_adult"), dict) else {}
+    if ra.get("contact") and not EMAIL.fullmatch(str(ra["contact"]).strip()):
+        p.append("approval `responsible_adult.contact` is not an email address")
     if a.get("run") != meta["run"]:
         p.append(f"the approval is for run {a.get('run')}, not {meta['run']}: an approval covers one list")
     if a.get("facilities_sha256") != facilities_sha:
@@ -1184,20 +1207,37 @@ def check_approval(a, mode, meta, facilities_sha):
         if missing:
             p.append(f"approval `{k}` needs {', '.join(missing)}")
     ci = a["county_informed"].get("date") if isinstance(a.get("county_informed"), dict) else None
-    try:
-        if ci and (date.fromisoformat(meta["generated"]) - date.fromisoformat(ci)).days < 30:
+    if ci:
+        cid = _date_or_none(ci)
+        if cid is None:
+            p.append("approval `county_informed.date` is not a date")
+        elif generated and (generated - cid).days < 30:
             p.append("the County was told less than 30 days before this export")
-    except ValueError:
-        p.append("approval `county_informed.date` is not a date")
+        elif generated and (generated - cid).days > 365:
+            p.append("the County was told more than a year before this export: tell them about this list")
+    lr = a.get("legal_review") if isinstance(a.get("legal_review"), dict) else {}
+    if lr.get("date"):
+        lrd = _date_or_none(lr["date"])
+        if lrd is None:
+            p.append("approval `legal_review.date` is not a date")
+        elif generated and (generated - lrd).days > 365:
+            p.append("the legal review is more than a year older than this export")
+        elif today and lrd > today:
+            p.append("approval `legal_review.date` is in the future")
     if mode == "bands":
         try:
             ratio = float(a.get("cost_ratio"))
         except (TypeError, ValueError):
             ratio = None
             p.append("approval `cost_ratio` (C/B) is missing")
+        if ratio is not None and not COST_RATIO_RANGE[0] <= ratio <= COST_RATIO_RANGE[1]:
+            p.append(f"approval `cost_ratio` {ratio} is outside {COST_RATIO_RANGE[0]} to {COST_RATIO_RANGE[1]}")
         ind = a.get("independent_reviewer") if isinstance(a.get("independent_reviewer"), dict) else {}
-        if ratio is not None and ratio < MIN_COST_RATIO and not all(ind.get(f) for f in ("name", "affiliation", "date")):
-            p.append(f"a cost ratio below {MIN_COST_RATIO} needs an `independent_reviewer` (name, affiliation, date)")
+        if ratio is not None and ratio < MIN_COST_RATIO:
+            if not all(ind.get(f) for f in ("name", "affiliation", "date")):
+                p.append(f"a cost ratio below {MIN_COST_RATIO} needs an `independent_reviewer` (name, affiliation, date)")
+            elif _date_or_none(ind["date"]) is None:
+                p.append("approval `independent_reviewer.date` is not a date")
     if a.get("skip_prospective_reason"):
         p.append("`skip_prospective_reason` is not accepted: the prospective test cannot be waived")
     return p
@@ -1237,7 +1277,9 @@ def _common_meta(mode, run, today, through, pull, places_n, measurement_, stats,
                         "closing places that remain had more major violations, so the test may flatter the list.",
         "provenance": provenance(),
         "contact": (approval or {}).get("contact"),
-        "operator": ((approval or {}).get("responsible_adult") or None),
+        # only the name and contact are public; anything else in the approval stays out of meta
+        "operator": ({k: v for k, v in (approval or {}).get("responsible_adult", {}).items() if k in ("name", "contact")}
+                     or None) if isinstance((approval or {}).get("responsible_adult"), dict) else None,
         "corrections": corrections,
     }
 
@@ -1490,7 +1532,14 @@ def report(meta, extra):
     return "\n".join(L) + "\n"
 
 
+SAFE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
+
+
 def write_export(out: Path, fc, details, meta):
+    # A facility id becomes a file name: an id from the County's data that could escape place/ is refused.
+    bad = [fid for fid in details if not SAFE_ID.fullmatch(str(fid)) or ".." in str(fid)]
+    if bad:
+        raise ValueError(f"facility ids that are not safe file names: {bad[:5]}")
     out.mkdir(parents=True, exist_ok=True)
     pdir = out / "place"
     pdir.mkdir(exist_ok=True)
@@ -1617,8 +1666,8 @@ def prospective_ok(out: Path, cost_ratio, prospective_dir=PROSPECTIVE, today=Non
     mon = next((r for r in _json(out / "monitor.json", []) if r["run"] == reg["run"]), None)
     if not mon or mon["labelled"] < PROSPECTIVE_MIN:
         return False, f"the registered run has fewer than {PROSPECTIVE_MIN} later routine inspections (run --monitor)"
-    if cost_ratio is None:
-        return False, "no approved cost ratio to test the registered bands against"
+    if cost_ratio is None or not cost_ratio > 0:
+        return False, "no approved (positive) cost ratio to test the registered bands against"
     bar = cost_ratio / (1 + cost_ratio)
     b1 = mon["bands"].get("1")
     if not b1 or b1["interval"][0] is None or b1["interval"][0] <= bar:
@@ -1630,7 +1679,7 @@ def prospective_ok(out: Path, cost_ratio, prospective_dir=PROSPECTIVE, today=Non
 
 def gates(meta, out: Path, pull, today: date, approval, facilities_sha, named_ids):
     """Every reason this export may not be published ([] when it may)."""
-    p = list(check_approval(approval, meta["mode"], meta, facilities_sha))
+    p = list(check_approval(approval, meta["mode"], meta, facilities_sha, today=today))
     if not (pull or {}).get("complete"):
         p.append("the pull is partial or unrecorded (data/pull_meta.json): finish fetch_sdfood.py --resume")
     age = (today - _d(meta["inspections_through"])).days
@@ -1672,13 +1721,20 @@ def contract_check(dirpath: Path, review=False):
     return [] if res.returncode == 0 else ["the export contract check failed:\n" + (res.stdout + res.stderr).strip()]
 
 
+def named_features(fc, meta):
+    """The places a published bands export names: in a named band, and inside the City. The export
+    lists every active place county-wide for the staff site, but the rule's backtest, its bands and
+    the district-parity gate are the City's, so a public list names no one outside it."""
+    return [f for f in fc["features"]
+            if f["properties"].get("band") in meta.get("named_bands", []) and f["properties"].get("council_district") is not None]
+
+
 def publish(out: Path, fc, details, meta, approval_path=APPROVAL, today=None):
-    """Stage the shipped files (named bands only), stamp meta.publication, check them, then copy."""
+    """Stage the shipped files (named City bands only), stamp meta.publication, check them, then copy."""
     today = today or date.today()
     shipped = fc
     if meta["mode"] == "bands":
-        shipped = {"type": "FeatureCollection",
-                   "features": [f for f in fc["features"] if f["properties"].get("band") in meta["named_bands"]]}
+        shipped = {"type": "FeatureCollection", "features": named_features(fc, meta)}
     stage = out / "publish"
     if stage.exists():
         shutil.rmtree(stage)
@@ -1701,7 +1757,7 @@ def publish(out: Path, fc, details, meta, approval_path=APPROVAL, today=None):
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--mode", choices=("bands", "record"), default="bands")
-    ap.add_argument("--publish", action="store_true", help="copy into food-dashboard/public/data/ if every gate passes")
+    ap.add_argument("--publish", action="store_true", help="stage into data/site-publish/ (outside git) if every gate passes")
     ap.add_argument("--register", action="store_true", help="register this bands run as the frozen prospective test")
     ap.add_argument("--monitor", action="store_true", help="score archived runs against the inspections made since")
     ap.add_argument("--out", type=Path, default=OUT)
@@ -1730,7 +1786,7 @@ def main(argv=None):
             return 0
     size = (args.out / "facilities.geojson").stat().st_size / 1e6
     print(f"wrote {args.out} ({len(fc['features'])} places, index {size:.1f} MB) and report.md; facilities sha256 {facilities_sha}")
-    named_ids = [f["properties"]["facility_id"] for f in fc["features"] if f["properties"].get("band") in meta.get("named_bands", [])]
+    named_ids = [f["properties"]["facility_id"] for f in named_features(fc, meta)]
     problems = gates(meta, args.out, pull, date.today(), approval, facilities_sha, named_ids)
     problems += contract_check(args.out, review=True)
     if not args.publish:

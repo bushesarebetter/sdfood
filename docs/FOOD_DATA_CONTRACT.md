@@ -1,4 +1,4 @@
-# The food-safety site's export contract (version 3.1)
+# The food-safety site's export contract (version 3.2)
 
 `food-dashboard/` shows City of San Diego restaurants and markets with the County's inspection
 record. It has two modes, set by `meta.mode`:
@@ -21,8 +21,11 @@ invented sample (`food-dashboard/scripts/make_sample_export.py`) is in `bands` m
 
 - **`data/meta.json`:** what the export is (below).
 - **`data/facilities.geojson`:** the index. One Point feature per listed place, with only what
-  the map, the list, the filters and the search need. It must stay small (well under 2 MB) so a
-  phone can load it.
+  the map, the list, the filters and the search need. What the public site ships must stay under
+  3 MB (a published export holds only named City places, far less). An unpublished review or
+  City-staff export lists every active place county-wide, about 11,000 places and 4.6 MB in
+  September 2026; its limit is 8 MB. Either way the host serves `.geojson` compressed
+  (`city_site/server.mjs` gzips it: about 560 KB), so a phone can load it.
 - **`data/place/<facility_id>.json`:** one file per listed place, with the full record. A place
   page loads only its own file.
 
@@ -42,8 +45,12 @@ invented sample (`food-dashboard/scripts/make_sample_export.py`) is in `bands` m
   - **Closures:** one per episode, with a reason. `reopened` records whether the County's
     "Approved to Reopen" visit ended it.
 - **Listed places:** restaurants (`restaurant`), limited-preparation food service (`limited`) and
-  markets with a deli or food processing (`market`) inside the City, visited in the last 18
-  months, with a permit that has not expired.
+  markets with a deli or food processing (`market`), visited in the last 18 months, with a permit
+  that has not expired. A `record` export lists the City's. A `bands` export for review or the
+  City staff site lists them county-wide (the site's area toggle shows places outside the City,
+  which carry no council district); a **published** `bands` export names only City places, since
+  the rule's backtest and its district-parity gate are the City's (`export_site.named_features`,
+  and `check-export.mjs` refuses anything else).
 
 ## `facilities.geojson` (index)
 
@@ -52,7 +59,7 @@ invented sample (`food-dashboard/scripts/make_sample_export.py`) is in `bands` m
 | `facility_id` | string | the County's permit record id; the key for every link and file |
 | `name`, `address` | string | as on the County's record |
 | `facility_type` | `restaurant`, `limited`, `market` | the sample may use others |
-| `council_district` | int | 1 to 9 |
+| `council_district` | int or null | 1 to 9; null outside the City (unpublished `bands` exports only) |
 | `last_visit` | `{ date, type }` | the most recent visit |
 | `grade` | `{ grade, score, date, replaced }` or null | the grade on the County's card in the window: the latest letter from a routine or re-grade visit; `replaced` is `{ grade, score, date }` of the routine grade a re-grade replaced, else null |
 | `flags` | array | record facts from the 12 months before the last visit: `major` (a major violation), `closed` (a health-hazard closure), `bc` (a B or C at a graded routine), `repeat` (two or more reinspections), and one theme key per theme with a major |

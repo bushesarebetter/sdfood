@@ -1,5 +1,5 @@
 """Write an invented export for the food-inspection site, in the shape the real one takes
-(docs/FOOD_DATA_CONTRACT.md, version 3.1), so the site can be built and reviewed without
+(docs/FOOD_DATA_CONTRACT.md, version 3.2), so the site can be built and reviewed without
 naming a real business.
 
 Every place is fictional. Names carry the word "Sample", streets are made-up names ("Sample

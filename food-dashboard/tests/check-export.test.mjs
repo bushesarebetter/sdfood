@@ -34,7 +34,7 @@ const card = {
 };
 
 const reviewMeta = (places) => ({
-  mode: "bands", sample: false, run: "forward_test", generated: "2026-09-20", places, expires: "2026-11-03", inspections_through: "2026-09-19",
+  mode: "bands", sample: false, run: "forward_test", generated: "2026-09-20", places, expires: "2026-10-03", inspections_through: "2026-09-19",
   provenance: { code_sha: "abc", pull_sha256: "def", python: "3.14", packages: {} }, contact: null, operator: null, corrections: [], publication: null,
   named_bands: [], card, catch_run: {},
 });
@@ -71,6 +71,17 @@ test("a published bands export passes; the same export for review passes with --
   const rev = check([...places, place(3, { points: 4 })], reviewMeta(3), { args: ["--review"] });
   assert.ok(rev.ok, rev.err);
   assert.match(rev.err, /review export: not publishable/);
+});
+
+test("a published bands export names City places only; a review export may list the county", () => {
+  const county = place(3, { band: "2", points: 12, index: { council_district: null } });
+  const places = [...banded(), county];
+  const pub = check(places, reviewMeta(3), { publish: true });
+  assert.equal(pub.ok, false);
+  assert.match(pub.err, /not approved for publication: 1 listed place is outside the City \(no council district\)/);
+  const rev = check(places, reviewMeta(3), { args: ["--review"] });
+  assert.ok(rev.ok, rev.err);
+  assert.match(rev.err, /outside the City/);
 });
 
 test("without --review, an unapproved real export is refused", () => {
@@ -143,14 +154,19 @@ test("enums outside the contract fail", () => {
   }
 });
 
-test("real exports must expire, carry provenance, and never hold a Sample place; the index stays under 3 MB", () => {
+test("real exports must expire, carry provenance, and never hold a Sample place; the index stays under 3 MB (8 MB for review)", () => {
   assert.match(check(banded(), { ...reviewMeta(2), expires: null }, { args: ["--review"] }).err, /without meta\.expires/);
   assert.match(check(banded(), { ...reviewMeta(2), provenance: null }, { args: ["--review"] }).err, /without meta\.provenance/);
   const sample = [place(1, { band: "1", points: 21, index: { name: "Sample Grill 1" } })];
   sample[0].file.name = "Sample Grill 1";
   assert.match(check(sample, reviewMeta(1), { args: ["--review"] }).err, /a place named 'Sample …'/);
   const big = JSON.stringify({ type: "FeatureCollection", features: banded().map((p) => p.feature), pad: "x".repeat(3.2 * 1024 * 1024) });
-  assert.match(check(banded(), reviewMeta(2), { args: ["--review"], rawIndex: big }).err, /over 3 MB/);
+  assert.match(check(banded(), reviewMeta(2), { rawIndex: big }).err, /over 3 MB \(what the public site ships/);
+  // an unpublished county-wide export for review or the City staff site is larger, and still bounded
+  const rev = check(banded(), reviewMeta(2), { args: ["--review"], rawIndex: big });
+  assert.ok(rev.ok, rev.err);
+  const huge = JSON.stringify({ type: "FeatureCollection", features: banded().map((p) => p.feature), pad: "x".repeat(8.2 * 1024 * 1024) });
+  assert.match(check(banded(), reviewMeta(2), { args: ["--review"], rawIndex: huge }).err, /over 8 MB \(the limit for an unpublished review or staff export\)/);
   assert.match(check(banded(), { ...reviewMeta(2), places: 5 }, { args: ["--review"] }).err, /meta\.places is 5/);
 });
 
@@ -162,4 +178,24 @@ test("record mode carries no bands field; the sample fixture and a published rec
   assert.match(check([place(1)], { ...recMeta, mode: "ranked" }, { args: ["--review"] }).err, /meta\.mode is "ranked"/);
   const fixture = spawnSync(process.execPath, [script, join(dirname(fileURLToPath(import.meta.url)), "fixtures", "record")], { encoding: "utf8" });
   assert.equal(fixture.status, 0, fixture.stderr);
+});
+
+test("a real export cannot pass as the sample by setting meta.sample", () => {
+  const real = [place(1, { band: "1", points: 21 }), place(2, { band: "2", points: 12 })];
+  const r = check(real, { ...reviewMeta(2), sample: true, run: "sample", provenance: { code_sha: "sample" }, source: { url: null } });
+  assert.ok(!r.ok);
+  assert.match(r.err, /meta\.sample is true, but this is not the invented sample: place "DEH2020-FFPP-000001" does not have a sample id/);
+  assert.match(r.err, /not approved for publication/, "and it is then held to the real gates");
+});
+
+test("a hand-written publication stamp must be well formed and inside the export's window", () => {
+  const places = [place(1, { band: "1", points: 21 })];
+  const forged = check(places, { ...reviewMeta(1), expires: "2099-01-01" }, { publish: { approval_sha256: "x", gates_passed_at: "x" } });
+  assert.ok(!forged.ok);
+  assert.match(forged.err, /more than 14 days after inspections_through/);
+  assert.match(forged.err, /approval_sha256 is not a sha256/);
+  assert.match(forged.err, /gates_passed_at is not a date/);
+  const late = check(places, reviewMeta(1), { publish: { gates_passed_at: "2027-01-01" } });
+  assert.match(late.err, /outside this export's window/);
+  assert.ok(check(places, reviewMeta(1), { publish: true }).ok, "a well-formed stamp inside the window passes");
 });

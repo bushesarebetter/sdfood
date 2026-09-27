@@ -53,3 +53,11 @@ test("a place with no grade still produces a row of the same width", () => {
   const [header, row] = facilitiesToCsv([bare]).split("\n");
   assert.equal(header.split(",").length, row.split(",").length);
 });
+
+test("a name that a spreadsheet would run as a formula is neutralised; numbers are not", () => {
+  const evil = { ...feature, properties: { ...feature.properties, name: '=HYPERLINK("http://evil.example","x")', address: "@SUM(A1)" } };
+  const get = parse(facilitiesToCsv([evil], { meta }));
+  assert.equal(get("name"), `'=HYPERLINK("http://evil.example","x")`);
+  assert.equal(get("address"), "'@SUM(A1)");
+  assert.equal(get("lon"), "-117.13", "a negative longitude stays a number");
+});
