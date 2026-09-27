@@ -255,11 +255,13 @@ def rank(f):
 
 def model_orders(insp, month, f):
     """The research model's risk for each active facility's next routine inspection, fitted on
-    every routine inspection before the month, and its order within each district."""
+    every routine inspection before the month, and its order within each district. It trains on
+    features as of the 1st of each inspection's month (month_start_rows), the way it scores the
+    list (features_asof), so training and scoring read the record the same way."""
     start, _ = month_bounds(month)
     h = insp[insp["completed_date"] < start]
-    d = mf.routine_rows(mf.add_features(h))
-    model = mf.Model(mf.HEADLINE).fit(d)
+    hf = mf.add_features(h)
+    model = mf.Model(mf.HEADLINE).fit(mf.month_start_rows(hf, mf.routine_rows(hf)))
     fx = mf.features_asof(h, start, ids=f.index)
     f = f.copy()
     f["model_risk"] = pd.Series(model.predict(fx), index=fx.index).reindex(f.index).round(4)
