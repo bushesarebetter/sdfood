@@ -45,9 +45,11 @@ export const SITE = {
     // The month the County's published inspection results begin.
     recordStart: "2023-01",
     // The County's rule for a major violation, stated wherever the share of
-    // majors that still end with an A is given.
+    // majors that still end with an A is given. Wording from the County's Food Program FAQ ("immediately
+    // corrected or a suitable alternative is implemented") and its Retail Food Facility Operator's Guide
+    // (closure of "the impacted areas or processes" when neither is possible); checked 2026-09-27.
     majorRule:
-      "The County requires each major violation to be corrected during the inspection, or the affected area is closed.",
+      "The County requires each major violation to be corrected immediately, or a suitable alternative put in place until it is; otherwise the affected area or process can be closed.",
     // The County's own disclaimer for SD Food Info, quoted as published
     // (complete sentences, unedited). Checked against the page on the date given.
     disclaimer: {
