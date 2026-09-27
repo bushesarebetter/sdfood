@@ -487,6 +487,9 @@ def main():
     # weeks earlier in the same month counts; the monthly list cannot know it on the 1st)
     dm = month_start_rows(df, dt)
     pm = Model(HEADLINE).fit(d[train_mask(d, HEADLINE)]).predict(dm)
+    # the deployed list (export_worklist.model_orders) also TRAINS on month-start rows; the research
+    # figures train on inspection-date rows. Same test, both scored as of the 1st:
+    pm_ms = Model(HEADLINE).fit(month_start_rows(df, d[train_mask(d, HEADLINE)])).predict(dm)
     deployed_scores = {"Model": pm}
     for k, c in BASELINES.items():
         deployed_scores[k] = dm[c].values if c != "rule_major_rate" else dm["prior_major_rate"].fillna(
@@ -517,10 +520,12 @@ def main():
              "12-month window": (WINDOW, HEADLINE)}
     EW = {v: top_weights(P[v]) for pr in pairs.values() for v in pr}
     WD = {k: top_weights(v) for k, v in deployed_scores.items()}
+    WMS = top_weights(pm_ms)
     codes = pd.factorize(dt["business_id"])[0]; ncl = codes.max() + 1
     rng = np.random.default_rng(0)
     draws = {k: {"auc": [], "cap": []} for k in comps + list(pairs)}
     ddraws = {k: {"auc": [], "cap": []} for k in comps}   # the same pairs, scored as deployed
+    dtrain = {"auc": [], "cap": []}                       # month-start minus inspection-date training
     for _ in range(BOOT):
         wt = np.bincount(rng.integers(0, ncl, ncl), minlength=ncl)[codes].astype(float)
         am = roc_auc_score(yte, p, sample_weight=wt); cm = (wt*W["Model"]*yte).sum() / (wt*yte).sum()
@@ -531,6 +536,8 @@ def main():
         for k in comps:
             ddraws[k]["auc"].append(amd - roc_auc_score(yte, deployed_scores[k], sample_weight=wt))
             ddraws[k]["cap"].append(cmd - (wt*WD[k]*yte).sum() / (wt*yte).sum())
+        dtrain["auc"].append(roc_auc_score(yte, pm_ms, sample_weight=wt) - amd)
+        dtrain["cap"].append((wt*WMS*yte).sum() / (wt*yte).sum() - cmd)
         va = {v: roc_auc_score(yte, P[v], sample_weight=wt) for v in EW}
         vc = {v: (wt*EW[v]*yte).sum() / (wt*yte).sum() for v in EW}
         for k, (a, b) in pairs.items():
@@ -554,6 +561,15 @@ def main():
                      "top20_recall": round(dc, 4), "top20_recall_ci": ci(ddraws[k]["cap"])}
         print(f"  vs {k}: AUC {da:+.3f} [{ddiffs[k]['auc_ci'][0]:+.3f}, {ddiffs[k]['auc_ci'][1]:+.3f}]   "
               f"top-20% capture {dc*100:+.1f} pts [{ddiffs[k]['top20_recall_ci'][0]*100:+.1f}, {ddiffs[k]['top20_recall_ci'][1]*100:+.1f}]")
+    ms = {"auc": round(float(roc_auc_score(yte, pm_ms)), 4), "top20_recall": round(capture(pm_ms, yte), 4)}
+    ms["minus_inspection_date_training"] = {
+        "auc": round(ms["auc"] - as_deployed["Model"]["auc"], 4), "auc_ci": ci(dtrain["auc"]),
+        "top20_recall": round(ms["top20_recall"] - as_deployed["Model"]["top20_recall"], 4),
+        "top20_recall_ci": ci(dtrain["cap"])}
+    t = ms["minus_inspection_date_training"]
+    print(f"  the deployed list's training (month-start rows): AUC {ms['auc']:.3f}, top-20% {ms['top20_recall']*100:.1f}%; "
+          f"minus inspection-date training: AUC {t['auc']:+.3f} [{t['auc_ci'][0]:+.3f}, {t['auc_ci'][1]:+.3f}]   "
+          f"top-20% {t['top20_recall']*100:+.1f} pts [{t['top20_recall_ci'][0]*100:+.1f}, {t['top20_recall_ci'][1]*100:+.1f}]")
     vdiffs = {}
     print("=== one change at a time (variant a minus variant b), same bootstrap ===")
     for k, (a, b) in pairs.items():
@@ -666,6 +682,7 @@ def main():
         "pr_auc": round(float(average_precision_score(yte, p)), 4),
         "rankings": {k: {c: round(float(tab.loc[k, c]), 4) for c in tab.columns} for k in tab.index},
         "as_deployed": {"rankings": as_deployed, "rows_with_a_visit_inside_the_month": round(changed, 4), "vs": ddiffs,
+                        "trained_on_month_start_rows": ms,
                         "note": "features as of the 1st of each test inspection's month (month_start_rows)"},
         "best_auc_baseline": best_auc, "best_top20_baseline": best_cap, "vs": diffs,
         "variants": var_rows, "ablation": vdiffs, "age_leak": leak, "truncation": trunc,

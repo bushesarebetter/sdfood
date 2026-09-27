@@ -148,3 +148,31 @@ def test_card_points_first_then_the_one_line_rule(data, tmp_path):
 def test_the_invented_sample_is_never_used_as_the_card(tmp_path):
     assert ew.load_card(site_export(tmp_path, {"FA0001": (30, "1")}, sample=True)) is None
     assert ew.load_card(str(tmp_path / "missing")) is None
+
+
+def test_the_model_trains_on_features_as_of_the_first(tmp_path, monkeypatch):
+    """The list is scored on the 1st (features_asof), so the model trains the same way: a visit
+    earlier in an inspection's own month is not part of that training row's history."""
+    visits = [("2026-03-02", "Routine", 90), ("2026-08-03", "Re-inspection", None), ("2026-08-20", "Routine", 88)]
+    rows = [{"business_id": 10, "business_type": "Restaurant Food Facility", "zip": "92101", "lat": 1,
+             "lng": -117.0, "opened_date": "2020-01-01", "inspection_id": i, "insp_type": t, "status": "Complete",
+             "score": s, "grade": "A" if s else None, "completed_date": day, "n_violations": 0, "n_major": 0,
+             "n_minor": 0, "n_grp": 0, "closure": None} for i, (day, t, s) in enumerate(visits)]
+    path = tmp_path / "inspections.csv"
+    pd.DataFrame(rows, columns=COLS).to_csv(path, index=False)
+
+    class Stop(Exception):
+        pass
+
+    seen = {}
+
+    def fit(self, rows, *a, **k):
+        seen["rows"] = rows
+        raise Stop
+
+    monkeypatch.setattr(mf.Model, "fit", fit)
+    with pytest.raises(Stop):
+        ew.model_orders(mf.load(str(path)), MONTH, pd.DataFrame())
+    r = seen["rows"].set_index("completed_date").loc[pd.Timestamp("2026-08-20")]
+    assert r["prior_n"] == 1                             # the 2026-08-03 visit is after the 1st
+    assert r["days_since_last"] == (pd.Timestamp("2026-08-01") - pd.Timestamp("2026-03-02")).days
