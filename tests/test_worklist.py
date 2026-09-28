@@ -94,10 +94,15 @@ def test_files_for_the_api_and_the_frozen_copy(data, tmp_path):
     target = os.path.join(frozen, "district-1.csv")
     mode = os.stat(target).st_mode                                    # frozen files are read-only (mode bits:
     assert not mode & (stat.S_IWUSR | stat.S_IWGRP | stat.S_IWOTH)    # os.access is always True for root)
-    os.chmod(target, stat.S_IWRITE)
+    os.chmod(target, stat.S_IRUSR | stat.S_IWUSR)     # owner read-write (S_IWRITE alone is write-only on POSIX)
     with open(target, "a", encoding="utf-8") as fh:
         fh.write("tampered\n")
     assert ew.verify(frozen) == ["district-1.csv"]
+    if os.name != "nt":                                # an unreadable frozen file is reported, not a crash
+        os.chmod(target, 0)
+        if not os.access(target, os.R_OK):             # (root can still read it)
+            assert ew.verify(frozen) == ["district-1.csv"]
+        os.chmod(target, stat.S_IRUSR | stat.S_IWUSR)
 
 
 def test_scoring_file_holds_every_active_facility(data, tmp_path):

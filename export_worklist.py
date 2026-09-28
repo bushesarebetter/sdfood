@@ -354,11 +354,19 @@ def write_month(f, month, out=OUT, generated=None, freeze=True, card=None):
 
 
 def verify(frozen):
-    """Names of the files in a frozen copy whose sha256 no longer matches its manifest."""
-    m = json.load(open(os.path.join(frozen, "manifest.json")))
+    """Names of the files in a frozen copy whose sha256 no longer matches its manifest. A file that is
+    missing or cannot be read no longer matches: it is reported, never a crash."""
+    with open(os.path.join(frozen, "manifest.json"), encoding="utf-8") as fh:
+        m = json.load(fh)
     name = lambda k: "scoring.csv" if k == "scoring" else f"district-{k}.csv"
-    return [name(k) for k, h in m["files"].items()
-            if not os.path.exists(os.path.join(frozen, name(k))) or sha256(os.path.join(frozen, name(k))) != h]
+
+    def matches(path, h):
+        try:
+            return sha256(path) == h
+        except OSError:
+            return False
+
+    return [name(k) for k, h in m["files"].items() if not matches(os.path.join(frozen, name(k)), h)]
 
 
 def backtest(insp, info, lookup, months):

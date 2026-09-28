@@ -15,6 +15,7 @@
 # Then: (1) ask GitHub Support to purge cached views and pull-request refs (docs/PUBLISHING.md),
 # (2) have every collaborator re-clone -- old clones still contain the blobs.
 set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"              # resolve before any cd: $0 may be relative
 URL=${1:?usage: purge_history.sh <repo-url> [--push]}
 PUSH=${2:-}
 command -v git-filter-repo >/dev/null || { echo "install git-filter-repo first: pip install git-filter-repo"; exit 1; }
@@ -25,7 +26,7 @@ cp -r "$WORK/repo.git" "$WORK/backup.git"          # untouched copy, in case you
 cd "$WORK/repo.git"
 
 # Keep only the dashboard.html on the default branch tip, and only if it passes the privacy gate.
-GATE="$(cd "$(dirname "$0")/.." && pwd)/privacy_gate.py"
+GATE="$ROOT/privacy_gate.py"
 DEFAULT=$(git symbolic-ref --short HEAD)
 KEEP=$(git rev-parse "$DEFAULT:dashboard.html" 2>/dev/null || true)
 if [ -n "$KEEP" ]; then
