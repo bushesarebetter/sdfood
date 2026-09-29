@@ -21,6 +21,28 @@
           ]
         }
       ]
+    },
+    {
+      "run": "forward_2026-09-29-9a49dda0",
+      "generated": "2026-09-29",
+      "ranking_sha256": "8caccefa2a8aef0df5e60d545d2d5c56b96aa6c9b7fe51ba2a287d362dda855a",
+      "meta_sha256": "b598b4402f111def02ca3882a9cc2402e2f6ccdc5d909eb333f1ff00da131742",
+      "code_sha": "37721b8a1617a73084cfe70449056455ee54922b",
+      "pull_sha256": "974f43e29db74f1af37c5ed761be61e700f513c07ba3554b524f2567bed664ec",
+      "version": "2026-09-29-065efe53",
+      "registered": "2026-09-29",
+      "rule": "average score: 1 x avg_deficit",
+      "bands": [
+        {
+          "band": "1",
+          "min_points": 8,
+          "rate": 0.366,
+          "interval": [
+            0.3299,
+            0.4036
+          ]
+        }
+      ]
     }
   ]
 }
