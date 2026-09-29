@@ -243,11 +243,11 @@ def _why(scores, majors, n, *, closures=0, points=None, band=None, card=False, u
     if points is not None and used:
         listed = ", ".join(f"{u[0]:g}{_closed_text(u[2] if len(u) > 2 else None) if u[1] else ''}" for u in used)
         mean = sum(u[0] for u in used) / len(used)
-        return (first + f"{POINT_RULE}: {int(points)} points{f', band {band}' if band else ''}. It averages the routine "
+        return (first + f"{POINT_RULE}: {int(points)} point{'' if int(points) == 1 else 's'}{f', band {band}' if band else ''}. It averages the routine "
                 f"scores of the two years before the list: {listed}; mean {mean:.1f}, and 100 minus the mean, "
                 f"rounded, is its points."
                 + (f" {majors} of {n} routine inspections since 2023-01 found a major violation." if majors else ""))
-    lead = (f"{POINT_RULE}: {int(points)} points{f', band {band}' if band else ''}. " if points is not None
+    lead = (f"{POINT_RULE}: {int(points)} point{'' if int(points) == 1 else 's'}{f', band {band}' if band else ''}. " if points is not None
             else "On hold: its points and band are withheld while a request is reviewed; placed by the one-line rule. "
             if held else "Not scored by the point rule; placed on the same scale by 100 minus its mean routine score. "
             if card else "")
