@@ -510,20 +510,44 @@ def test_publish_stages_named_bands_with_a_publication_stamp(built, tmp_path, mo
     assert not (tmp_path / "public_data" / "place" / "DEH2099-FFPP-000001.json").exists()
 
 
-def test_archive_is_write_once_and_registration_is_single(built, tmp_path):
+def test_archive_is_write_once_and_registration_is_one_per_rule_version(built, tmp_path):
     fc, details, meta, extra = built
     d, new = es.archive(tmp_path, meta, extra["ranking"])
     assert new and (d / "manifest.json").exists()
     assert es.archive(tmp_path, meta, extra["ranking"])[1] is False, "never overwritten"
     with gzip.open(d / "ranking.csv.gz", "rt", encoding="utf-8") as fh:
         header = fh.readline().strip().split(",")
-    assert {"facility_id", "points", "band", "average_rule", "persistence"} <= set(header)
-    reg = es.register(tmp_path, meta, prospective_dir=tmp_path / "prospective")
-    assert json.loads(reg.read_text(encoding="utf-8"))["run"] == meta["run"]
-    with pytest.raises(SystemExit):
-        es.register(tmp_path, meta, prospective_dir=tmp_path / "prospective")
+    assert {"facility_id", "points", "band", "average_rule", "persistence", "district"} <= set(header)
+    v1 = {**meta, "frozen": {"version": "2026-09-22-aaaaaaaa"}}
+    reg = es.register(tmp_path, v1, prospective_dir=tmp_path / "prospective")
+    regs = json.loads(reg.read_text(encoding="utf-8"))["registrations"]
+    assert [(r["run"], r["version"]) for r in regs] == [(meta["run"], "2026-09-22-aaaaaaaa")]
+    with pytest.raises(SystemExit, match="already registers rule version"):
+        es.register(tmp_path, v1, prospective_dir=tmp_path / "prospective")
+    es.register(tmp_path, {**meta, "frozen": {"version": "2027-01-05-bbbbbbbb"}}, prospective_dir=tmp_path / "prospective")
+    assert len(es._registrations(reg)) == 2, "a refit rule gets its own registration; the first is kept"
     results = es.monitor(tmp_path, extra["places"], today=date(2027, 3, 1), log=lambda *_: None)
-    assert results and results[0]["run"] == meta["run"] and (tmp_path / "monitor.json").exists()
+    r = results[0]
+    assert r["run"] == meta["run"] and (tmp_path / "monitor.json").exists()
+    assert r["complete"] is False, "fewer than 365 days after the list: interim"
+    assert set(r) >= {"city", "outside", "missing_from_later_pull"}
+    assert r["city"]["labelled"] + r["outside"]["labelled"] == r["labelled"]
+    gone = es.monitor(tmp_path, extra["places"][1:], today=date(2027, 3, 1), log=lambda *_: None)[0]
+    assert sum(gone["missing_from_later_pull"].values()) >= 1, "a place gone from the later pull is counted, not dropped"
+
+
+def test_an_older_single_registration_is_still_read(tmp_path):
+    (tmp_path / "REGISTERED.json").write_text(json.dumps({"run": "forward_2026-09-01", "ranking_sha256": "x"}))
+    assert [r["run"] for r in es._registrations(tmp_path / "REGISTERED.json")] == ["forward_2026-09-01"]
+    assert es._registrations(tmp_path / "missing.json") == []
+
+
+def _monitor_row(run, *, days=400, complete=True, b1=(400, [0.55, 0.7], 0.62), all_rate=0.2):
+    n, interval, rate = b1
+    return {"run": run, "days": days, "complete": complete, "labelled": 2000, "positives": 500, "bands": {},
+            "city": {"labelled": 1500, "all_rate": all_rate, "bands": {"1": {"labelled": n, "positives": int(n * rate),
+                                                                          "rate": rate, "interval": interval}}},
+            "rule_minus_average": [0.01, 0.03]}
 
 
 def test_the_prospective_gate(built, tmp_path, monkeypatch):
@@ -531,16 +555,103 @@ def test_the_prospective_gate(built, tmp_path, monkeypatch):
     ok, why = es.prospective_ok(tmp_path, 1.0, prospective_dir=tmp_path / "p")
     assert not ok and "no registered run" in why
     es.archive(tmp_path, meta, extra["ranking"])
-    es.register(tmp_path, meta, prospective_dir=tmp_path / "p")
+    frozen = {**meta, "frozen": {"version": "2026-09-22-aaaaaaaa"}}
+    es.register(tmp_path, frozen, prospective_dir=tmp_path / "p")
+    v = "2026-09-22-aaaaaaaa"
+    assert "for rule version 2027" in es.prospective_ok(tmp_path, 1.0, prospective_dir=tmp_path / "p", version="2027-01-01-cccccccc")[1], \
+        "a registration tests only the rule version it was made for"
     monkeypatch.setattr(es, "_git_date", lambda path: None)
-    assert "not committed" in es.prospective_ok(tmp_path, 1.0, prospective_dir=tmp_path / "p")[1]
+    assert "not committed" in es.prospective_ok(tmp_path, 1.0, prospective_dir=tmp_path / "p", version=v)[1]
     monkeypatch.setattr(es, "_git_date", lambda path: date(2026, 9, 22))
-    assert "90" in es.prospective_ok(tmp_path, 1.0, prospective_dir=tmp_path / "p", today=date(2026, 10, 1))[1]
-    (tmp_path / "monitor.json").write_text(json.dumps([{"run": meta["run"], "labelled": 400, "positives": 150,
-                                                         "bands": {"1": {"interval": [0.55, 0.7]}}, "rule_minus_average": [0.01, 0.03]}]))
-    ok, why = es.prospective_ok(tmp_path, 1.0, prospective_dir=tmp_path / "p", today=date(2027, 1, 1))
+    assert "90" in es.prospective_ok(tmp_path, 1.0, prospective_dir=tmp_path / "p", today=date(2026, 10, 1), version=v)[1]
+    later = date(2027, 11, 1)
+    mon = tmp_path / "monitor.json"
+    mon.write_text(json.dumps([_monitor_row(meta["run"], days=200, complete=False)]))
+    assert "label year is not over" in es.prospective_ok(tmp_path, 1.0, prospective_dir=tmp_path / "p", today=later, version=v)[1]
+    mon.write_text(json.dumps([_monitor_row(meta["run"], b1=(120, [0.55, 0.7], 0.62))]))
+    assert "fewer than 300" in es.prospective_ok(tmp_path, 1.0, prospective_dir=tmp_path / "p", today=later, version=v)[1], \
+        "300 later inspections of band 1 City places, not 300 of anything"
+    mon.write_text(json.dumps([_monitor_row(meta["run"])]))
+    ok, why = es.prospective_ok(tmp_path, 1.0, prospective_dir=tmp_path / "p", today=later, version=v)
     assert ok, why
-    assert not es.prospective_ok(tmp_path, 3.0, prospective_dir=tmp_path / "p", today=date(2027, 1, 1))[0], "0.55 < 0.75"
+    assert not es.prospective_ok(tmp_path, 3.0, prospective_dir=tmp_path / "p", today=later, version=v)[0], "0.55 < 0.75"
+    mon.write_text(json.dumps([_monitor_row(meta["run"], all_rate=0.58)]))
+    assert "not clearly above" in es.prospective_ok(tmp_path, 1.0, prospective_dir=tmp_path / "p", today=later, version=v)[1], \
+        "band 1 must beat all scored City places, not only the cost bar"
+
+
+def test_a_frozen_rule_is_applied_unchanged(built):
+    """Every export applies docs/rule.json as frozen: the same rule, cuts and estimates, and on the same
+    record the same list and run id; only --refit chooses again."""
+    fc, details, meta, extra = built
+    rec = json.loads(json.dumps(es.frozen_record(extra["fitted"], meta["run"], date(2026, 9, 22)), default=str))
+    assert re.fullmatch(r"2026-09-22-[0-9a-f]{8}", rec["version"]) and rec["from_run"] == meta["run"]
+    assert "_train" not in rec and set(es.FROZEN_KEYS) <= set(rec)
+    fc2, details2, meta2, extra2 = es.build(invented_county(), DISTRICTS, pull=PULL, approval=None, today=date(2026, 9, 22),
+                                            refits=2, log=lambda *_: None, frozen=rec)
+    assert meta2["frozen"] == {"version": rec["version"], "frozen_on": "2026-09-22", "from_run": meta["run"]}
+    same = lambda x: json.loads(json.dumps(x, default=str))
+    assert meta2["model"] == meta["model"] and same(meta2["card"]["bands"]) == same(meta["card"]["bands"])
+    assert same(meta2["card"]["curve"]) == same(meta["card"]["curve"]) and meta2["run"] == meta["run"]
+    assert [f["properties"].get("band") for f in fc2["features"]] == [f["properties"].get("band") for f in fc["features"]]
+    # A frozen cut is applied, not re-chosen: raise it, and fewer places are in band 1.
+    higher = json.loads(json.dumps(rec))
+    higher["cuts"] = [c + 5 for c in higher["cuts"]]
+    fc3 = es.build(invented_county(), DISTRICTS, pull=PULL, approval=None, today=date(2026, 9, 22), refits=2,
+                   log=lambda *_: None, frozen=higher)[0]
+    n = lambda fc_: sum(1 for f in fc_["features"] if f["properties"].get("band") == "1")
+    assert n(fc3) < n(fc) or n(fc) == 0
+
+
+def test_the_version_names_the_rule(built):
+    fc, details, meta, extra = built
+    a = es.frozen_record(extra["fitted"], meta["run"], date(2026, 9, 22))
+    other = {**extra["fitted"], "cuts": [c + 1 for c in extra["fitted"]["cuts"]]}
+    b = es.frozen_record(other, meta["run"], date(2026, 9, 22))
+    assert a["version"] != b["version"], "two different rules frozen on one day never share a version"
+
+
+def test_drift_asks_for_a_refit_when_the_record_moves():
+    fitted = {"label_quarters": ["2025Q1", "2025Q2"], "card": {"rows": [{"band": "1", "share": 0.12}]}}
+    m = {"major_rate_by_quarter": {"2025Q1": 0.20, "2025Q2": 0.22, "2026Q1": 0.21, "2026Q2": 0.20, "2026Q3": 0.05}}
+    d = es.drift_check(m, fitted, 0.13)
+    assert d["refit_needed"] is False and d["major_rate_backtest"] == 0.21 and d["major_rate_recent"] == 0.205
+    m["major_rate_by_quarter"].update({"2026Q1": 0.30, "2026Q2": 0.31})
+    d = es.drift_check(m, fitted, 0.13)
+    assert d["refit_needed"] and "routine major rate" in d["reasons"][0], "the last full quarters, not the one in progress"
+    d = es.drift_check({"major_rate_by_quarter": {}}, fitted, 0.25)
+    assert d["refit_needed"] and "band 1 holds 25.0%" in d["reasons"][0]
+    assert es.drift_check({}, {"card": {"rows": []}}, None)["refit_needed"] is False
+
+
+def test_a_fixed_rule_has_no_refit_stability(built):
+    fc, details, meta, extra = built
+    if meta["selection"]["chosen"] == "average score":
+        assert all(b["kept_in_refits"] is None for b in meta["card"]["bands"]), "nothing is refitted: no 100%"
+        assert all(f["properties"].get("band_stability") is None for f in fc["features"])
+
+
+def test_the_export_freezes_a_fresh_fit_and_applies_it_after(tmp_path, monkeypatch):
+    raw = invented_county()
+    pull = tmp_path / "sd_businesses.2026-09-29.json"
+    pull.write_text(json.dumps(raw), encoding="utf-8")
+    (tmp_path / "pull_meta.2026-09-29.json").write_text(json.dumps({"complete": True, "sha256": es.sha256_pull(pull)}), encoding="utf-8")
+    frozen = tmp_path / "docs" / "rule.json"
+    monkeypatch.setattr(es, "FROZEN", frozen)
+    monkeypatch.setattr(es, "APPROVAL", tmp_path / "none.json")
+    monkeypatch.setattr(es, "load_districts", lambda *a, **k: DISTRICTS)
+    monkeypatch.setattr(es, "contract_check", lambda *a, **k: [])
+    args = ["--pull", str(pull), "--out", str(tmp_path / "out"), "--refits", "0"]
+    assert es.main(args) == 0 and frozen.exists()
+    first = json.loads(frozen.read_text(encoding="utf-8"))
+    shipped = json.loads((tmp_path / "out" / "meta.json").read_text(encoding="utf-8"))
+    assert shipped["frozen"]["version"] == first["version"]
+    frozen.write_text(json.dumps({**first, "version": "2026-01-01-feedface"}), encoding="utf-8")
+    assert es.main(args) == 0
+    assert json.loads((tmp_path / "out" / "meta.json").read_text(encoding="utf-8"))["frozen"]["version"] == "2026-01-01-feedface", \
+        "an existing docs/rule.json is applied, never overwritten"
+    assert es.main(args + ["--refit"]) == 0
+    assert json.loads(frozen.read_text(encoding="utf-8"))["version"] != "2026-01-01-feedface", "--refit writes a new version"
 
 
 def test_the_committed_site_data_is_the_invented_sample():

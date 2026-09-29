@@ -1,5 +1,5 @@
 import { useMeta } from "./useMeta";
-import { isStaff, contactLine, reviewStatus, PUBLIC_RECORD_NOTE, USE_NOTE } from "./lib/staff";
+import { isStaff, contactLine, reviewStatus, reviewGuidance, PUBLIC_RECORD_NOTE, USE_NOTE } from "./lib/staff";
 
 /**
  * On every page of the City staff site, and it prints: downloads and printouts are public records,
@@ -11,6 +11,7 @@ export default function StaffBanner({ fixed = false, compact = false }) {
   if (!isStaff(meta)) return null;
   const contact = contactLine(meta);
   const open = reviewStatus(meta).length;
+  const guidance = reviewGuidance(meta);
   const signOut = <a href="/logout" className="whitespace-nowrap border-b border-ink/40 font-semibold text-ink hover:border-ink">Sign out</a>;
   if (compact) {
     return (
@@ -26,6 +27,11 @@ export default function StaffBanner({ fixed = false, compact = false }) {
         {contact && <> Questions and corrections: {contact}.</>}
         {open > 0 && <> This list has not passed {open} of the checks a public release would need (see About this site).</>}
         {" "}{signOut}
+        {guidance.length > 0 && (
+          <ul className="mt-1.5 list-disc space-y-0.5 pl-5">
+            {guidance.map((g) => <li key={g}>{g}</li>)}
+          </ul>
+        )}
       </div>
     </div>
   );

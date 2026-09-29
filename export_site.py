@@ -70,6 +70,7 @@ import numpy as np
 
 ROOT = Path(__file__).resolve().parent
 RAW = ROOT / "data" / "sd_businesses.json"
+_PULL_READ = None     # the pull main() is building from (--pull or RAW); provenance hashes it
 PULL = ROOT / "data" / "pull_meta.json"
 DISTRICTS = ROOT / "data" / "council_districts.geojson"
 DISTRICTS_URL = "https://geo.sandag.org/server/rest/directories/downloads/Council_Districts.geojson"
@@ -82,7 +83,8 @@ APPROVAL = ROOT / "docs" / "PUBLISH_APPROVAL.json"
 NOTICES = ROOT / "docs" / "notices"          # docs/notices/<run>.csv: notice sent to each named place
 HOLDS = ROOT / "docs" / "holds.json"         # facility ids under review: shown without a band
 CORRECTIONS = ROOT / "docs" / "corrections.json"
-PROSPECTIVE = ROOT / "docs" / "prospective"  # REGISTERED.json names the one frozen run the prospective test uses
+PROSPECTIVE = ROOT / "docs" / "prospective"  # REGISTERED.json: the runs registered for the prospective test, one per rule version
+FROZEN = ROOT / "docs" / "rule.json"         # the frozen rule every export applies; only --refit writes a new version
 RESULTS_URL = "https://www.sandiegocounty.gov/content/sdc/deh/fhd/ffis.html"
 
 WINDOW_DAYS = 365       # counts: the year before T; the record starts 2023-01, so every snapshot sees a whole year
@@ -1059,9 +1061,9 @@ def utility_table(rows, ratios=(0.25, 0.5, 1, 2, 3)):
 def stability(rule, fr_train, fr_now, elig_now, band_now, refits=REFITS, seed=SEED):
     """For a fitted rule: refit on facility-resampled training data and recut bands at the same shares
     of today's eligible list; how often each place keeps its band. A fixed rule (the average rule) has
-    nothing to refit: 1.0."""
+    nothing to refit, so it has no stability figure (NaN), never a made-up 100%."""
     if rule.name != "count score" or not refits:
-        return np.where(np.array([b is not None for b in band_now]), 1.0, np.nan), None
+        return np.full(len(band_now), np.nan), None
     rng = np.random.default_rng(seed)
     w = event_weights(fr_train.keys)
     by_place = defaultdict(list)
@@ -1347,7 +1349,7 @@ def pull_meta_for(path):
 
 
 def provenance(raw_path=None):
-    raw_path = RAW if raw_path is None else raw_path     # read at call time, so tests can point it elsewhere
+    raw_path = (_PULL_READ or RAW) if raw_path is None else raw_path     # read at call time, so tests can point it elsewhere
 
     def git(*a):
         try:
@@ -1538,20 +1540,26 @@ def build_record(raw, districts_geojson, *, pull=None, approval=None, today=None
     return {"type": "FeatureCollection", "features": features}, details, meta, {"places": places, "ranking": []}
 
 
-def build(raw, districts_geojson, *, pull=None, approval=None, today=None, refits=REFITS, log=print):
-    """The bands review export (never published unless every gate passes)."""
-    today = today or date.today()
-    places, stats, unknown = prepare(raw, districts_geojson)
+def _origin_summary(res):
+    """What the report needs from one origin, as plain JSON (kept in the frozen rule)."""
+    return {"as_of": res["as_of"], "candidates": res["candidates"], "positives": res["positives"],
+            "models": {m: {"auc": v["auc"], "auc_eligible": v["auc_eligible"], "catch": v["catch"]} for m, v in res["models"].items()}}
+
+
+def fit_rule(places, *, approval=None, log=print):
+    """Choose, check and calibrate the rule on the backtest origins: everything the frozen rule
+    (docs/rule.json) records. Plain JSON, except "_train", the training frame refits of a fitted
+    rule need (never written)."""
     snap_first, through, validate, confirm = origin_dates(places)
     cache = {}
     validation = [run_origin(places, snap_first, T, cache, log) for T in validate]
     chosen, selection = select_rule(validation)
     conf = run_origin(places, snap_first, confirm, cache, log)
     rule = AVERAGE_RULE if chosen == "average score" else conf["count_rule"]
-    log(f"public rule: {chosen} (validation {', '.join(validate)}; frozen and confirmed at {confirm}): "
+    log(f"rule: {chosen} (validation {', '.join(validate)}; confirmed at {confirm}): "
         + ", ".join(f"{c} x{w}" for c, w in zip(rule.features, rule.weights)))
 
-    # The confirmation origin, under the rule that is published.
+    # The confirmation origin, under the rule that is shown.
     te, pos, lab, elig = conf["_te"], conf["_positive"], conf["_labelled"], conf["_eligible"]
     pts_c = rule.score(te.F)
     cl = clusters(places, te.idx)
@@ -1575,19 +1583,18 @@ def build(raw, districts_geojson, *, pull=None, approval=None, today=None, refit
     for k, row in enumerate(rows):            # a band is its cut-offs; the top band has no upper limit
         row["min_points"] = int(cuts[k])
         row["max_points"] = int(cuts[k - 1]) - 1 if k else None
+        row["share"] = round(float(np.mean(np.array([b is not None and int(b) <= int(row["band"]) for b in bands_c])[elig])), 4)
     cost_ratio = float((approval or {}).get("cost_ratio")) if (approval or {}).get("cost_ratio") is not None else None
     named_keys = named_bands(rows, cost_ratio) if cost_ratio is not None else []
     review_keys = named_keys or [r["band"] for r in rows]      # unnamed: audit every band the site shows
     named_c = np.array([b in review_keys for b in bands_c])
     fair = district_fairness(places, te.idx, pos, lab, named_c)
-    rest_eligible_auc = {m: conf["models"][m]["auc_eligible"] for m in conf["models"]}
     vs_avg = paired_auc(np.nan_to_num(te.y), pts_c, AVERAGE_RULE.score(te.F), lab & elig, cl) if chosen != "average score" else None
     vs_base = paired_auc(np.nan_to_num(te.y), pts_c, conf["_scores"][best_base], lab & elig, cl)
 
-    # Outside the City: the same frozen rule and cuts, checked on restaurants outside the City at the
-    # same origins. The ranking carries over; the rates need not. Places outside the City get a band
-    # only if every band holds there too (validate_bands keeps every cut), and always get their
-    # points and an estimate read from a curve measured outside the City.
+    # Outside the City: the same rule and cuts, checked on restaurants outside the City at the same
+    # origins. The ranking carries over; the rates need not. Places outside the City get a band only
+    # if every band holds there too, and always get an estimate from a curve measured outside the City.
     out_origins = [area_origin(places, T, "outside_bands", rule, cache) for T in [confirm] + validate]
     o_pts, o_pos, o_lab, o_el, o_cl = out_origins[0]
     outside_ok = bool(cuts) and validate_bands(cuts, [o[:4] for o in out_origins]) == cuts
@@ -1598,9 +1605,113 @@ def build(raw, districts_geojson, *, pull=None, approval=None, today=None, refit
                "labelled": o_base_lab, "base_rate": round(float(o_pos[o_lab & o_el].sum()) / o_base_lab, 4) if o_base_lab else None,
                "bands": o_rows, "rest": o_rest, "curve": o_curve,
                "auc": {"rule": auc(o_pos[o_lab & o_el], o_pts[o_lab & o_el]) if o_base_lab else None}}
+    k_gate = min(K_GATE, conf["candidates"])
+    label_q = [q for q in quarters_between(confirm, (_d(confirm) + timedelta(days=LABEL_DAYS - 1)).isoformat())]
+    return {
+        "chosen": chosen,
+        "rule": {"name": rule.name, "features": list(rule.features), "weights": [int(w) for w in rule.weights],
+                 "intercept": rule.intercept, "slope": rule.slope},
+        "cuts": [float(c) for c in cuts],
+        "outside_ok": bool(outside_ok),
+        "confirm": confirm, "validate": list(validate), "label_quarters": label_q,
+        "card": {"trained_on": conf["trained_on"], "rows": rows, "rest": rest, "base_rate": base_rate,
+                 "baseline_name": best_base, "curve": curve, "proposed_cuts": [int(c) for c in proposed],
+                 "by_origin": by_origin, "outside": outside},
+        "catch": conf["models"][chosen]["catch"],
+        "catch_run": {
+            "as_of": confirm, "candidates": conf["candidates"], "eligible": conf["eligible"], "positives": conf["positives"],
+            "labelled": conf["labelled"], "unlabelled": conf["candidates"] - conf["labelled"],
+            "label_window": f"{confirm} to {(_d(confirm) + timedelta(days=LABEL_DAYS - 1)).isoformat()}",
+            "trained_on": conf["trained_on"], "baseline_name": best_base,
+            "baseline": conf["models"][best_base]["catch"],
+            "interval": catch_interval(conf["_orders"][chosen], pos, cl, KS),
+            "vs_baseline": {"baseline": best_base, "auc": vs_base, "k": k_gate},
+            "vs_average_rule": vs_avg,
+            "models": {m: {"auc": v["auc"], "auc_eligible": v["auc_eligible"],
+                           "caught": v["catch"].get(str(k_gate), {}).get("caught")} for m, v in conf["models"].items()},
+            "count_rule_at_origin": {"features": conf["count_rule"].features, "weights": conf["count_rule"].weights},
+        },
+        "selection": {**selection, "chosen": chosen, "confirm": confirm},
+        "named_bands": named_keys, "cost_ratio": cost_ratio, "utility": utility_table(rows),
+        "fairness": {"by_district": fair, "bands_used": review_keys, "problems": fairness_problems(fair)},
+        "survivorship_bound": _survivorship(places, conf, rows),
+        "origins": [_origin_summary(v) for v in validation] + [_origin_summary(conf)],
+        "_train": conf["_tr"],
+    }
 
-    # Today's list: the frozen rule on today's restaurants, county-wide. Places outside the City carry
-    # no council district; the site shows them when its area toggle is on. Band counts stay the City's.
+
+def quarters_between(a, b):
+    """The calendar quarters ("2025Q4") that a date range touches."""
+    qs, d = [], _d(a).replace(day=1)
+    while d <= _d(b):
+        q = f"{d.year}Q{(d.month - 1) // 3 + 1}"
+        if q not in qs:
+            qs.append(q)
+        d = (d + timedelta(days=32)).replace(day=1)
+    return qs
+
+
+FROZEN_KEYS = ("chosen", "rule", "cuts", "outside_ok", "confirm", "validate", "label_quarters", "card", "catch", "catch_run",
+               "selection", "named_bands", "cost_ratio", "utility", "fairness", "survivorship_bound", "origins")
+
+
+def frozen_record(fitted, run, today):
+    """docs/rule.json: the rule, its cuts and estimates and the backtest behind them. Aggregate
+    figures only (no business names), committed, so each version has a public date."""
+    body = {k: fitted[k] for k in FROZEN_KEYS}
+    # The version names its content: two different rules frozen on one day never share a version.
+    tag = hashlib.sha256(json.dumps({k: body[k] for k in ("rule", "cuts", "outside_ok")} | {"curve": body["card"]["curve"]},
+                                    sort_keys=True, default=str).encode()).hexdigest()[:8]
+    return {"version": f"{today.isoformat()}-{tag}", "frozen_on": today.isoformat(), "from_run": run, **body}
+
+
+DRIFT_BASE = 0.05     # refit when the recent routine major rate moves this far from the backtest's
+DRIFT_SHARE = 0.05    # or when band 1's share of scored City restaurants moves this far from its share then
+
+
+def drift_check(measurement_, fitted, share_now):
+    """Two weekly signals that need no new labels: the share of routine inspections with a major in
+    the last two full quarters against the quarters the backtest's labels came from, and band 1's
+    share of scored City restaurants now against its share at the backtest."""
+    by_q = measurement_.get("major_rate_by_quarter") or {}
+    qs = sorted(by_q)
+    then = [by_q[q] for q in fitted.get("label_quarters", []) if q in by_q]
+    recent = [by_q[q] for q in qs[-3:-1]] if len(qs) >= 3 else [by_q[q] for q in qs[-2:]]   # the last full quarters
+    base_then = round(float(np.mean(then)), 4) if then else None
+    base_now = round(float(np.mean(recent)), 4) if recent else None
+    rows = fitted["card"]["rows"]
+    share_then = rows[0].get("share") if rows else None
+    reasons = []
+    if base_then is not None and base_now is not None and abs(base_now - base_then) > DRIFT_BASE:
+        reasons.append(f"routine major rate {base_now:.1%} in the last full quarters against {base_then:.1%} in the backtest")
+    if share_then is not None and share_now is not None and abs(share_now - share_then) > DRIFT_SHARE:
+        reasons.append(f"band 1 holds {share_now:.1%} of scored City restaurants against {share_then:.1%} in the backtest")
+    return {"major_rate_backtest": base_then, "major_rate_recent": base_now, "band_1_share_backtest": share_then,
+            "band_1_share_now": share_now, "refit_needed": bool(reasons), "reasons": reasons,
+            "thresholds": {"major_rate": DRIFT_BASE, "band_share": DRIFT_SHARE}}
+
+
+def build(raw, districts_geojson, *, pull=None, approval=None, today=None, refits=REFITS, log=print, frozen=None):
+    """The bands export. With `frozen` (docs/rule.json), the rule, its cuts and estimates and their
+    backtest are read from it, never re-chosen: the list is the frozen rule applied to today's
+    record. Without it, the rule is chosen and checked afresh (export_site.py --refit)."""
+    today = today or date.today()
+    places, stats, unknown = prepare(raw, districts_geojson)
+    snap_first, through, _, _ = origin_dates(places)
+    fitted = dict(frozen) if frozen else fit_rule(places, approval=approval, log=log)
+    chosen = fitted["chosen"]
+    rule = Score(**fitted["rule"])
+    cuts = fitted["cuts"]
+    outside_ok = fitted["outside_ok"]
+    card_bt = fitted["card"]
+    curve, o_curve = card_bt["curve"], card_bt["outside"]["curve"]
+    rows, rest = card_bt["rows"], card_bt["rest"]
+    if frozen:
+        log(f"rule: {chosen}, frozen {frozen['version']} (from {frozen['from_run']}): "
+            + ", ".join(f"{c} x{w}" for c, w in zip(rule.features, rule.weights)))
+
+    # Today's list: the rule on today's restaurants, county-wide. Places outside the City carry no
+    # council district; the site shows them when its area toggle is on. Band counts stay the City's.
     t_now = (through + timedelta(days=1)).isoformat()
     now = frame(places, [t_now], scope="county_bands", labelled=False, forward=True)
     elig_now = np.array([eligible(f) for f in now.feats])
@@ -1610,11 +1721,14 @@ def build(raw, districts_geojson, *, pull=None, approval=None, today=None, refit
     if not outside_ok:                        # bands not validated outside the City: none shown there
         bands_now = np.array([b if in_city_now[j] else None for j, b in enumerate(bands_now)], dtype=object)
     holds = load_holds()
-    stab, _ = stability(rule, conf["_tr"], now, elig_now, bands_now, refits=refits)
-    keep = {r["band"]: (round(float(np.mean(stab[np.array([b == r["band"] for b in bands_now])])), 3)
-                        if any(b == r["band"] for b in bands_now) else None) for r in rows}
+    train = fitted.get("_train")
+    if train is None and rule.name == "count score" and refits:
+        train = train_frame(places, snap_first, fitted["confirm"], {})[0]
+    stab, _ = stability(rule, train, now, elig_now, bands_now, refits=refits)
+    keep = {r["band"]: (round(float(np.nanmean(stab[m])), 3) if m.any() and not np.isnan(stab[m]).all() else None)
+            for r in rows for m in [np.array([b == r["band"] for b in bands_now], bool)]}
     order = sorted(range(len(pts_now)), key=lambda j: (-(pts_now[j]), _norm(places[now.idx[j][0]]["name"])))
-    # Every listed City place gets its County record; an eligible restaurant also gets its points and
+    # Every listed place gets its County record; an eligible restaurant also gets its points and
     # worksheet, and a band when it is in one. (A published public export keeps only named bands.)
     scored = {now.idx[j][0]: j for j in range(len(pts_now)) if elig_now[j]}
     everyone = [i for i, p in enumerate(places) if active_at(p, t_now, scope="county", forward=True)]
@@ -1657,7 +1771,8 @@ def build(raw, districts_geojson, *, pull=None, approval=None, today=None, refit
     run = f"forward_{t_now}-{fingerprint}"
     m_ = measurement([p for p in places if p["kind"] in PUBLIC_KINDS])
     meta = _common_meta("bands", run, today, through, pull, len(features), m_, stats, unknown, approval, load_corrections())
-    k_gate = min(K_GATE, conf["candidates"])
+    city_scored = [j for j in range(len(pts_now)) if elig_now[j] and in_city(j)]
+    share_now = round(sum(1 for j in city_scored if bands_now[j] == "1") / len(city_scored), 4) if city_scored and rows else None
     meta.update({
         "model": f"{chosen}: " + " + ".join(f"{w} x {c}" for c, w in zip(rule.features, rule.weights)),
         "label": "at least one major violation at the next routine inspection",
@@ -1670,42 +1785,30 @@ def build(raw, districts_geojson, *, pull=None, approval=None, today=None, refit
             "window": ("routine scores from the two years before the list date" if chosen == "average score" else
                        "routine scores from the two years before the list date, citations from the year before it"),
             "eligibility": "restaurants with two rated routine inspections in the last two years",
-            "trained_on": conf["trained_on"],
-            "bands": [{**r, "share": round(float(np.mean(np.array([b is not None and int(b) <= int(r["band"]) for b in bands_c])[elig])), 4),
-                       "places_now": sum(1 for j, b in enumerate(bands_now) if b == r["band"] and in_city(j)),
+            "trained_on": card_bt["trained_on"],
+            "bands": [{**r, "places_now": sum(1 for j, b in enumerate(bands_now) if b == r["band"] and in_city(j)),
                        "places_now_county": sum(1 for b in bands_now if b == r["band"]), "kept_in_refits": keep.get(r["band"])}
                       for r in rows],
             "rest": rest,
-            "base_rate": base_rate,
-            "baseline_name": best_base,
+            "base_rate": card_bt["base_rate"],
+            "baseline_name": card_bt["baseline_name"],
             "curve": curve,
-            "proposed_cuts": [int(c) for c in proposed],
+            "proposed_cuts": card_bt["proposed_cuts"],
             "band_rule": (f"cut at {', '.join(f'{int(s * 100 * 10) / 10}%' for s, _ in BANDS)} of the list, then a split is kept "
                           f"only if the higher band's rate is above the lower one's at every backtest origin and the pooled "
                           f"difference is at least {BAND_Z} standard errors"),
-            "by_origin": by_origin,
-            "outside": outside,
+            "by_origin": card_bt["by_origin"],
+            "outside": card_bt["outside"],
         },
-        "catch": conf["models"][chosen]["catch"],
-        "catch_run": {
-            "as_of": confirm, "candidates": conf["candidates"], "eligible": conf["eligible"], "positives": conf["positives"],
-            "labelled": conf["labelled"], "unlabelled": conf["candidates"] - conf["labelled"],
-            "label_window": f"{confirm} to {(_d(confirm) + timedelta(days=LABEL_DAYS - 1)).isoformat()}",
-            "trained_on": conf["trained_on"], "baseline_name": best_base,
-            "baseline": conf["models"][best_base]["catch"],
-            "interval": catch_interval(conf["_orders"][chosen], pos, cl, KS),
-            "vs_baseline": {"baseline": best_base, "auc": vs_base, "k": k_gate},
-            "vs_average_rule": vs_avg,
-            "models": {m: {"auc": v["auc"], "auc_eligible": v["auc_eligible"],
-                           "caught": v["catch"].get(str(k_gate), {}).get("caught")} for m, v in conf["models"].items()},
-            "count_rule_at_origin": {"features": conf["count_rule"].features, "weights": conf["count_rule"].weights},
-        },
-        "selection": {**selection, "chosen": chosen, "confirm": confirm},
-        "named_bands": named_keys, "cost_ratio": cost_ratio, "utility": utility_table(rows),
-        "fairness": {"by_district": fair, "bands_used": review_keys,
-                     "problems": fairness_problems(fair)},
+        "catch": fitted["catch"],
+        "catch_run": fitted["catch_run"],
+        "selection": fitted["selection"],
+        "named_bands": fitted["named_bands"], "cost_ratio": fitted["cost_ratio"], "utility": fitted["utility"],
+        "fairness": fitted["fairness"],
         "measurement": m_,
-        "survivorship_bound": _survivorship(places, conf, rows),
+        "survivorship_bound": fitted["survivorship_bound"],
+        "frozen": {k: frozen[k] for k in ("version", "frozen_on", "from_run")} if frozen else None,
+        "drift": drift_check(m_, fitted, share_now),
     })
     base_now = persistence(now.X)
     ranking_rows = [{"facility_id": places[now.idx[j][0]]["facility_id"], "business_id": places[now.idx[j][0]]["id"],
@@ -1714,7 +1817,7 @@ def build(raw, districts_geojson, *, pull=None, approval=None, today=None, refit
                      "last_score": now.feats[j]["last_score"], "district": places[now.idx[j][0]]["district"]}
                     for j in order]
     return ({"type": "FeatureCollection", "features": features}, details, meta,
-            {"ranking": ranking_rows, "validation": validation, "confirm": conf, "places": places, "rule": rule})
+            {"ranking": ranking_rows, "origins": fitted["origins"], "places": places, "rule": rule, "fitted": fitted})
 
 
 def _survivorship(places, conf, rows):
@@ -1750,8 +1853,8 @@ def report(meta, extra):
         L += ["## The public rule", "", f"**{s['chosen']}**: {c['rule']}", "", "| item | weight | unit |", "|---|---|---|"]
         L += [f"| {i['label']} | {i['weight']} | {i['unit']} |" for i in c["items"]]
         L += ["", f"Eligible for a band: {c['eligibility']}.", "", "## Choosing it", "", f"Rule: {s['rule']}.", "",
-              "| origin | " + " | ".join(extra["confirm"]["models"]) + " |", "|---|" + "---|" * len(extra["confirm"]["models"])]
-        for res in extra["validation"] + [extra["confirm"]]:
+              "| origin | " + " | ".join(extra["origins"][-1]["models"]) + " |", "|---|" + "---|" * len(extra["origins"][-1]["models"])]
+        for res in extra["origins"]:
             k = str(min(K_GATE, res["candidates"]))
             L.append(f"| {res['as_of']} AUC | " + " | ".join(_fmt(v["auc"]) for v in res["models"].values()) + " |")
             L.append(f"| {res['as_of']} AUC, eligible | " + " | ".join(_fmt(v["auc_eligible"]) for v in res["models"].values()) + " |")
@@ -1832,17 +1935,28 @@ def archive(out: Path, meta, ranking_rows):
     return d, True
 
 
+def _registrations(path):
+    """Every registration in REGISTERED.json (an older file held a single one)."""
+    reg = _json(path, None)
+    if reg is None:
+        return []
+    return reg.get("registrations", [reg]) if isinstance(reg, dict) else reg
+
+
 def register(out: Path, meta, prospective_dir=PROSPECTIVE):
-    """Name this archived run as the one frozen prospective test. One registration only; the file
-    carries no business names and is meant to be committed, so its commit date is public."""
+    """Register this archived run for the prospective test of its rule version: one registration per
+    frozen rule, never replaced. The file carries no business names and is meant to be committed, so
+    each registration's commit date is public."""
     path = Path(prospective_dir) / "REGISTERED.json"
-    if path.exists():
-        raise SystemExit(f"{path} already names a run; the prospective test is registered once")
+    version = (meta.get("frozen") or {}).get("version") or "unfrozen"
+    regs = _registrations(path)
+    if any(r.get("version", "unfrozen") == version for r in regs):
+        raise SystemExit(f"{path} already registers rule version {version}; each version is registered once (--refit for a new one)")
     man = json.loads((out / "archive" / meta["run"] / "manifest.json").read_text(encoding="utf-8"))
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({**man, "registered": date.today().isoformat(), "rule": meta["model"],
-                                "bands": [{k: b[k] for k in ("band", "min_points", "rate", "interval")} for b in meta["card"]["bands"]]},
-                               indent=2), encoding="utf-8")
+    regs.append({**man, "version": version, "registered": date.today().isoformat(), "rule": meta["model"],
+                 "bands": [{k: b[k] for k in ("band", "min_points", "rate", "interval")} for b in meta["card"]["bands"]]})
+    path.write_text(json.dumps({"registrations": regs}, indent=2), encoding="utf-8")
     return path
 
 
@@ -1871,10 +1985,14 @@ def monitor(out: Path, places, today=None, log=print):
         t = run_date(meta["run"])
         with gzip.open(d / "ranking.csv.gz", "rt", encoding="utf-8") as fh:
             ranked = [r for r in csv.DictReader(fh) if r.get("eligible") in ("1", None)]
-        ys, pts, avg, addr, bands = [], [], [], [], []
+        ys, pts, avg, addr, bands, city = [], [], [], [], [], []
+        missing = Counter()
         for r in ranked:
             p = by_fid.get(r["facility_id"])
-            lab = label_at(p, t)[0] if p else None
+            if p is None:                    # gone from the later pull: counted, never silently dropped
+                missing[r["band"] or "rest"] += 1
+                continue
+            lab = label_at(p, t)[0]
             if lab is None:
                 continue
             ys.append(lab)
@@ -1882,9 +2000,22 @@ def monitor(out: Path, places, today=None, log=print):
             avg.append(float(r["average_rule"]))
             addr.append(_norm(p["address"]))
             bands.append(r["band"] or "rest")
+            city.append(str(r.get("district", "")) not in ("", "None"))
         ys = np.array(ys, float)
-        res = {"run": meta["run"], "days": (today - _d(t)).days, "labelled": int(len(ys)), "positives": int(ys.sum()),
-               "bands": {}}
+        city = np.array(city, bool)
+        days = (today - _d(t)).days
+        # Before the label year is over, only places inspected soon after the list are labelled, and
+        # the County comes back sooner to places with worse records: an early rate is not comparable
+        # to the backtest's full-year rate, so it is marked interim and the prospective gate waits.
+        res = {"run": meta["run"], "days": days, "complete": days >= LABEL_DAYS, "labelled": int(len(ys)),
+               "positives": int(ys.sum()), "bands": {}, "missing_from_later_pull": dict(missing)}
+        for area, mask in (("city", city), ("outside", ~city)):
+            sub = {"labelled": int(mask.sum()), "all_rate": round(float(ys[mask].mean()), 4) if mask.any() else None, "bands": {}}
+            for b in sorted(set(bands)):
+                m = mask & np.array([x == b for x in bands])
+                n, k = int(m.sum()), int(ys[m].sum())
+                sub["bands"][b] = {"labelled": n, "positives": k, "rate": round(k / n, 4) if n else None, "interval": wilson(k, n)}
+            res[area] = sub
         for b in sorted(set(bands)):
             m = np.array([x == b for x in bands])
             n, k = int(m.sum()), int(ys[m].sum())
@@ -1898,10 +2029,15 @@ def monitor(out: Path, places, today=None, log=print):
             res.update(rule_auc=auc(ys, pts_a), average_rule_auc=auc(ys, avg_a),
                        rule_minus_average=paired_auc(ys, pts_a, avg_a, np.ones(len(ys), bool), cl))
         results.append(res)
-    text = "\n".join(["# Monitor", "", "| run | band | inspected since | major | rate | backtest rate | 95% interval |",
+    text = "\n".join(["# Monitor", "", f"A run is complete once its label year ({LABEL_DAYS} days) has passed; until then its rates "
+                      "are interim and lean toward places the County revisits sooner.", "",
+                      "| run | band | inspected since | major | rate | backtest rate | 95% interval |",
                       "|---|---|---|---|---|---|---|"] + rows
-                     + ["", "| run | days since | inspected | majors | rule AUC | average-rule AUC | difference, 95% |", "|---|---|---|---|---|---|---|"]
-                     + [f"| {r['run']} | {r['days']} | {r['labelled']} | {r['positives']} | {_fmt(r.get('rule_auc'))} | "
+                     + ["", "| run | days since | complete | inspected | majors | City band 1 (rate, n) | City, all scored | "
+                        "not in the later pull | rule AUC | average-rule AUC | difference, 95% |", "|---|---|---|---|---|---|---|---|---|---|---|"]
+                     + [f"| {r['run']} | {r['days']} | {'yes' if r['complete'] else 'interim'} | {r['labelled']} | {r['positives']} | "
+                        f"{_fmt((r['city']['bands'].get('1') or {}).get('rate'))}, {(r['city']['bands'].get('1') or {}).get('labelled', 0)} | "
+                        f"{_fmt(r['city']['all_rate'])} | {sum(r['missing_from_later_pull'].values())} | {_fmt(r.get('rule_auc'))} | "
                         f"{_fmt(r.get('average_rule_auc'))} | {r.get('rule_minus_average', '')} |" for r in results]) + "\n"
     (out / "monitor.md").write_text(text, encoding="utf-8")
     (out / "monitor.json").write_text(json.dumps(results, indent=2), encoding="utf-8")
@@ -1909,15 +2045,20 @@ def monitor(out: Path, places, today=None, log=print):
     return results
 
 
-def prospective_ok(out: Path, cost_ratio, prospective_dir=PROSPECTIVE, today=None):
-    """The registered frozen run, committed at least PROSPECTIVE_DAYS ago, held up on at least
-    PROSPECTIVE_MIN later inspections: band 1's rate cleared the cost bar at the low end of its
-    interval, and a fitted rule beat the average-score rule. (ok, why)"""
+def prospective_ok(out: Path, cost_ratio, prospective_dir=PROSPECTIVE, today=None, version=None):
+    """The run registered for the rule version shown, committed at least PROSPECTIVE_DAYS ago, held up
+    on at least PROSPECTIVE_MIN later routine inspections of City places in band 1: band 1's rate
+    cleared the cost bar at the low end of its interval and stayed above the rate for all scored
+    City places, and a fitted rule beat the average-score rule. (ok, why)"""
     today = today or date.today()
     reg_path = Path(prospective_dir) / "REGISTERED.json"
-    if not reg_path.exists():
-        return False, "no registered run (export_site.py --register, then commit docs/prospective/REGISTERED.json)"
-    reg = json.loads(reg_path.read_text(encoding="utf-8"))
+    regs = _registrations(reg_path)
+    if version is not None:
+        regs = [r for r in regs if r.get("version", "unfrozen") == version]
+    if not regs:
+        return False, ("no registered run" + (f" for rule version {version}" if version else "")
+                       + " (export_site.py --register, then commit docs/prospective/REGISTERED.json)")
+    reg = regs[-1]
     committed = _git_date(reg_path)
     if committed is None:
         return False, "docs/prospective/REGISTERED.json is not committed: its commit date is the registration's timestamp"
@@ -1927,17 +2068,24 @@ def prospective_ok(out: Path, cost_ratio, prospective_dir=PROSPECTIVE, today=Non
     if not arch.exists() or sha256_file(arch) != reg["ranking_sha256"]:
         return False, "the registered run's archive is missing or does not match its registered hash"
     mon = next((r for r in _json(out / "monitor.json", []) if r["run"] == reg["run"]), None)
-    if not mon or mon["labelled"] < PROSPECTIVE_MIN:
-        return False, f"the registered run has fewer than {PROSPECTIVE_MIN} later routine inspections (run --monitor)"
+    if mon and not mon.get("complete", False):
+        return False, f"the registered run's label year is not over ({mon['days']} of {LABEL_DAYS} days; rates before then are interim)"
+    city = (mon or {}).get("city") or mon or {}
+    b1 = (city.get("bands") or {}).get("1")
+    if not b1 or b1["labelled"] < PROSPECTIVE_MIN:
+        return False, (f"band 1 of the registered run has fewer than {PROSPECTIVE_MIN} later routine inspections in the City "
+                       f"({(b1 or {}).get('labelled', 0)}; run --monitor)")
     if cost_ratio is None or not cost_ratio > 0:
         return False, "no approved (positive) cost ratio to test the registered bands against"
     bar = cost_ratio / (1 + cost_ratio)
-    b1 = mon["bands"].get("1")
-    if not b1 or b1["interval"][0] is None or b1["interval"][0] <= bar:
+    if b1["interval"][0] is None or b1["interval"][0] <= bar:
         return False, f"band 1 of the registered run did not clear C/(B+C) = {bar:.3f} on later inspections ({b1})"
+    allr = city.get("all_rate")
+    if allr is not None and b1["interval"][0] <= allr:
+        return False, f"band 1's later rate is not clearly above the rate for all scored City places ({b1['rate']} vs {allr})"
     if "average score" not in reg.get("rule", "") and not (mon.get("rule_minus_average") and mon["rule_minus_average"][0] > 0):
         return False, f"the registered rule did not beat the average-score rule on later inspections ({mon.get('rule_minus_average')})"
-    return True, f"{reg['run']}: held up on {mon['labelled']} later inspections"
+    return True, f"{reg['run']}: held up on {b1['labelled']} later routine inspections of band 1 City places"
 
 
 def gates(meta, out: Path, pull, today: date, approval, facilities_sha, named_ids):
@@ -1970,7 +2118,7 @@ def gates(meta, out: Path, pull, today: date, approval, facilities_sha, named_id
             p.append(f"band {b['band']} keeps only {b['kept_in_refits']} of its places across refits")
     p += meta["fairness"]["problems"]
     p += notice_problems(named_ids, meta["run"], today)
-    ok, why = prospective_ok(out, meta.get("cost_ratio"), today=today)
+    ok, why = prospective_ok(out, meta.get("cost_ratio"), today=today, version=(meta.get("frozen") or {}).get("version"))
     if not ok:
         p.append(f"prospective test: {why}")
     return p
@@ -2029,8 +2177,18 @@ def main(argv=None):
                     help="a saved pull to build from, e.g. data/pulls/sd_businesses.2026-09-24.json[.gz] (default: data/sd_businesses.json)")
     ap.add_argument("--allow-partial", action="store_true",
                     help="build from a pull not recorded as complete: for a local look only, never for staff or the public")
+    ap.add_argument("--refit", action="store_true",
+                    help="choose and check the rule afresh and write a new version of docs/rule.json (review and commit it)")
     args = ap.parse_args(argv)
-    global RAW
+    global _PULL_READ
+    try:
+        return _main(args)
+    finally:
+        _PULL_READ = None
+
+
+def _main(args):
+    global _PULL_READ
     raw_path = args.pull or RAW
     if not Path(raw_path).exists():
         sys.exit(f"{raw_path} is missing: run fetch_sdfood.py first")
@@ -2041,7 +2199,7 @@ def main(argv=None):
                  "fetch_sdfood.py --resume, or build from the last complete pull: --pull data/pulls/sd_businesses.<date>.json.gz")
     if (pull or {}).get("sha256") and pull["sha256"] != sha256_pull(raw_path):
         sys.exit(f"{raw_path} does not match the sha256 its pull meta records: it changed after the pull")
-    RAW = Path(raw_path)                      # provenance hashes the pull actually read
+    _PULL_READ = Path(raw_path)               # provenance hashes the pull actually read (RAW itself never changes)
     raw = read_pull(raw_path)
     if args.monitor:
         monitor(args.out, load_places(raw))
@@ -2050,7 +2208,14 @@ def main(argv=None):
     if args.mode == "record":
         fc, details, meta, extra = build_record(raw, load_districts(), pull=pull, approval=approval)
     else:
-        fc, details, meta, extra = build(raw, load_districts(), pull=pull, approval=approval, refits=args.refits)
+        frozen = None if args.refit else _json(FROZEN, None)
+        fc, details, meta, extra = build(raw, load_districts(), pull=pull, approval=approval, refits=args.refits, frozen=frozen)
+        if frozen is None:                    # a fresh fit: freeze it; every later export applies it unchanged
+            rec = frozen_record(extra["fitted"], meta["run"], date.today())
+            FROZEN.parent.mkdir(parents=True, exist_ok=True)
+            FROZEN.write_text(json.dumps(rec, indent=1), encoding="utf-8")
+            meta["frozen"] = {k: rec[k] for k in ("version", "frozen_on", "from_run")}
+            print(f"froze rule version {rec['version']} in {FROZEN}: review it and commit it before publishing")
     write_export(args.out, fc, details, meta)
     (args.out / "report.md").write_text(report(meta, extra), encoding="utf-8")
     facilities_sha = sha256_file(args.out / "facilities.geojson")

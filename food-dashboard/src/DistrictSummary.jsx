@@ -1,11 +1,15 @@
 import { useMemo } from "react";
 import { useMode } from "./useMeta";
 import { passesFilters } from "./lib/filters";
+import { shownBand } from "./lib/marks";
 import { SITE } from "./site";
 
 /**
- * Listed places by council district, for the filters chosen other than
- * district. Select one to filter the map to it; select it again to clear.
+ * Listed places by council district, for the filters chosen other than district, with what the
+ * County's record shows for each in its last year (our reading of the record's flags): places with
+ * a major violation, places ordered closed for a health hazard, places with a B or C, and in `bands`
+ * mode places in a band. Select a district to filter the map and list to it; select it again to
+ * clear. `/map?district=N` opens a district directly, so an office can bookmark its own.
  */
 export default function DistrictSummary({ facilities, filters, onFiltersChange }) {
   const mode = useMode();
@@ -13,49 +17,63 @@ export default function DistrictSummary({ facilities, filters, onFiltersChange }
   const rows = useMemo(() => {
     if (!facilities) return [];
     const base = { ...filters, districts: [] };
-    const counts = {};
-    let outside = 0;
+    const by = new Map();
     for (const f of facilities.features) {
-      if (!passesFilters(f.properties, base, { mode })) continue;
-      const d = f.properties.council_district;
-      if (d) counts[d] = (counts[d] || 0) + 1;
-      else outside += 1;
+      const p = f.properties;
+      if (!passesFilters(p, base, { mode })) continue;
+      const d = p.council_district ?? null;
+      const r = by.get(d) ?? { d, n: 0, major: 0, closed: 0, bc: 0, band: 0 };
+      const flags = p.flags ?? [];
+      r.n += 1;
+      r.major += flags.includes("major") ? 1 : 0;
+      r.closed += flags.includes("closed") ? 1 : 0;
+      r.bc += flags.includes("bc") ? 1 : 0;
+      r.band += mode === "bands" && shownBand(p, { mode }) ? 1 : 0;
+      by.set(d, r);
     }
-    const list = Object.entries(counts).map(([d, n]) => ({ d: Number(d), n })).sort((a, b) => a.d - b.d);
-    return outside ? [...list, { d: null, n: outside }] : list;
+    return [...by.values()].sort((a, b) => (a.d ?? 99) - (b.d ?? 99));
   }, [facilities, filters, mode]);
 
   const toggle = (d) => {
     const on = filters.districts.length === 1 && filters.districts[0] === d;
     onFiltersChange({ ...filters, districts: on ? [] : [d] });
   };
+  const cols = [["Places", "n"], ["Major", "major"], ["Closed", "closed"], ["B or C", "bc"], ...(mode === "bands" ? [["In a band", "band"]] : [])];
 
   return (
     <div className="px-6 py-5">
       <div className="mb-3 flex items-baseline justify-between gap-3">
         <p className="label" id="district-label">By {SITE.districts.label.toLowerCase()}</p>
-        <p className="text-[12px] text-ink-2">select to filter the map</p>
+        <p className="text-[12px] text-ink-2">select to filter</p>
       </div>
-      <ul aria-labelledby="district-label">
-        {rows.map(({ d, n }) => {
-          const on = d != null && filters.districts.length === 1 && filters.districts[0] === d;
-          const name = d != null ? `${SITE.districts.short} ${d}` : "Outside the City";
-          return (
-            <li key={d ?? "outside"}>
-              <button
-                onClick={() => d != null && toggle(d)}
-                aria-pressed={on}
-                aria-label={`${name}, ${n.toLocaleString()} ${n === 1 ? "place" : "places"}`}
-                disabled={d == null}
-                className={`flex w-full items-baseline justify-between gap-3 border-b border-rule py-1.5 text-left text-[14px] ${on ? "font-semibold text-ink" : "text-ink-2 hover:text-ink"} disabled:cursor-default`}
-              >
-                <span>{name}</span>
-                <span className="tnum" aria-hidden="true">{n.toLocaleString()}</span>
-              </button>
-            </li>
-          );
-        })}
-      </ul>
+      <table className="w-full text-[13px]" aria-labelledby="district-label">
+        <thead>
+          <tr className="border-b border-rule-strong text-left">
+            <th scope="col" className="pb-1.5 text-[12px] font-semibold text-ink-2">District</th>
+            {cols.map(([h]) => <th key={h} scope="col" className="pb-1.5 text-right text-[12px] font-semibold text-ink-2">{h}</th>)}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => {
+            const on = r.d != null && filters.districts.length === 1 && filters.districts[0] === r.d;
+            const name = r.d != null ? `${SITE.districts.short} ${r.d}` : "Outside the City";
+            return (
+              <tr key={r.d ?? "outside"} className={`border-b border-rule ${on ? "font-semibold text-ink" : "text-ink-2"}`}>
+                <th scope="row" className="py-1.5 text-left font-normal">
+                  {r.d != null ? (
+                    <button onClick={() => toggle(r.d)} aria-pressed={on} className={`text-left hover:text-ink ${on ? "font-semibold text-ink" : ""}`}>{name}</button>
+                  ) : name}
+                </th>
+                {cols.map(([h, k]) => <td key={h} className="tnum py-1.5 text-right">{r[k].toLocaleString()}</td>)}
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      <p className="mt-2.5 text-[12.5px] leading-[1.45] text-ink-2">
+        Places with each fact in the 12 months before their last visit (our reading of the County&rsquo;s record). Bookmark a
+        district: {typeof window !== "undefined" ? window.location.origin : ""}/map?district=3.
+      </p>
     </div>
   );
 }

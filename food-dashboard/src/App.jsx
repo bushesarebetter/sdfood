@@ -206,7 +206,7 @@ function Dashboard() {
         <WelcomeModal />
         <MobileShell
           facilities={shown}
-          filters={{ ...defaultFilters(mode), county: filters.county }}
+          filters={{ ...defaultFilters(mode), county: filters.county, districts: filters.districts }}
           hasCounty={hasCounty}
           onCountyChange={setCounty}
           selected={selected}

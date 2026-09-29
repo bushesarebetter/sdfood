@@ -33,7 +33,7 @@ export default function ScoreCard({ p, meta, advanced = false, large = false }) 
   const outside = p?.council_district == null && Boolean(meta?.card?.outside);
   const reads = w.rows.some((r) => r.item === "avg_deficit") ? scoresLine(p?.scores_used) : null;
   const estimate = estimateSentence(meta, w.total, { estimate: p?.estimate ?? null, outside });
-  const persistence = advanced ? persistenceSentence(meta) : null;
+  const persistence = persistenceSentence(meta);
 
   return (
     <div>

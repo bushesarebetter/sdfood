@@ -38,7 +38,7 @@ DEPLOY_LOG = ROOT / "data" / "staff_deploys.jsonl"
 STAFF_MARKER = "STAFF-SITE-PRIVATE-DO-NOT-PUBLISH"   # = food-dashboard/scripts/exportGate.mjs STAFF_MARKER
 MIN_DAYS_LEFT = 2
 SHRINK = 0.9                                          # a list under 90% of the live one's places needs --force
-KEEP = (".git", ".github")                            # kept across publishes in the private checkout
+KEEP = (".git", ".github", "DEPLOYS.jsonl")           # kept across publishes in the private checkout
 EMAIL = re.compile(r"[^@\s]+@[^@\s]+\.[^@\s]+")
 BAND_FIELDS = ("band", "points", "score_card", "scores_used", "estimate", "band_stability")
 
@@ -168,6 +168,16 @@ def apply_holds(fc, details, held):
     return changed
 
 
+def independence_problems(a):
+    """Shown to staff, not a refusal: the operator named is one of the students who built the list."""
+    adult = (a or {}).get("responsible_adult") or {}
+    rel = (adult.get("relationship") or "").strip().lower()
+    authors = {"chenhao zhang", "ayan pendharkar"}
+    if rel in ("author", "student", "self") or (adult.get("name") or "").strip().lower() in authors:
+        return ["no independent responsible adult: the operator named is a student author of the list"]
+    return []
+
+
 def staff_meta(meta, approval, status, published_by):
     a = approval or {}
     adult, corr = a.get("responsible_adult") or {}, a.get("corrections_contact") or {}
@@ -258,7 +268,7 @@ def main(argv=None):
     for fid, d in apply_holds(fc, details, held).items():
         (data / "place" / f"{fid}.json").write_text(json.dumps(d, separators=(",", ":")), encoding="utf-8")
     (data / "facilities.geojson").write_text(json.dumps(fc, separators=(",", ":")), encoding="utf-8")
-    status = review_status(meta, today)
+    status = review_status(meta, today) + independence_problems(approval)
     shipped = staff_meta(meta, approval, status, getpass.getuser())
     (data / "meta.json").write_text(json.dumps(shipped, indent=2), encoding="utf-8")
     shutil.copy2(ROOT / "city_site" / "server.mjs", out / "server.mjs")
@@ -274,6 +284,12 @@ def main(argv=None):
         "the sdfood repository; do not edit here. Holds the real export: never make this repository public, "
         "fork it, or connect it to a public repository.\n", encoding="utf-8")
 
+    # The deploy history travels with the site, so whoever owns it at the City can see every release.
+    history = out / "DEPLOYS.jsonl"
+    prior = history.read_text(encoding="utf-8") if history.exists() else ""
+    history.write_text(prior + json.dumps({"at": shipped["staff_release"]["at"], "run": meta["run"],
+                                           "places": meta.get("places"), "by": shipped["staff_release"]["by"],
+                                           "review_status": status, "held": sorted(held)}) + "\n", encoding="utf-8")
     run(["git", "add", "-A"], out)
     if subprocess.run(["git", "diff", "--cached", "--quiet"], cwd=out).returncode == 0:
         print("nothing changed")

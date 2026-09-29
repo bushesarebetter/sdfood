@@ -116,3 +116,9 @@ def test_the_staff_copy_of_meta_names_who_is_responsible_and_what_the_list_has_n
     m = pcs.staff_meta(REAL, GOOD, ["no approval"], "tester")
     assert m["audience"] == "staff" and m["contact"]["email"] == "fix@example.org"
     assert m["operator"]["name"] == "A. Adult" and m["review_status"] == ["no approval"] and m["sunset"] == "2027-06-30"
+
+
+def test_staff_are_told_when_the_operator_is_a_student_author():
+    assert pcs.independence_problems(GOOD) == []
+    assert pcs.independence_problems({**GOOD, "responsible_adult": {"name": "X", "relationship": "author", "email": "x@example.org"}})
+    assert pcs.independence_problems({**GOOD, "responsible_adult": {"name": "Chenhao Zhang", "relationship": "parent", "email": "c@example.org"}})

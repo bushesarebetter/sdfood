@@ -36,6 +36,9 @@ export default function Sidebar({ facilities, hasCounty = false, filters, onFilt
       <FilterBar filters={filters} onFiltersChange={onFiltersChange} facilities={facilities} hasCounty={hasCounty} />
 
       <hr className="rule" />
+      <DistrictSummary facilities={facilities} filters={filters} onFiltersChange={onFiltersChange} />
+
+      <hr className="rule" />
       <NearPanel facilities={facilities} filters={filters} onPoint={onPoint} onSelect={onSelect} />
 
       {mode === "bands" && bandDefs(meta).length > 0 && (
@@ -44,24 +47,23 @@ export default function Sidebar({ facilities, hasCounty = false, filters, onFilt
           <BandTable meta={meta} />
         </>
       )}
-
-      <hr className="rule-strong" />
-      <DistrictSummary facilities={facilities} filters={filters} onFiltersChange={onFiltersChange} />
     </div>
   );
 }
 
-/** Each band's points, its places now, and its backtest rate beside the rate below the bands. */
+/** Each band's points and backtest rate with its likely range, beside the rate it is compared with. */
 function BandTable({ meta }) {
   const defs = bandDefs(meta);
   const rest = meta?.card?.rest?.rate;
+  const base = meta?.card?.base_rate;
+  const range = (iv) => (Array.isArray(iv) && iv.every((v) => typeof v === "number") ? ` (${Math.round(iv[0] * 100)}–${Math.round(iv[1] * 100)})` : "");
   return (
     <div className="px-6 py-5">
       <p className="label mb-3" id="band-table-label">The bands in the backtest</p>
       <table className="w-full text-[13px]" aria-labelledby="band-table-label">
         <thead>
           <tr className="border-b border-rule-strong text-left">
-            {["Band", "Points", "Had a major", "× below"].map((h, i) => (
+            {["Band", "Points", "Had a major", typeof base === "number" ? "× all scored" : "× below"].map((h, i) => (
               <th key={h} scope="col" className={`pb-1.5 text-[12px] font-semibold text-ink-2 ${i ? "text-right" : ""}`}>{h}</th>
             ))}
           </tr>
@@ -71,23 +73,33 @@ function BandTable({ meta }) {
             <tr key={d.band} className="border-b border-rule">
               <th scope="row" className="py-1.5 text-left font-semibold" style={{ color: BAND_TEXT[d.band] }}>Band {d.band}</th>
               <td className="tnum py-1.5 text-right text-ink-2">{bandPoints(meta, d.band)?.replace(" points", "") ?? ""}</td>
-              <td className="tnum py-1.5 text-right text-ink">{pct(d.rate)}</td>
+              <td className="tnum py-1.5 text-right text-ink">{pct(d.rate)}<span className="text-ink-2">{range(d.interval)}</span></td>
               <td className="tnum py-1.5 text-right text-ink">{rateRatio(meta, d.band) ?? ""}</td>
             </tr>
           ))}
+          {typeof base === "number" && (
+            <tr className="border-b border-rule">
+              <th scope="row" className="py-1.5 text-left font-normal text-ink-2">All scored restaurants</th>
+              <td />
+              <td className="tnum py-1.5 text-right text-ink-2">{pct(base)}</td>
+              <td className="tnum py-1.5 text-right text-ink-2">1</td>
+            </tr>
+          )}
           {typeof rest === "number" && (
             <tr>
               <th scope="row" className="py-1.5 text-left font-normal text-ink-2">Below the bands</th>
               <td />
               <td className="tnum py-1.5 text-right text-ink-2">{pct(rest)}</td>
-              <td className="tnum py-1.5 text-right text-ink-2">1</td>
+              <td className="tnum py-1.5 text-right text-ink-2">{typeof base === "number" ? "" : "1"}</td>
             </tr>
           )}
         </tbody>
       </table>
       <p className="mt-2.5 text-[13px] leading-[1.45] text-ink-2">
         The share of each band&rsquo;s places that had a major violation at their next routine inspection, on the list drawn up the same way
-        {meta?.catch_run?.as_of ? ` on ${fmtDate(meta.catch_run.as_of)}` : " for the backtest"}, and how many times the rate below the bands that is.
+        {meta?.catch_run?.as_of ? ` on ${fmtDate(meta.catch_run.as_of)}` : " for the backtest"}, with its likely range, and how many
+        times the rate {typeof base === "number" ? "for all scored restaurants" : "below the bands"} that is. A band is a statistic about a
+        group of places, not a finding about any one of them.
       </p>
     </div>
   );
