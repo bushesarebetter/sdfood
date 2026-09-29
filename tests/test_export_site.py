@@ -599,7 +599,7 @@ def test_an_older_single_registration_is_still_read(tmp_path):
     assert es._registrations(tmp_path / "missing.json") == []
 
 
-def _monitor_row(run, *, days=400, complete=True, b1=(400, [0.55, 0.7], 0.62), all_rate=0.2, oe=1.02, vp=(3.0, 20.0)):
+def _monitor_row(run, *, days=400, complete=True, b1=(400, [0.55, 0.8], 0.70), all_rate=0.2, oe=1.02, vp=(3.0, 20.0)):
     n, interval, rate = b1
     return {"run": run, "days": days, "complete": complete, "labelled": 2000, "positives": 500, "bands": {},
             "city": {"labelled": 1500, "all_rate": all_rate, "bands": {"1": {"labelled": n, "positives": int(n * rate),
@@ -619,16 +619,12 @@ def test_the_prospective_gate(built, tmp_path, monkeypatch):
     es.register(tmp_path, frozen, prospective_dir=tmp_path / "p", today=date(2026, 9, 22))
     assert "for rule version 2027" in es.prospective_ok(tmp_path, 1.0, prospective_dir=tmp_path / "p", version="2027-01-01-cccccccc")[1], \
         "a registration tests only the rule version it was made for"
-    monkeypatch.setattr(es, "_on_remote", lambda path, needle: True)
-    monkeypatch.setattr(es, "_git_date", lambda path, needle=None: None)
-    assert "not committed" in es.prospective_ok(tmp_path, 1.0, prospective_dir=tmp_path / "p", version=v)[1]
-    monkeypatch.setattr(es, "_git_date", lambda path, needle=None: date(2026, 11, 30))
+    monkeypatch.setattr(es, "_pushed_date", lambda path, needle, activity=None: None)
+    assert "cannot be read from GitHub" in es.prospective_ok(tmp_path, 1.0, prospective_dir=tmp_path / "p", version=v)[1]
+    monkeypatch.setattr(es, "_pushed_date", lambda path, needle, activity=None: date(2026, 11, 30))
     assert "committed 72 days after its list" in es.prospective_ok(tmp_path, 1.0, prospective_dir=tmp_path / "p", version=v)[1], \
         "a registration made after part of its label year could be seen does not count"
-    monkeypatch.setattr(es, "_git_date", lambda path, needle=None: date(2026, 9, 22))
-    monkeypatch.setattr(es, "_on_remote", lambda path, needle: False)
-    assert "not pushed" in es.prospective_ok(tmp_path, 1.0, prospective_dir=tmp_path / "p", today=date(2026, 10, 1), version=v)[1]
-    monkeypatch.setattr(es, "_on_remote", lambda path, needle: True)
+    monkeypatch.setattr(es, "_pushed_date", lambda path, needle, activity=None: date(2026, 9, 22))
     assert "90" in es.prospective_ok(tmp_path, 1.0, prospective_dir=tmp_path / "p", today=date(2026, 10, 1), version=v)[1]
     later = date(2027, 11, 1)
     mon = tmp_path / "monitor.json"
@@ -645,9 +641,13 @@ def test_the_prospective_gate(built, tmp_path, monkeypatch):
     assert "not clearly above" in es.prospective_ok(tmp_path, 1.0, prospective_dir=tmp_path / "p", today=later, version=v)[1], \
         "band 1 must beat all scored City places, not only the cost bar"
     backtest_b1 = meta["card"]["bands"][0]["rate"]
-    mon.write_text(json.dumps([_monitor_row(meta["run"], b1=(400, [0.2, backtest_b1 - 0.06], backtest_b1 - 0.13), all_rate=0.1)]))
+    mon.write_text(json.dumps([_monitor_row(meta["run"], b1=(400, [backtest_b1 - 0.11, backtest_b1 - 0.01], backtest_b1 - 0.06),
+                                            all_rate=0.1)]))
     got = es.prospective_ok(tmp_path, 0.1, prospective_dir=tmp_path / "p", today=later, version=v)[1]
-    assert "fell more than 5 points below its backtest rate" in got, got
+    assert "more than 5 points below its backtest rate" in got, "the observed rate, not the upper end of its interval"
+    mon.write_text(json.dumps([_monitor_row(meta["run"], b1=(400, [backtest_b1 - 0.09, backtest_b1 + 0.01], backtest_b1 - 0.04),
+                                            all_rate=0.1)]))
+    assert es.prospective_ok(tmp_path, 0.1, prospective_dir=tmp_path / "p", today=later, version=v)[0], "4 points below passes"
     mon.write_text(json.dumps([_monitor_row(meta["run"], oe=0.7)]))
     assert "not calibrated" in es.prospective_ok(tmp_path, 1.0, prospective_dir=tmp_path / "p", today=later, version=v)[1]
     mon.write_text(json.dumps([_monitor_row(meta["run"], vp=(-4.0, 9.0))]))
@@ -694,9 +694,11 @@ def test_drift_compares_only_quarters_after_the_label_year_with_a_threshold_from
     d = es.drift_check(m, fitted, 0.12, through="2025-12-20", n_now=3000)
     assert d["status"] == "not_yet_measurable" and d["refit_needed"] is False, "no complete quarter after the label year"
     d = es.drift_check(m, fitted, 0.12, through="2026-07-15", n_now=3000)
+    assert d["recent_quarters"] == ["2026Q1"], "2026Q2 ended June 30: its reporting has 30 days to catch up"
+    d = es.drift_check(m, fitted, 0.12, through="2026-08-15", n_now=3000)
     assert d["status"] == "ok" and d["recent_quarters"] == ["2026Q1", "2026Q2"] and d["major_rate_recent"] == 0.2075
     m["major_rate_by_quarter"].update({"2026Q1": 0.26, "2026Q2": 0.27})
-    d = es.drift_check(m, fitted, 0.12, through="2026-07-15", n_now=3000)
+    d = es.drift_check(m, fitted, 0.12, through="2026-08-15", n_now=3000)
     assert d["refit_needed"] and d["status"] == "refit" and "routine major rate 26.5%" in d["reasons"][0]
     assert d["note"] and "may be low" in d["note"] and "2026 Q3" not in d["note"], "the latest quarter with data (Q2)"
     d = es.drift_check({"major_rate_by_quarter": {}}, fitted, 0.20, n_now=3000)
@@ -1015,4 +1017,34 @@ def test_the_band_rule_rarely_keeps_a_band_that_is_not_there():
     rng = np.random.default_rng(7)
     kept = sum(bool(sim.one(rng, 3300, 0.21, 0.6)) for _ in range(300))
     assert kept / 300 < 0.02, f"{kept} of 300 null simulations kept a band"
+
+
+def test_the_drift_baseline_is_the_label_years_own_months():
+    """Not the whole quarters around it: a label year from September 1 does not borrow July and August."""
+    fitted = {"confirm": "2025-09-01", "label_quarters": ["2025Q3", "2025Q4", "2026Q1", "2026Q2", "2026Q3"],
+              "card": {"rows": []}, "catch_run": {"eligible": 3000}}
+    months = {f"2025-{m:02d}": [1000, 300] for m in (7, 8)}                  # before the label year: 30%
+    months.update({f"2025-{m:02d}": [1000, 150] for m in (9, 10, 11, 12)})   # the label year: 15%
+    months.update({f"2026-{m:02d}": [1000, 150] for m in range(1, 9)})
+    months["2026-09"] = [1000, 400]                                          # after it: 40%
+    m = {"routine_by_month": months, "major_rate_by_quarter": {"2026Q3": 0.25}, "routine_n_by_quarter": {"2026Q3": 3000}}
+    d = es.drift_check(m, fitted, None, through="2026-09-28")
+    assert d["major_rate_backtest"] == 0.15 and d["status"] == "not_yet_measurable"
+
+
+def test_the_registration_counts_from_githubs_record_of_the_push():
+    """A commit date is whatever its author set; GitHub's push timestamp is not."""
+    path = ROOT / "docs" / "prospective" / "REGISTERED.json"
+    run = "forward_2026-09-29-91e1bb95"                  # added by an early commit in this repository's history
+    head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT, capture_output=True, text=True).stdout.strip()
+    first = subprocess.run(["git", "log", "--reverse", "--format=%H", "-S", run, "--", str(path)], cwd=ROOT,
+                           capture_output=True, text=True).stdout.split()
+    if not first:
+        pytest.skip("the registration is not in this checkout's history")
+    carried = [{"before": "0" * 40, "after": head, "timestamp": "2026-10-03T17:00:00Z"}]
+    assert es._pushed_date(path, run, activity=carried) == date(2026, 10, 3)
+    earlier = [{"before": first[0], "after": head, "timestamp": "2026-10-09T00:00:00Z"}] + carried
+    assert es._pushed_date(path, run, activity=earlier) == date(2026, 10, 3), "a later push that did not add it is not the date"
+    assert es._pushed_date(path, run, activity=[]) is None, "never pushed: no date"
+    assert es._pushed_date(path, "no-such-run-anywhere", activity=carried) is None
 

@@ -56,7 +56,8 @@ Data rules (checked against the pull; counts in report.md)
     later day, or a gap of more than 30 days before the next order, so one closure counts once.
   * Themes are the County's inspection-report sections (THEME_RULES), read from the item text.
   * Flags are measured back from the list date; the escalation facts (major_2, closures2, repeat_item, lt90_2)
-    are the County's own criteria for a closer look, counted by distinct day or episode.
+    are our counts of the patterns the County's Operator's Guide names (p. 8; the County sets no count or
+    period), counted by distinct day or episode. Meeting one is not a County finding.
 
   python export_site.py                  # bands review export with the frozen rule -> data/site/ (report.md, archive/)
   python export_site.py --refit          # choose and check the rule afresh: a new docs/rule.json to review and commit
@@ -1258,6 +1259,7 @@ def measurement(places):
     that still got an A, agreement between co-located places on the same day against a different-day
     control, and the base rate by quarter."""
     scores, a_major, graded_major, by_q = Counter(), 0, 0, defaultdict(lambda: [0, 0])
+    by_m = defaultdict(lambda: [0, 0])
     graded, a_total, pairs = 0, 0, []
     by_addr = defaultdict(list)
     for p in places:
@@ -1276,6 +1278,8 @@ def measurement(places):
             q = f"{v['date'][:4]}Q{(int(v['date'][5:7]) - 1) // 3 + 1}"
             by_q[q][0] += 1
             by_q[q][1] += v["major"] > 0
+            by_m[v["date"][:7]][0] += 1
+            by_m[v["date"][:7]][1] += v["major"] > 0
             if prev is not None:
                 pairs.append((prev > 0, v["major"] > 0))
             prev = v["major"]
@@ -1305,6 +1309,7 @@ def measurement(places):
         "different_day_pairs": len(apart), "different_day_corr": corr(apart),
         "major_rate_by_quarter": {q: round(v[1] / v[0], 4) for q, v in sorted(by_q.items()) if v[0] >= 200},
         "routine_n_by_quarter": {q: v[0] for q, v in sorted(by_q.items()) if v[0] >= 200},
+        "routine_by_month": {m: v for m, v in sorted(by_m.items())},        # [inspections, with a major]
     }
 
 
@@ -1366,10 +1371,11 @@ def flags(records, visits, as_of=None):
         out.append("bc")
     if sum(v["type"] == "reinspection" for v in visits if lo <= v["date"] < as_of) >= 2:
         out.append("repeat")
-    # Escalation facts: the County's own criteria for a closer look, "recurring major violations,
-    # recurring scores of less than 90%, or recurring facility closures" (Retail Food Facility
-    # Operator's Guide p. 8), each counted by distinct routine inspection day or closure episode, so a
-    # day the County recorded twice counts once. Facts about the record, not predictions.
+    # Escalation facts: our counts (two or more in 24 months) of the patterns the County's Operator's
+    # Guide names, "recurring major violations, recurring scores of less than 90%, or recurring
+    # facility closures" (p. 8; the Guide sets no count or period), each counted by distinct routine
+    # inspection day or closure episode, so a day the County recorded twice counts once. Facts about
+    # the record, not predictions, and not County findings.
     lo2 = (_d(as_of) - timedelta(days=ELIGIBLE_DAYS)).isoformat()
     rec2 = [r for r in records if lo2 <= r["date"] < as_of]
     if len({r["date"] for r in rec2 if r["type"] == "routine" and r["major"]}) >= 2:
@@ -1750,7 +1756,7 @@ def fit_rule(places, *, approval=None, log=print):
     first = area_origin(places, confirm, "outside_bands", rule, cache, detail=True)
     out_origins = [first[:5]] + [area_origin(places, T, "outside_bands", rule, cache) for T in validate]
     o_pts, o_pos, o_lab, o_el, o_cl = out_origins[0]
-    _, o_has_cl, o_base_order = first[5:]
+    o_te, o_has_cl, o_base_order = first[5:]
     outside_ok = bool(cuts) and validate_bands(cuts, [o[:4] for o in out_origins]) == cuts
     o_rows, o_rest = band_rows(assign_bands(o_pts, o_el, cuts), o_pts, o_pos, o_lab, o_el, o_base_order, o_cl)
     o_curve = risk_curve(o_pts, o_pos, o_lab, o_el & ~o_has_cl, o_cl) if (o_el & ~o_has_cl & o_lab).any() else None
@@ -1759,6 +1765,7 @@ def fit_rule(places, *, approval=None, log=print):
     outside = {"bands_shown": outside_ok, "candidates": int(len(o_pts)), "eligible": int(o_el.sum()),
                "labelled": o_base_lab, "base_rate": round(float(o_pos[o_lab & o_el].sum()) / o_base_lab, 4) if o_base_lab else None,
                "bands": o_rows, "rest": o_rest, "curve": o_curve, "curve_closure": o_curve_closure,
+               "interim": interim_rates(places, o_te.idx, assign_bands(o_pts, o_el, cuts), o_el),
                "auc": {"rule": auc(o_pos[o_lab & o_el], o_pts[o_lab & o_el]) if o_base_lab else None}}
     k_gate = min(K_GATE, conf["candidates"])
     label_q = [q for q in quarters_between(confirm, (_d(confirm) + timedelta(days=LABEL_DAYS - 1)).isoformat())]
@@ -1857,10 +1864,12 @@ FROZEN_KEYS = ("chosen", "rule", "cuts", "outside_ok", "confirm", "validate", "l
                "selection", "named_bands", "cost_ratio", "utility", "fairness", "survivorship_bound", "origins")
 # What a point means lives in these constants and functions as much as in the weights: a change to
 # any of them changes every place's points under the same rule, so they are frozen with it.
-FEATURE_CONSTANTS = ("CLOSURE_SCORE", "SCORE_WINDOW_DAYS", "WINDOW_DAYS", "ELIGIBLE_DAYS", "FOLLOWUP_DAYS",
-                     "EPISODE_GAP_DAYS", "COMPLAINT_DAYS", "LABEL_DAYS", "ACTIVE_DAYS")
-FEATURE_FUNCTIONS = ("load_places", "_followups_and_closures", "rated_score", "features_at", "eligible", "label_at",
-                     "scores_used", "parse_item", "theme_of")
+FEATURE_CONSTANTS = ("CLOSURE_SCORE", "CLOSURE_VALUE", "SCORE_WINDOW_DAYS", "WINDOW_DAYS", "ELIGIBLE_DAYS", "FOLLOWUP_DAYS",
+                     "EPISODE_GAP_DAYS", "COMPLAINT_DAYS", "LABEL_DAYS", "ACTIVE_DAYS", "VISIT_TYPES", "RECORD_TYPES",
+                     "KINDS", "EXCLUDED_TYPES", "PUBLIC_KINDS", "BAND_KINDS", "MODEL_KINDS", "RISK_THEMES", "NUMERIC")
+FEATURE_FUNCTIONS = ("load_places", "_followups_and_closures", "rated_score", "county_formula", "features_at", "history",
+                     "eligible", "label_at", "scores_used", "parse_item", "theme_of", "active_at", "frame", "persistence",
+                     "assign_bands", "Score")
 
 
 def feature_spec():
@@ -1868,8 +1877,62 @@ def feature_spec():
     import inspect
     g = globals()
     src = "\n".join(inspect.getsource(g[f]) for f in FEATURE_FUNCTIONS)
-    return {"constants": {c: g[c] for c in FEATURE_CONSTANTS if c in g}, "status": sorted(OK_STATUS),
-            "themes": THEME_RULES, "code_sha256": hashlib.sha256(src.replace("\r\n", "\n").encode()).hexdigest()}
+    src += "\n" + "\n".join(f"{k}: {inspect.getsource(f).strip()}" for k, f in SCOPES.items())
+    norm = lambda v: sorted(v) if isinstance(v, (set, frozenset)) else v
+    return {"constants": {c: norm(g[c]) for c in FEATURE_CONSTANTS if c in g}, "status": sorted(OK_STATUS),
+            "themes": THEME_RULES, "code_sha256": hashlib.sha256(src.replace("\r\n", "\n").encode()).hexdigest(),
+            "behaviour_sha256": behaviour_fingerprint()}
+
+
+def _fingerprint_county():
+    """A small fixed county that exercises every rule a point depends on: visit types, same-day
+    records, re-grades, closure episodes and reopenings, complaint-prompted reinspections, the kinds
+    of place, mobile-form items, zero scores. Invented; no real business."""
+    def insp(day, kind="Routine", score="95", grade="A", status="Complete", viol=()):
+        return {"inspection_id": f"{day}-{kind}-{score}-{status}", "type": kind, "score": score, "grade": grade,
+                "completed_date": day, "status": status,
+                "violations": [{"violation": t.split(". ", 1)[-1], "violation_accela": t, "status": s,
+                                "major_violation": "Y" if s.endswith("Major") else "N"} for t, s in viol]}
+    MAJ, MIN, GRP = "Out of Compliance - Major", "Out of Compliance - Minor", "Out of Compliance"
+    PESTS, TEMP, HANDS = "23. No rodents, insects, birds or animals", "7. Proper hot & cold holding temperatures", \
+        "6. Adequate handwashing facilities supplied & accessible"
+    MOBILE_PESTS = "22. No rodents, insects, birds or animals"
+    shapes = [
+        ("Restaurant Food Facility", [insp("2024-03-01", score="92"), insp("2024-09-02", score="84", grade="B", viol=[(TEMP, MAJ)]),
+                                      insp("2024-09-20", score="96"), insp("2025-03-03", score="90", viol=[(HANDS, MIN)])]),
+        ("Restaurant Food Facility", [insp("2024-05-05", score="0", grade="", status="Ordered Closed", viol=[(PESTS, MAJ)]),
+                                      insp("2024-05-06", kind="Site Investigation", score="0", grade=""),
+                                      insp("2024-05-07", kind="Re-inspection", score="0", grade="", status="Approved to Reopen"),
+                                      insp("2024-11-01", score="94"), insp("2025-04-02", score="97", viol=[(PESTS, MAJ)])]),
+        ("Restaurant Food Facility", [insp("2024-02-10", score="99"), insp("2024-08-10", score="98"),
+                                      insp("2024-08-10", score="0", grade="", status="Ordered Closed", viol=[(PESTS, MAJ)]),
+                                      insp("2025-02-10", score="88", grade="B", viol=[(TEMP, MAJ), (HANDS, GRP)])]),
+        ("Low Risk Food Facility", [insp("2024-06-01", score="93"), insp("2025-01-15", score="91")]),
+        ("Retail Market with Deli", [insp("2024-04-04", score="89", grade="B", viol=[(TEMP, MIN)]), insp("2024-12-12", score="95"),
+                                     insp("2025-01-03", kind="Site Investigation", score="0", grade=""),
+                                     insp("2025-01-20", kind="Re-inspection", score="0", grade="", viol=[(PESTS, MAJ)])]),
+        ("Mobile Food Facility Prep Unit", [insp("2024-07-07", score="90", viol=[(MOBILE_PESTS, MAJ)]), insp("2025-02-02", score="96")]),
+        ("Restaurant Food Facility", [insp("2024-10-10", score="100"), insp("2025-05-05", score="0", grade="", status="No Access")]),
+    ]
+    return [{"business_id": str(n), "name": f"Fingerprint {n}", "business_type": t, "address": f"{n} Test Way",
+             "status": "Permit Renewed", "lat": "32.7", "long": "-117.1", "zip": "92101",
+             "inspections": [{**i, "custom_id": f"FP-{n:03d}"} for i in ins]} for n, (t, ins) in enumerate(shapes, 1)]
+
+
+def behaviour_fingerprint(T="2025-06-01"):
+    """What the rule's inputs are on the fixed county: every feature, eligibility, the label, the
+    scores the average reads, the flags and each scope's membership, hashed. Any change to how a
+    point is computed changes it, whether or not the code that changed is listed above."""
+    places = load_places(_fingerprint_county())
+    rows = []
+    for p in places:
+        p["district"] = 1
+        f = features_at(p, T)
+        rows.append({"kind": p["kind"], "features": {k: (None if v != v else round(float(v), 6)) for k, v in (f or {}).items()},
+                     "eligible": bool(f and eligible(f)), "label": label_at(p, T)[0], "used": scores_used(p, T),
+                     "flags": flags(display_records(p), p["visits"], T),
+                     "scopes": {s: bool(active_at(p, T, scope=s)) for s in SCOPES}})
+    return hashlib.sha256(json.dumps(rows, sort_keys=True, default=str).encode()).hexdigest()
 
 
 def frozen_record(fitted, run, today):
@@ -1892,11 +1955,13 @@ def spec_problems(frozen):
         return [f"rule version {frozen.get('version')} was frozen without its feature code: refit (export_site.py --refit)"]
     now = feature_spec()
     return [f"the {k} that decide what a point means changed since rule version {frozen.get('version')} was frozen: "
-            "refit (export_site.py --refit), or undo the change" for k in ("constants", "status", "themes", "code_sha256")
+            "refit (export_site.py --refit), or undo the change"
+            for k in ("constants", "status", "themes", "code_sha256", "behaviour_sha256")
             if json.dumps(fs.get(k), sort_keys=True, default=str) != json.dumps(now[k], sort_keys=True, default=str)]
 
 
 DRIFT_MIN = 0.02      # refit when a rate moves by more than this, or three standard errors, whichever is larger
+REPORT_LAG_DAYS = 30  # the County's results can lag an inspection by weeks: a period is complete this long after it ends
 DRIFT_SE = 3.0
 
 
@@ -1924,12 +1989,18 @@ def drift_check(measurement_, fitted, share_now, through=None, n_now=None):
     site shows beside every estimate, even before a refit can be judged."""
     by_q = measurement_.get("major_rate_by_quarter") or {}
     n_q = measurement_.get("routine_n_by_quarter") or {}
-    label_q = [q for q in fitted.get("label_quarters", []) if q in by_q]
-    base_then, n_then = _pooled(label_q, by_q, n_q)
+    by_m = measurement_.get("routine_by_month") or {}
     label_end = (_d(fitted["confirm"]) + timedelta(days=LABEL_DAYS - 1)) if fitted.get("confirm") else None
+    if by_m and fitted.get("confirm"):            # exactly the label year's months, not whole quarters around it
+        months = [m for m in by_m if fitted["confirm"][:7] <= m <= label_end.isoformat()[:7]]
+        n_then = sum(by_m[m][0] for m in months)
+        base_then = sum(by_m[m][1] for m in months) / n_then if n_then else None
+    else:
+        base_then, n_then = _pooled([q for q in fitted.get("label_quarters", []) if q in by_q], by_q, n_q)
     through_d = _d(through) if through else None
+    # A quarter is compared once it is over and the County's reporting has had REPORT_LAG_DAYS to catch up.
     after = [q for q in sorted(by_q) if label_end and through_d and _quarter_bounds(q)[0] > label_end
-             and _quarter_bounds(q)[1] <= through_d][-2:]
+             and _quarter_bounds(q)[1] + timedelta(days=REPORT_LAG_DAYS) <= through_d][-2:]
     base_now, n_recent = _pooled(after, by_q, n_q)
     thr = lambda p1, n1, p0, n0: max(DRIFT_MIN, DRIFT_SE * math.sqrt(p1 * (1 - p1) / n1 + p0 * (1 - p0) / n0))
     rows = fitted["card"]["rows"]
@@ -2252,17 +2323,42 @@ def register(out: Path, meta, prospective_dir=PROSPECTIVE, today=None):
     return path
 
 
-def _on_remote(path: Path, needle):
-    """Is the commit that first added `needle` to the file on a remote branch?"""
+def _git(*a, timeout=30):
+    return subprocess.run(["git", *a], cwd=ROOT, capture_output=True, text=True, timeout=timeout)
+
+
+def _pushed_date(path: Path, needle, activity=None):
+    """The date GitHub recorded the first push that carried the commit adding `needle` to the file: a
+    commit's own date is whatever its author set, and a remote-tracking ref is only local. Read from
+    GitHub's repository activity (`gh api repos/{owner}/{repo}/activity`), whose push timestamps GitHub
+    writes. None when it cannot be read or the commit was never pushed. `activity` is for tests."""
     try:
-        first = subprocess.run(["git", "log", "--reverse", "--format=%H", "-S", needle, "--", str(path)], cwd=ROOT,
-                               capture_output=True, text=True, timeout=20).stdout.split()
+        first = _git("log", "--reverse", "--format=%H", "-S", needle, "--", str(path)).stdout.split()
         if not first:
-            return False
-        return bool(subprocess.run(["git", "branch", "-r", "--contains", first[0]], cwd=ROOT, capture_output=True,
-                                   text=True, timeout=20).stdout.strip())
+            return None
+        sha = first[0]
+        if activity is None:
+            url = _git("remote", "get-url", "origin").stdout.strip()
+            m = re.search(r"github\.com[:/]([^/]+)/([^/.]+?)(?:\.git)?/?$", url)
+            if not m:
+                return None
+            out = subprocess.run(["gh", "api", "--paginate", f"repos/{m[1]}/{m[2]}/activity?per_page=100&activity_type=push"],
+                                 capture_output=True, text=True, timeout=120)
+            if out.returncode:
+                return None
+            activity = json.loads("[" + out.stdout.replace("][", "],[") + "]") if out.stdout.strip() else []
+            activity = [e for page in activity for e in (page if isinstance(page, list) else [page])]
+        pushed = []
+        for e in activity:
+            after, before = e.get("after"), e.get("before")
+            if not after or _git("merge-base", "--is-ancestor", sha, after).returncode:
+                continue                               # this push did not carry it (or its commits are not here)
+            if before and not set(before) <= {"0"} and not _git("merge-base", "--is-ancestor", sha, before).returncode:
+                continue                               # it was already on the branch before this push
+            pushed.append(date.fromisoformat(e["timestamp"][:10]))
+        return min(pushed) if pushed else None
     except Exception:
-        return False
+        return None
 
 
 def _git_date(path: Path, needle=None):
@@ -2340,12 +2436,15 @@ def monitor(out: Path, places, today=None, log=print):
         for area in ("city", "outside"):
             sub_rows = [x for x in rows if x["city"] == (area == "city")]
             exp_bands, curve, curve_cl = _expected(meta, area)
+            src = meta["card"] if area == "city" else meta["card"].get("outside") or {}
+            exp_all = src.get("base_rate")
             if not complete:                                  # set against the backtest over the same window
-                interim = (meta["card"].get("interim") or {}).get(str(window)) or {}
-                exp_bands = {"1": (interim.get("1") or {}).get("rate"), "all": (interim.get("all") or {}).get("rate")} \
-                    if area == "city" else {}
+                interim = (src.get("interim") or {}).get(str(window)) or {}
+                exp_bands = {"1": (interim.get("1") or {}).get("rate")}
+                exp_all = (interim.get("all") or {}).get("rate")
             ys = np.array([x["y"] for x in sub_rows], float)
-            sub = {"labelled": len(sub_rows), "all_rate": round(float(ys.mean()), 4) if len(ys) else None, "bands": {}}
+            sub = {"labelled": len(sub_rows), "all_rate": round(float(ys.mean()), 4) if len(ys) else None,
+                   "all_expected": exp_all, "all_interval": wilson(int(ys.sum()), len(ys)) if len(ys) else None, "bands": {}}
             for b in sorted({x["band"] for x in sub_rows}):
                 m = np.array([x["band"] == b for x in sub_rows])
                 n, k = int(m.sum()), int(ys[m].sum())
@@ -2416,12 +2515,10 @@ def prospective_ok(out: Path, cost_ratio, prospective_dir=PROSPECTIVE, today=Non
         return False, ("no registered run" + (f" for rule version {version}" if version else "")
                        + " (export_site.py --register, then commit docs/prospective/REGISTERED.json)")
     reg = regs[-1]
-    committed = _git_date(reg_path, reg["run"])
+    committed = _pushed_date(reg_path, reg["run"])
     if committed is None:
-        return False, "docs/prospective/REGISTERED.json is not committed: its commit date is the registration's timestamp"
-    if not _on_remote(reg_path, reg["run"]):
-        return False, ("the registration is not pushed: a local commit date can be set to anything, so it counts only once "
-                       "the commit that added it is on the public repository")
+        return False, ("the registration's push date cannot be read from GitHub: it counts from GitHub's own record of the "
+                       "push that first carried it (a commit date can be set to anything), so commit and push it")
     if (committed - _d(run_date(reg["run"]))).days > FRESH_DAYS:
         return False, (f"the registration was committed {(committed - _d(run_date(reg['run']))).days} days after its list was "
                        "drawn up: part of its label year could already be seen")
@@ -2447,8 +2544,8 @@ def prospective_ok(out: Path, cost_ratio, prospective_dir=PROSPECTIVE, today=Non
     if allr is not None and b1["interval"][0] <= allr:
         return False, f"band 1's later rate is not clearly above the rate for all scored City places ({b1['rate']} vs {allr})"
     frozen_b1 = next((b["rate"] for b in reg.get("bands", []) if b["band"] == "1"), None)
-    if frozen_b1 is not None and b1["interval"][1] is not None and b1["interval"][1] < frozen_b1 - 0.05:
-        return False, f"band 1's later rate ({b1['interval']}) fell more than 5 points below its backtest rate ({frozen_b1})"
+    if frozen_b1 is not None and (b1.get("rate") is None or b1["rate"] < frozen_b1 - 0.05):
+        return False, f"band 1's later rate ({b1.get('rate')}) is more than 5 points below its backtest rate ({frozen_b1})"
     oe = city.get("observed_over_expected")
     if not oe or oe.get("ratio") is None or not 0.85 <= oe["ratio"] <= 1.15:
         return False, f"the estimates were not calibrated on later inspections (observed/expected {oe})"

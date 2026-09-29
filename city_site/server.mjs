@@ -7,6 +7,9 @@
 //                  they leave: the change restarts the service, which signs everyone out, and that person cannot
 //                  sign in again. Every data request is logged with the user name, so Render's log is an access log.
 //   SITE_PASSWORD  the older shared sign-in (user SITE_USER, default "city"), 16+ characters; while migrating
+//   SITE_OPERATORS the ids that see the named list before the City's request and TRUST answer are on record
+//                  (meta.access_approved). Unset: the shared sign-in's user, but only while it is the only
+//                  sign-in (no SITE_USERS); once personal sign-ins exist, name the operators explicitly.
 //   SITE_CONTACT   who to ask for access, shown on the sign-in page (for example "Jane Doe, jane@example.org")
 //   PORT           set by Render
 // For the tests only (leave them unset on Render):
@@ -19,7 +22,9 @@
 //
 // What it does besides serving files: refuses to start with a weak password; slows password guessing
 // (10 failures per address and user name per 15 minutes, then 429; past 300 failures in all, every
-// sign-in answer waits 2 seconds); closes the site (503) once the export is not the staff copy or its
+// sign-in answer waits 2 seconds, one at a time per address and at most 16 at once, the rest queued);
+// shows the named list only to operators until the City has asked for it; closes the site (503) once
+// the export is not the staff copy or its
 // sunset date has passed; rejects a path that could be read two ways; serves the service worker before
 // sign-in so a build that removes it reaches every browser; never lets data be cached on a shared
 // computer (no-store); sets security headers on every response and collects CSP reports at /csp-report;
@@ -128,10 +133,13 @@ function parseUsers(env) {
 }
 
 const { users: USERS, weak: WEAK } = parseUsers(process.env);
-// Who may see the named list before the City has asked for it: SITE_OPERATORS (ids, comma-separated), by
-// default the older shared sign-in's user, which only the operator holds.
-const OPERATORS = new Set((process.env.SITE_OPERATORS ?? (process.env.SITE_PASSWORD ? process.env.SITE_USER || "city" : ""))
+// Who may see the named list before the City has asked for it: SITE_OPERATORS (ids, comma-separated). By
+// default the older shared sign-in's user, but only while it is the only sign-in: once personal sign-ins
+// exist (SITE_USERS), whoever still holds the shared one is not assumed to be the operator.
+const OPERATORS = new Set((process.env.SITE_OPERATORS
+  ?? (process.env.SITE_PASSWORD && !(process.env.SITE_USERS || "").trim() ? process.env.SITE_USER || "city" : ""))
   .split(",").map((u) => u.trim()).filter(Boolean));
+if (!OPERATORS.size) console.warn("no SITE_OPERATORS: until the City's request is on record, nobody sees the named list");
 if (WEAK.length) {
   console.error(`refusing to start: the sign-in for ${WEAK.join(", ")} is shorter than ${MIN_SECRET} characters. ` +
     'Make one with: python -c "import secrets; print(secrets.token_urlsafe(24))"');
@@ -229,8 +237,29 @@ const WINDOW_MS = 15 * 60e3, MAX_FAILS = 10, MAX_FAIL_KEYS = 10_000;
 // sign-in answer (right or wrong, so a quick answer does not give a right password away) waits 2 s.
 const GLOBAL_FAILS = 300, SLOW_MS = 2000;
 // ...and at most MAX_CHECKING of those slowed answers at once: parallel requests cannot get round the wait.
-const MAX_CHECKING = 4;
+// Past the budget, slowed checks run one at a time per address (so one client cannot occupy them) and at
+// most MAX_CHECKING at once in all; the rest wait their turn, up to MAX_WAITING, instead of being refused.
+const MAX_CHECKING = 16, MAX_WAITING = 64;
 let checking = 0;
+const CHECKING_BY_IP = new Set();
+const WAITING = [];
+
+async function slowTurn(ip) {
+  if (checking >= MAX_CHECKING) {
+    if (WAITING.length >= MAX_WAITING) return false;
+    await new Promise((r) => WAITING.push(r));
+  }
+  checking += 1;
+  CHECKING_BY_IP.add(ip);
+  try {
+    await new Promise((r) => setTimeout(r, SLOW_MS));
+  } finally {
+    checking -= 1;
+    CHECKING_BY_IP.delete(ip);
+    WAITING.shift()?.();
+  }
+  return true;
+}
 const FAILS_BY_MINUTE = new Map();                // minute -> failures in it
 
 function blocked(key, now) {
@@ -485,7 +514,14 @@ async function handle(req, res) {
   // Until a City request and a TRUST Ordinance determination are on record (meta.access_approved), the
   // named list is shown only to the site's operators (SITE_OPERATORS), who build and check it; a City
   // sign-in issued early sees why, not the list (docs/STAFF_SITE.md, "Who may use it").
-  if (!m.access_approved && !OPERATORS.has(s.user) && path !== "/data/meta.json" && !path.startsWith("/assets/")) {
+  const withheld = !m.access_approved && !OPERATORS.has(s.user);
+  if (withheld && path === "/data/meta.json") {           // the app can say why, but no per-place field leaves
+    console.log(`withheld user=${s.user} ${path}`);
+    const { corrections, ...rest } = m;                    // eslint-disable-line no-unused-vars
+    return send(req, res, 200, { "Content-Type": "application/json", "Cache-Control": "no-store" },
+      JSON.stringify({ ...rest, corrections: [] }));
+  }
+  if (withheld && !path.startsWith("/assets/")) {
     console.log(`withheld user=${s.user} ${path}`);
     return sendPage(req, res, 503, "Withheld", "<h1>Food Inspection Record</h1><p>The named list is withheld until the City " +
       "has recorded a request for this site and a TRUST Ordinance determination.</p>" +
@@ -539,19 +575,11 @@ async function login(req, res) {
       notice: "Too many failed sign-ins for this user name. Try again in 15 minutes." }), { "Retry-After": "900" });
   }
   const over = recentFailures(now) > GLOBAL_FAILS;
-  if (over && checking >= MAX_CHECKING) {
-    return sendPage(req, res, 429, TITLE, loginForm({ next, user, bad: true,
-      notice: "Too many sign-ins at once. Try again in a few seconds." }), { "Retry-After": "5" });
-  }
+  const busy = () => sendPage(req, res, 429, TITLE, loginForm({ next, user, bad: true,
+    notice: "Too many sign-ins at once from here. Try again in a few seconds." }), { "Retry-After": "5" });
+  if (over && CHECKING_BY_IP.has(ip)) return busy();       // one slowed check at a time per address
   const ok = credentialsMatch(user, password);
-  if (over) {
-    checking += 1;
-    try {
-      await new Promise((r) => setTimeout(r, SLOW_MS));
-    } finally {
-      checking -= 1;
-    }
-  }
+  if (over && !(await slowTurn(ip))) return busy();
   if (!ok) {
     failed(key, now);
     console.warn(`sign-in failed user=${JSON.stringify(clean(user, 100))} from ${clean(ip, 64)}`);
@@ -577,7 +605,7 @@ function logout(req, res) {
   const id = cookie(req, COOKIE_NAME);
   const s = id ? SESSIONS.get(id) : undefined;
   if (id) SESSIONS.delete(id);
-  if (s) console.log(`sign-out user=${s.user}`);
+  if (s) console.log(`sign-out user=${s.user} from ${clean(clientOf(req), 64)}`);
   // Cookies are cleared by name (below), not by Clear-Site-Data, which Firefox does not apply to them all.
   return send(req, res, 303, {
     "Cache-Control": "no-store",

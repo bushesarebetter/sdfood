@@ -48,7 +48,9 @@ export default function Privacy({ onNavigate }) {
     ? { ...meta.operator, contact: meta.operator.contact ?? meta.operator.email } : null;
   const staff = isStaff(meta);
   const r = SITE.regulator;
-  const authorsRoute = contact ? <>write to <Mail to={contact} /></> : <>open an issue at <Link href={`${REPO_URL}/issues`}>the project&rsquo;s GitHub issues</Link></>;
+  // A report about a place goes by email, like an owner's question: a public issue would publish it.
+  const authorsRoute = contact || SITE.ownerContact ? <>write to <Mail to={contact || SITE.ownerContact} /></>
+    : <>email the authors (the address appears here once the site&rsquo;s operator sets it; please do not open a public GitHub issue about a business)</>;
   // An owner's question about their business is never asked in public: an email, or nothing yet.
   const ownerMail = contact || SITE.ownerContact;
   const ownerRoute = ownerMail ? <>email <Mail to={ownerMail} /></> : <>email the authors (the address appears here once the site&rsquo;s operator sets it)</>;

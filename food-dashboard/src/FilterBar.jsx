@@ -18,8 +18,8 @@ const places = (n) => `${Number(n || 0).toLocaleString("en-US")} ${n === 1 ? "pl
 /**
  * The filters, each a row of buttons: in `bands` mode which bands to show;
  * then the kind of place, and a fact from the year before the list date (our
- * reading, from the index's flags; the three escalation facts read two years
- * and quote the County's own criteria). Each button's accessible name says its
+ * reading, from the index's flags; the escalation facts read two years and are
+ * our counts of the patterns the County's Operator's Guide names). Each button's accessible name says its
  * count apart from its label ("Band 1, 16 places").
  */
 export default function FilterBar({ filters, onFiltersChange, facilities, hasCounty = false }) {

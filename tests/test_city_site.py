@@ -593,20 +593,51 @@ def test_at_most_two_census_lookups_run_at_once(start, geocoders):
 
 def test_before_the_city_asks_only_the_operator_sees_the_named_list(start):
     """Until a City request and a TRUST determination are on record, a City sign-in issued early sees
-    why, not the list; the operator's own sign-in (SITE_OPERATORS, by default the shared one) builds
-    and checks it."""
-    s = start(meta={**META, "access_approved": False})
+    why, not the list; the operators (SITE_OPERATORS) build and check it. The shared sign-in is an
+    operator by default only while it is the only sign-in."""
+    withheld = {**META, "access_approved": False,
+                "corrections": [{"date": "2026-09-01", "facility_id": "X", "what": "w", "why": "y"}]}
+    s = start(env={"SITE_OPERATORS": "city"}, meta=withheld)
     op, ana = _session(s.port), _session(s.port, "ana", ANA)
     assert _req(s.port, "/data/place/X.json", cookie=op).status == 200, "the operator"
-    for path in ("/data/place/X.json", "/", "/geocode?q=x"):
+    for path in ("/data/place/X.json", "/", "/geocode?q=x", "/data/facilities.geojson"):
         r = _req(s.port, path, cookie=ana)
         assert r.status == 503 and b"withheld until the City has recorded a request" in r.body, path
-    assert _req(s.port, "/data/meta.json", cookie=ana).status == 200, "the app can still say why"
+    m = _req(s.port, "/data/meta.json", cookie=ana)
+    assert m.status == 200 and m.json()["corrections"] == [] and m.json()["run"] == META["run"], \
+        "the app can still say why, and no per-place field leaves"
+    assert _req(s.port, "/data/meta.json", cookie=op).json()["corrections"], "the operator sees the whole file"
     assert _req(s.port, "/healthz").json()["named_list"] == "operators only"
     assert "withheld user=ana" in s.log()
-    s2 = start(env={"SITE_OPERATORS": "ana"}, meta={**META, "access_approved": False})
-    assert _req(s2.port, "/data/place/X.json", cookie=_session(s2.port, "ana", ANA)).status == 200
-    assert _req(s2.port, "/data/place/X.json", cookie=_session(s2.port)).status == 503, "the shared sign-in is not an operator then"
+    alone = start(env={"SITE_USERS": ""}, meta=withheld)
+    assert _req(alone.port, "/data/place/X.json", cookie=_session(alone.port)).status == 200, \
+        "while the shared sign-in is the only one, it is the operator's"
+    both = start(meta=withheld)
+    assert _req(both.port, "/data/place/X.json", cookie=_session(both.port)).status == 503, \
+        "once personal sign-ins exist, whoever holds the shared one is not assumed to be the operator"
+    assert "no SITE_OPERATORS" in both.log()
     _write_meta(s.dist, {**META, "access_approved": True})
     assert _req(s.port, "/data/place/X.json", cookie=ana).status == 200, "once recorded, every signed-in person"
 
+
+def test_past_the_budget_one_client_cannot_hold_every_sign_in(site):
+    """Slowed checks run one at a time per address: a client flooding them delays only itself."""
+    port = site.port
+    for i in range(301):
+        _login(port, f"guess{i}", "wrong-guess-wrong-guess")
+    results = {}
+
+    def go(name, user, password, ip):
+        results[name] = _login(port, user, password, headers={"CF-Connecting-IP": ip})
+
+    flood = [threading.Thread(target=go, args=(f"flood{i}", "city", "wrong-guess-wrong-guess", "203.0.113.5")) for i in range(4)]
+    for t in flood:
+        t.start()
+    time.sleep(0.3)
+    other = threading.Thread(target=go, args=("ana", "ana", ANA, "198.51.100.7"))
+    other.start()
+    for t in flood + [other]:
+        t.join(timeout=30)
+    flooded = [results[f"flood{i}"].status for i in range(4)]
+    assert flooded.count(429) >= 3, f"one slowed check at a time from one address: {flooded}"
+    assert results["ana"].status == 303, "someone else still signs in, after the wait"

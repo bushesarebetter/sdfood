@@ -83,7 +83,7 @@ const byDistrict = (ev) => ({
   9: { named: 25, precision: 0.3, false_share_ratio: 1.8, interval_family: [1.2, 2.7], interval_family_deff: [1.01, 3.1], evidence_above_even: ev[9] },
   None: { named: 3, evidence_above_even: true },
 });
-const EVIDENCE_4_9 = "In the backtest, band 1 places in Districts 4 and 9 went on to have no major violation more often than elsewhere, even allowing for chance; " +
+const EVIDENCE_4_9 = "In the backtest, places in Districts 4 and 9 were put in band 1 and then had no major violation about 1.9 and 1.8 times as often as across the City respectively, for their number of places, even allowing for chance; " +
   "part of this may be how inspectors there cite. Do not compare districts by how many places are in a band.";
 
 test("the fairness line names only the districts whose family-wise interval starts above even", () => {
@@ -99,7 +99,7 @@ test("the fairness line names only the districts whose family-wise interval star
   // one district; the bands the district figures cover
   const one = { fairness: { bands_used: ["1", "2", "3"], by_district: byDistrict({ 4: true, 5: false, 9: false }) } };
   assert.equal(fairnessLine(one),
-    "In the backtest, places in bands 1 to 3 in District 4 went on to have no major violation more often than elsewhere, even allowing for chance; " +
+    "In the backtest, places in District 4 were put in bands 1 to 3 and then had no major violation about 1.9 times as often as across the City, for their number of places, even allowing for chance; " +
       "part of this may be how inspectors there cite. Do not compare districts by how many places are in a band.");
 });
 
@@ -158,3 +158,11 @@ test("an ended staff session goes back to the sign-in page, never on the public 
     delete globalThis.__STAFF__;
   }
 });
+
+test("the demonstration line follows access_approved, including TRUST applying without the Council", () => {
+  assert.equal(reviewGuidance({ audience: "staff", access_approved: false, review_status: [] })[0], GUIDANCE.demonstration);
+  assert.ok(!reviewGuidance({ audience: "staff", access_approved: true, review_status: [] }).includes(GUIDANCE.demonstration));
+  assert.equal(reviewGuidance({ review_status: ["the TRUST Ordinance applies and the Council has not approved this use (council_approval)"] })[0],
+    GUIDANCE.demonstration, "an older export: from the status line");
+});
+

@@ -260,7 +260,10 @@ def review_status(meta, today):
 def apply_holds(fc, details, held):
     """A held place keeps its County record and loses its points and band, at once, and moves to the
     end of the list file, so its position does not give its points away."""
-    fc["features"].sort(key=lambda f: bool(f["properties"].get("on_hold")) or f["properties"]["facility_id"] in held)
+    # Held places last, in facility-id order: keeping their order by points would give the points away.
+    fc["features"].sort(key=lambda f: (f["properties"]["facility_id"] in held or bool(f["properties"].get("on_hold")),
+                                       f["properties"]["facility_id"] if (f["properties"]["facility_id"] in held
+                                                                           or f["properties"].get("on_hold")) else ""))
     for f in fc["features"]:
         p = f["properties"]
         if p["facility_id"] in held and any(k in p for k in BAND_FIELDS):

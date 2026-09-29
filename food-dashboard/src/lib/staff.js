@@ -67,6 +67,7 @@ const APOS = "['’]";
 const LINES = {
   access: new RegExp("^no City request for access is on record", "i"),
   trust: new RegExp("^no TRUST Ordinance determination is on record", "i"),
+  council: new RegExp("^the TRUST Ordinance applies and the Council has not approved", "i"),
   lawyer: new RegExp("^no lawyer has reviewed naming these businesses", "i"),
   county: new RegExp("^the County has not commented on this list", "i"),
   owners: new RegExp("^no business on the list has been told it is on it", "i"),
@@ -105,17 +106,30 @@ export function evidenceDistricts(meta) {
 }
 
 /**
- * The fairness line for the banner and the district view. From `evidence_above_even` when the export
- * has it: "In the backtest, band 1 places in Districts 4 and 9 went on to have no major violation
- * more often than elsewhere, even allowing for chance; ...", and nothing when no district has that
- * evidence. An older export without the field falls back to the districts its gate text names.
+ * The fairness line for the banner and the district view, saying what was measured: a district's
+ * share of the places put in the band that then had no major, over its share of the places with a
+ * later inspection (`false_share_ratio`), from `evidence_above_even` when the export has it:
+ * "In the backtest, places in District 9 were put in band 1 and then had no major violation about
+ * 1.9 times as often as across the City, for their number of places, even allowing for chance; ...".
+ * Nothing when no district has that evidence; an older export falls back to its gate text's districts.
  */
 export function fairnessLine(meta) {
   const ev = evidenceDistricts(meta);
   if (ev === null) return districtLine(flaggedDistricts(reviewStatus(meta)));
   if (!ev.length) return null;
-  return `In the backtest, ${auditedGroup(meta)} in ${districtsPhrase(ev)} went on to have no major violation more often than elsewhere, ` +
-    "even allowing for chance; part of this may be how inspectors there cite. Do not compare districts by how many places are in a band.";
+  const by = meta.fairness.by_district;
+  const ratio = (d) => by[String(d)]?.false_share_ratio;
+  const times = ev.every((d) => typeof ratio(d) === "number")
+    ? ` about ${ev.map((d) => `${ratio(d).toFixed(1)}`).join(ev.length > 2 ? ", " : " and ").replace(/, ([^,]*)$/, " and $1")} times as often as across the City`
+    : " more often than across the City";
+  return `In the backtest, places in ${districtsPhrase(ev)} were put in ${auditedBandsPhrase(meta)} and then had no major violation${times}` +
+    `${ev.length > 1 ? " respectively" : ""}, for their number of places, even allowing for chance; part of this may be how inspectors ` +
+    "there cite. Do not compare districts by how many places are in a band.";
+}
+
+/** "band 1", or "bands 1 to 3": the bands the district figures cover. */
+function auditedBandsPhrase(meta) {
+  return auditedGroup(meta).replace(/^places in /, "").replace(/ places$/, "");
 }
 
 /**
@@ -128,7 +142,11 @@ export function reviewGuidance(meta) {
   const status = reviewStatus(meta);
   const out = [];
   const has = (re) => status.some((s) => re.test(s));
-  if (has(LINES.access) || has(LINES.trust)) out.push(GUIDANCE.demonstration);
+  // The staff copy of meta says whether the City's request and TRUST answer are on record; an older
+  // export only says so in its status lines.
+  const notApproved = meta?.access_approved === false
+    || (meta?.access_approved === undefined && (has(LINES.access) || has(LINES.trust) || has(LINES.council)));
+  if (notApproved) out.push(GUIDANCE.demonstration);
   if (has(LINES.lawyer) || has(LINES.county) || has(LINES.owners)) out.push(GUIDANCE.unreviewed);
   if (has(/does not beat|within 0\.01 AUC/)) out.push(GUIDANCE.persistence);
   if (has(/cost ratio|nothing to name/)) out.push(GUIDANCE.nothingToName);
