@@ -2,6 +2,7 @@ import { REPO_URL } from "./constants";
 import { SITE, STUDENT_NOTE } from "./site";
 import SampleBanner from "./SampleBanner";
 import StaffBanner from "./StaffBanner";
+import StaffNoticeLinks from "./StaffNoticeLinks";
 import ExpiryBanner from "./ExpiryBanner";
 import { useExpired } from "./useMeta";
 
@@ -27,11 +28,14 @@ export default function PageFrame({ onNavigate, wide = false, children }) {
             {SITE.shortTitle}
             <span className="ml-2 hidden text-[12px] font-normal text-ink-2 sm:inline">{SITE.name}</span>
           </a>
-          {!expired && (
-            <a href="/map" onClick={go("/map")} className={`pb-px text-[13px] ${LINK}`}>
-              Open the map
-            </a>
-          )}
+          <span className="flex items-center gap-4">
+            <StaffNoticeLinks />
+            {!expired && (
+              <a href="/map" onClick={go("/map")} className={`pb-px text-[13px] ${LINK}`}>
+                Open the map
+              </a>
+            )}
+          </span>
         </div>
       </header>
       <SampleBanner />

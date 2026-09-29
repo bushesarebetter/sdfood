@@ -6,6 +6,7 @@ import AboutModal from "./AboutModal";
 import NearPanel from "./NearPanel";
 import SampleBanner from "./SampleBanner";
 import StaffBanner from "./StaffBanner";
+import StaffNoticeLinks from "./StaffNoticeLinks";
 import ExpiryBanner from "./ExpiryBanner";
 import AreaToggle from "./AreaToggle";
 import Dialog, { CloseButton } from "./Dialog";
@@ -80,6 +81,7 @@ export default function MobileShell({ facilities, filters, hasCounty = false, on
         </div>
         <SampleBanner compact />
         <StaffBanner compact />
+        <StaffNoticeLinks className="bg-paper px-3 py-1.5 shadow-paper" />
         <ExpiryBanner compact />
         <div className="flex flex-wrap gap-2">
         {!mapError && (

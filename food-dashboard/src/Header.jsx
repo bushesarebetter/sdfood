@@ -2,11 +2,12 @@ import { useState } from "react";
 import { useAdvanced } from "./useAdvanced";
 import SearchBox from "./SearchBox";
 import AboutModal from "./AboutModal";
+import StaffNoticeLinks from "./StaffNoticeLinks";
 import { SITE } from "./site";
 
 /**
  * Masthead for the map: the name, the scope, the search, the register toggle
- * and About. Its height is reserved so nothing below it moves as it loads.
+ * and About (and on the staff site, once its notice bar is closed, the notice and sign-out). Its height is reserved so nothing below it moves as it loads.
  */
 export default function Header({ facilities, onSelect, onHome, onNavigate }) {
   const { advanced, toggle } = useAdvanced();
@@ -39,6 +40,7 @@ export default function Header({ facilities, onSelect, onHome, onNavigate }) {
               <SearchBox facilities={facilities} onSelect={onSelect} />
             </div>
             <RegisterToggle advanced={advanced} onToggle={toggle} />
+            <StaffNoticeLinks />
             <button onClick={() => setAboutOpen(true)} className="shrink-0 whitespace-nowrap border-b border-ink/25 pb-px text-[13px] text-ink-2 hover:border-ink hover:text-ink">
               {advanced ? "Methodology" : "About this site"}
             </button>

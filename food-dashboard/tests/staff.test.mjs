@@ -391,7 +391,7 @@ test("the staff bar opens by itself at each sign-in, prints the whole notice, an
 
 test("closed, the bar shows every point and whom to write to; a screen reader hears one punctuated sentence", () => {
   const code = banner();
-  const bar = code.slice(code.indexOf('role="note"'), code.indexOf("{open && !compact"));
+  const bar = code.slice(code.indexOf('role="note"'), code.indexOf("{open && !compact && ("));
   assert.match(bar, /<span className="sr-only">\{`\$\{b\.points\.join\("\. "\)\}\.`\}<\/span>/, "the points as sentences");
   assert.match(bar, /<span aria-hidden="true">\s*\{b\.points\.map/, "the dotted line is for the eye");
   assert.match(bar, /inline-block/, "each point wraps whole");
@@ -407,14 +407,14 @@ test("only 'I have read this' marks the notice read, and it comes after every li
   assert.doesNotMatch(toggle, /acknowledge|markSeen/);
   assert.equal(code.match(/onClick=\{acknowledge\}/g)?.length, 1, "one button acknowledges");
   // The desktop panel: one scroller, the button inside it, after the open checks and every instruction.
-  const panel = code.slice(code.indexOf("{open && !compact"), code.indexOf("{open && compact"));
+  const panel = code.slice(code.indexOf("{open && !compact && ("), code.indexOf("{open && compact && createPortal("));
   assert.match(panel, /max-h-\[50dvh\] overflow-y-auto/);
   assert.equal(panel.match(/overflow-y-auto/g).length, 1, "no inner scroller that hides lines while the button shows");
   assert.match(panel, /\{rules\}[\s\S]*\{checks\}[\s\S]*\{ack\}/, "the button last in reading and tab order");
   const checks = code.slice(code.indexOf("const checks = ("), code.indexOf("const ack = ("));
   assert.match(checks, /b\.open[\s\S]*b\.guidance\.map/, "the open checks and every instruction come before the button");
   // The phone: a full-screen sheet, headed, the whole notice, the button at its end.
-  const sheet = code.slice(code.indexOf("{open && compact"), code.indexOf("{/* On paper"));
+  const sheet = code.slice(code.indexOf("{open && compact && createPortal("), code.indexOf("{/* On paper"));
   assert.match(sheet, /createPortal\(\s*<Dialog titleId=\{titleId\}/);
   assert.match(sheet, /className="min-h-dvh max-w-none border-0" z=\{60\}/, "over the cookie line");
   assert.match(sheet, /<h2 id=\{titleId\}/);

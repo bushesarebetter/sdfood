@@ -149,7 +149,7 @@ export default function StaffBanner({ fixed = false, compact = false }) {
             {...(compact ? { "aria-haspopup": "dialog" } : { "aria-controls": panelId })}
             className="inline-flex items-center gap-1 whitespace-nowrap border-b border-ink/40 text-ink hover:border-ink"
           >
-            {open && !compact ? "Hide the notice" : b.toggle}
+            {compact || !open ? b.toggle : "Hide the notice"}
             <svg width="10" height="6" viewBox="0 0 10 6" aria-hidden="true" className={open ? "rotate-180" : ""}>
               <path d="M1 1l4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.5" />
             </svg>
