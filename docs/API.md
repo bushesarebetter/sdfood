@@ -33,7 +33,7 @@ curl -H "X-API-Key: key-for-staff" "http://localhost:8000/v1/districts"
 | endpoint | what it returns |
 |---|---|
 | `GET /health` | status, the export being served, and whether it is past its expiry date |
-| `GET /v1/summary` | the export, the published rule (in words and item by item), and each band with its backtest rate and lift over other restaurants |
+| `GET /v1/summary` | the export, the students' point rule (in words and item by item), and each band with its backtest rate and lift over other restaurants |
 | `GET /v1/results` | headline results: band rates and lift; the research model's head start within a district's month, when `data/research_results.json` is present |
 | `GET /v1/facilities` | the list, filtered and paged: `district`, `band`, `kind` (restaurant, limited, market), `flag` (major, closed, bc, repeat, or a theme such as temperature), `q` (words in the name or address), `sort` (band, points, name), `limit`, `offset` |
 | `GET /v1/facilities/{facility_id}` | one place: every County inspection record with the County's own status text; what inspectors found, by theme; and, for a scored restaurant, its points worksheet |

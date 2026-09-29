@@ -397,10 +397,13 @@ For a month (by default the one after the data end), one CSV per council distric
   routine interval (a Kaplan–Meier median that counts still-open intervals) minus 30. In a backtest
   over 2025-01 to 2026-08, **67%** of each month's City routine inspections (at facilities already
   on the record) came from that month's list, and 32% of a list was inspected that month: a list
-  runs about 2.1 times a month's volume. For October 2026: 2,029 facilities across the nine
-  districts.
-- **The order:** the published point card's points first (the site's rule, below), then places
-  the card does not score by the one-line rule. Each row says why it sits where it does.
+  runs about 2.1 times a month's volume. For October 2026: 1,393 facilities across the nine
+  districts. Only the kinds of place the site lists appear: never a private home (home kitchens,
+  cottage food), a health-care kitchen, a school or a food truck at its commissary.
+- **The order:** the students' point rule's points first (the site's rule, below: the average routine
+  score over two years), then places it does not score by the one-line rule. Each row says why it
+  sits where it does, from the same scores its worksheet lists, with its last routine outcome, its
+  closure orders in two years and the County's escalation facts.
 - **A frozen copy** (read-only, timestamped, with sha256 hashes and every active facility's
   position under each ordering) lets a silent pilot be scored later against exactly what was sent:
   [docs/PILOT.md](docs/PILOT.md). The pilot's primary test is whether the rule's head start is
@@ -414,9 +417,9 @@ This repository reports two models, and they answer different questions:
 - **The research model and one-line rule** (this section): each *routine inspection* in 2025-26,
   county-wide, every facility type; "was a major found at this inspection?", scored against the
   order the inspections were actually done.
-- **The published point card** (the section below, and docs/MODEL_CARD.md): monthly snapshots of
-  *City restaurants*, each described by its scores over the two years before and its citations over
-  the year before, and "will its next routine inspection within a year find a major?"; published as bands.
+- **The students' point rule** (the section below, and docs/MODEL_CARD.md): monthly snapshots of
+  *City restaurants*, each described by its routine scores over the two years before, and "will its
+  next routine inspection within a year find a major?"; shown as a band and a per-place estimate.
 
 Both rest on the same finding: a facility's own routine record is a strong guide to where major
 violations will be found.
@@ -451,43 +454,39 @@ python export_dashboard.py # de-identified worklist in the rule's order -> dashb
 python -m pytest tests     # includes tests/test_worklist.py
 ```
 
-## For the City: the staff API, and the public site
+## For the City: the staff site
 
-| | `api/` (FastAPI) | `food-dashboard/` (site) | `dashboard.html` |
-|---|---|---|---|
-| For | City of San Diego staff | the public, once approved | the research summary |
-| Shows | every listed City restaurant and market with the County's record, the published rule's points and band, district summaries, monthly worklists | the same records and bands on a map | the research results, and this month's list as counts only (no facility rows) |
-| Access | an API key ([docs/API.md](docs/API.md)) | invented sample until every gate passes ([docs/PUBLISHING.md](docs/PUBLISHING.md)) | open |
+| | City staff site (live) | `api/` (optional) | public site | `dashboard.html` |
+|---|---|---|---|---|
+| For | City of San Diego staff | City staff, by key | the public, once approved | the research summary |
+| Shows | every listed restaurant and market in the county with the County's record; the students' point rule's points, band and estimate; where to route a complaint | the same as JSON and CSV, district summaries, monthly worklists | the invented sample | counts only (no facility rows) |
+| Access | a sign-in per person, after the steps in [docs/STAFF_SITE.md](docs/STAFF_SITE.md) | an API key ([docs/API.md](docs/API.md)) | only if every gate passes ([docs/PUBLISHING.md](docs/PUBLISHING.md)) | open |
 
-**The published rule** is a transparent point score built from each restaurant's own County
-record:
-- 19 points per employee-hygiene citation;
-- 16 per food-source citation;
-- 12 per food-temperature citation;
-- 5 per hand-washing citation;
-- 2 per point the average routine score over two years fell below 100;
-- 1 per point the last routine score fell below 100.
-
-Every restaurant's worksheet shows how its points add up. In the backtest, restaurants in the band
-(41 points or more, about the top 18% of scored restaurants) had a major violation at their next
-routine inspection **at about twice the rate of other restaurants** (37.2% against 17.8%). A
-persistence group of the same size reaches a similar rate (37.8%), so the band's value is that its
-points are transparent, not that it is more accurate. What it is and how it was chosen:
-[docs/MODEL_CARD.md](docs/MODEL_CARD.md).
+**The students' point rule** is one line: a restaurant's points are how far its average routine
+score over the last two years fell below 100 (a closure order counts as 70), and every place's page
+lists the scores it averages. It was chosen as the sparsest rule within 0.01 AUC of the best
+alternative. Restaurants with 8 points or more had a major violation at their next routine inspection
+at about 1.7 times the rate of all scored restaurants (36.9% against 21.2%), the same at every backtest
+date, and every scored place shows what places with about its points did (from about 7 in 100 at 0
+points to about 39 in 100 at 16 or more). Ranking by recent majors does about as well: the rule is a
+transparent summary of the County's record, not a better predictor. How it was chosen and checked,
+and what it is not for: [docs/MODEL_CARD.md](docs/MODEL_CARD.md).
 
 ```bash
-python export_site.py                          # -> data/site/ (every City place; points and bands; report.md; archive/)
+SDFOOD_CONTACT=you@example.org python refresh_city_site.py   # weekly: pull, export, worklists, publish, wait
+python export_site.py                          # -> data/site/ (every place; points, bands, estimates; report.md; archive/)
 python export_worklist.py                      # -> data/worklists/<month>/district-<n>.csv
-SDFOOD_API_KEYS=choose-a-key uvicorn api.main:app --port 8000     # http://localhost:8000/docs
-python export_site.py --mode record            # the record-only export, without any score
+python publish_city_site.py --wait https://sdfood-city.onrender.com   # the staff site, through its gates
 python export_site.py --publish                # the public site: only if every gate passes
 cd food-dashboard && npm install && npm test && npm run dev
-python -m pytest tests                         # exporter, API, worklists, and end-to-end builds through the site's contract check
+python -m pytest tests                         # the pipeline, the server, the gates, and builds through the site's contract check
 ```
 
-- [docs/API.md](docs/API.md): the staff API.
+- [docs/STAFF_SITE.md](docs/STAFF_SITE.md): who may use the staff site, and for what.
+- [docs/RUNBOOK.md](docs/RUNBOOK.md): keeping it running, and what to do when something fails.
 - [docs/MODEL_CARD.md](docs/MODEL_CARD.md): the rule.
 - [docs/FOOD_DATA_CONTRACT.md](docs/FOOD_DATA_CONTRACT.md): what the export holds.
-- [docs/PUBLISHING.md](docs/PUBLISHING.md): the gates.
-- [docs/HOSTING.md](docs/HOSTING.md): the staff API and the site on Render (`deploy_api.py` ships the API).
+- [docs/PUBLISHING.md](docs/PUBLISHING.md): the four release paths and their gates.
+- [docs/HOSTING.md](docs/HOSTING.md): the staff site, the API and the public site on Render.
+- [docs/API.md](docs/API.md): the optional staff API.
 - [docs/PILOT.md](docs/PILOT.md): a silent pilot the City can propose to the County.
