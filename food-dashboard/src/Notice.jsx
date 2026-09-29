@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { useMeta } from "./useMeta";
+import { isStaff, COOKIE_NOTE_STAFF } from "./lib/staff";
 
 const KEY = "food.seenNotice";
 
@@ -19,11 +21,12 @@ function mark() {
 }
 
 /**
- * One line, shown once. This site sets no cookies itself; Google Maps, which
- * draws the basemap and Street View, may set its own.
+ * One line, shown once. The public site sets no cookies itself; the staff site sets one, the
+ * sign-in session. Google Maps, which draws the basemap and Street View, may set its own.
  */
 export default function Notice({ placement = "inline", onNavigate }) {
   const [hidden, setHidden] = useState(seen);
+  const staff = isStaff(useMeta());
   if (hidden) return null;
 
   const dismiss = () => {
@@ -41,7 +44,7 @@ export default function Notice({ placement = "inline", onNavigate }) {
     >
       <div className="mx-auto flex max-w-[76rem] flex-wrap items-center justify-between gap-x-4 gap-y-1 md:px-4">
         <p>
-          This site sets no cookies of its own. Google Maps, which draws the map, may set its own.{" "}
+          {staff ? COOKIE_NOTE_STAFF : "This site sets no cookies of its own."} Google Maps, which draws the map, may set its own.{" "}
           <a
             href="/privacy"
             onClick={(e) => {

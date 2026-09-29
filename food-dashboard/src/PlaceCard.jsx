@@ -6,7 +6,7 @@ import ScoreCard from "./ScoreCard";
 import StaffActions from "./StaffActions";
 import RecordSummary from "./RecordSummary";
 import VisitList from "./VisitList";
-import { PlaceLines, PlaceStatus, CountyDisclaimer, RecordFactList, ThemeList, StaleBadge } from "./PlaceParts";
+import { PlaceLines, PlaceStatus, CountyDisclaimer, RecordFactList, ThemeList, StaleBadge, EscalationFacts } from "./PlaceParts";
 import usePlace from "./usePlace";
 import { useAdvanced } from "./useAdvanced";
 import { useExpired, useMeta, useMode, useSample } from "./useMeta";
@@ -18,6 +18,7 @@ import { citation } from "./lib/ask";
 import { findPlace, placePath, mapPlacePath } from "./lib/links";
 import { markFor } from "./lib/marks";
 import { SITE } from "./site";
+import { staffBuild } from "./lib/staff";
 
 const LINK = "border-b border-ink/25 text-ink hover:border-ink";
 
@@ -128,6 +129,7 @@ export default function PlaceCard({ placeKey, facilities, error = null, onRetry 
 
           <Section heading={copy.detailFacts}>
             <p className="mb-3 text-[13.5px] text-ink-2">{copy.detailFactsNote}.</p>
+            <EscalationFacts flags={p.flags} large />
             <RecordFactList facts={facts} large empty={copy.detailNoFacts} />
           </Section>
 
@@ -152,7 +154,7 @@ export default function PlaceCard({ placeKey, facilities, error = null, onRetry 
 
       <Section heading="Cite this place">
         <p className="font-mono text-[13px] leading-[1.6] text-ink-2">
-          {citation({ place: p, url: `${SITE.siteUrl}${placePath(p)}`, meta, mode, expired })}
+          {citation({ place: p, url: `${staffBuild() ? window.location.origin : SITE.siteUrl}${placePath(p)}`, meta, mode, expired })}
         </p>
         <p className="mt-2 font-mono text-[12px] text-ink-3">County permit record {p.facility_id}</p>
       </Section>

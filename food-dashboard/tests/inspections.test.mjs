@@ -122,3 +122,9 @@ test("a closure the County reopened shows the reopening date; nothing else does"
   assert.equal(reopenedText({ ...closed, reopened_on: undefined }), null, "an export from before reopened_on");
   assert.equal(reopenedText({ ...reopen, reopened_on: "2025-01-10" }), null, "only a closure carries it");
 });
+
+test("a place's page lists the County's escalation criteria it meets, in order, and nothing else", () => {
+  assert.deepEqual(inspections.escalationFacts(["major", "lt90_2", "closures2", "vermin"]).map((f) => f.key), ["closures2", "lt90_2"]);
+  assert.match(inspections.escalationFacts(["repeat_item"])[0].label, /^Same major item at two or more routine inspections/);
+  assert.deepEqual(inspections.escalationFacts(undefined), []);
+});

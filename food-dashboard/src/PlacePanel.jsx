@@ -6,7 +6,7 @@ import StaffActions from "./StaffActions";
 import RecordSummary from "./RecordSummary";
 import VisitList from "./VisitList";
 import StreetViewPanel from "./StreetViewPanel";
-import { PlaceLines, PlaceStatus, CountyDisclaimer, RecordFactList, ThemeList, StaleBadge } from "./PlaceParts";
+import { PlaceLines, PlaceStatus, CountyDisclaimer, RecordFactList, ThemeList, StaleBadge, EscalationFacts } from "./PlaceParts";
 import usePlace from "./usePlace";
 import { useAdvanced } from "./useAdvanced";
 import { useExpired, useMeta, useMode, useSample } from "./useMeta";
@@ -134,6 +134,7 @@ export default function PlacePanel({ feature, onClose, facilities = null, onSele
             </Block>
 
             <Block heading={copy.detailFacts} note={copy.detailFactsNote}>
+              <EscalationFacts flags={p.flags} />
               <RecordFactList facts={facts} empty={copy.detailNoFacts} />
             </Block>
 

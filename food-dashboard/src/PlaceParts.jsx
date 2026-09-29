@@ -8,7 +8,7 @@ import { useMeta, useExpired } from "./useMeta";
 import { placeLines } from "./lib/framing";
 import { lastVisitStale, STALE_LABEL } from "./lib/filters";
 import { PLACE_STATUS_TEXT } from "./lib/placeData";
-import { themeCounts } from "./lib/inspections";
+import { themeCounts, escalationFacts, ESCALATION_NOTE } from "./lib/inspections";
 import { fmtMonth } from "./lib/dates";
 import { SITE } from "./site";
 
@@ -113,6 +113,25 @@ export function RecordFactList({ facts, large = false, empty }) {
         </li>
       ))}
     </ul>
+  );
+}
+
+/**
+ * The County's own criteria for a closer look that the place meets (its escalation flags), with
+ * the Guide's words. Nothing when it meets none.
+ */
+export function EscalationFacts({ flags, large = false }) {
+  const facts = escalationFacts(flags);
+  if (!facts.length) return null;
+  const text = large ? "text-[15px]" : "text-[13.5px]";
+  return (
+    <div className="mb-4 border-l-2 border-ink pl-3">
+      <p className="label">The County&rsquo;s own criteria for a closer look</p>
+      <ul className={`mt-1 list-disc pl-5 leading-[1.5] text-ink ${text}`}>
+        {facts.map((f) => <li key={f.key}>{f.label}</li>)}
+      </ul>
+      <p className={`mt-1 leading-[1.5] text-ink-2 ${large ? "text-[14px]" : "text-[13px]"}`}>{ESCALATION_NOTE}</p>
+    </div>
   );
 }
 

@@ -87,6 +87,15 @@ export const FLAG_KEYS = [...RECORD_FLAGS, ...Object.keys(THEMES).filter((k) => 
 
 const lowerFirst = (s) => `${s.charAt(0).toLowerCase()}${s.slice(1)}`;
 
+/**
+ * The escalation facts a place meets, as its page lists them: [{ key, label }], in ESCALATION_FLAGS
+ * order. Facts about the County's record, counted from the list date; not predictions.
+ */
+export function escalationFacts(flags) {
+  const have = new Set(Array.isArray(flags) ? flags : []);
+  return ESCALATION_FLAGS.filter((k) => have.has(k)).map((k) => ({ key: k, label: FLAG_LABELS[k] }));
+}
+
 /** The index's record flags, as filter labels. Every one is our reading of the record. */
 export const FLAG_LABELS = {
   major: "A major violation",

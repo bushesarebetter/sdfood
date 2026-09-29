@@ -1,5 +1,5 @@
 import PageFrame from "./PageFrame";
-import { isStaff, PUBLIC_RECORD_NOTE, USE_NOTE } from "./lib/staff";
+import { isStaff, PUBLIC_RECORD_NOTE, USE_NOTE, COOKIE_NOTE_STAFF } from "./lib/staff";
 import { useMeta, useMode } from "./useMeta";
 import { fmtDate } from "./lib/dates";
 import { REPO_URL } from "./constants";
@@ -75,8 +75,9 @@ export default function Privacy({ onNavigate }) {
       <Section heading="What this site collects">
         {staff ? (
           <p>
-            Nothing of its own beyond the staff sign-in above. There is no account apart from that sign-in. The one form, &ldquo;Near an
-            address&rdquo;, goes through this site&rsquo;s own server, as described above; the server keeps only the access log. Three
+            Nothing of its own beyond the staff sign-in above. There is no account apart from that sign-in. {COOKIE_NOTE_STAFF} The one
+            form, &ldquo;Near an address&rdquo;, goes through this site&rsquo;s own server, as described above; the server keeps only the
+            access log, which records by sign-in each data file fetched and each list downloaded or printed. Three
             settings live in your browser&rsquo;s local storage: whether you have seen the first-visit note, whether you dismissed the
             cookie note, and whether you chose technical wording.
           </p>

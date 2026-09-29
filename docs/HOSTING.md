@@ -276,8 +276,8 @@ The site builds without them, but the map shows an error panel.
    Static API** (the pano in the place panel), **Places API (New)** (address suggestions in
    "Near an address") and **Geocoding API** (an address typed rather than picked).
 3. Create an API key and restrict it:
-   - Application restrictions, Websites: `https://sd-food-safety-risk.onrender.com/*` and
-     `http://localhost:5173/*`.
+   - Application restrictions, Websites: `https://sdfood.onrender.com/*`,
+     `https://sdfood-city.onrender.com/*` and `http://localhost:5173/*`.
    - API restrictions: the four APIs above. A key restricted to fewer fails with
      `REQUEST_DENIED` on the missing ones.
    The key is necessarily visible in the client bundle; the referrer restriction is what

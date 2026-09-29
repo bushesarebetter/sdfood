@@ -10,7 +10,7 @@ export const SITE = {
   countyOfficial: "County of San Diego",
   siteTitle: "San Diego Food Inspection Record",
   shortTitle: "Food Inspection Record",
-  siteUrl: "https://sd-food-safety-risk.onrender.com",
+  siteUrl: "https://sdfood.onrender.com",
 
   // Who serves the site, for the privacy page. Change it with the host.
   host: { name: "Render", privacyUrl: "https://render.com/privacy" },

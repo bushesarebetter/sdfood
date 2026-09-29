@@ -37,6 +37,10 @@ export function reviewStatus(meta) {
   return Array.isArray(meta?.review_status) ? meta.review_status.filter((s) => typeof s === "string" && s) : [];
 }
 
+/** The staff site's one cookie: the sign-in session (city_site/server.mjs). */
+export const COOKIE_NOTE_STAFF =
+  "This site sets one cookie of its own, to keep you signed in; it ends when you sign out, after 30 idle minutes, or after 10 hours.";
+
 export const PUBLIC_RECORD_NOTE =
   "What you download, print, copy, screenshot or send from this site, and your messages about it on any account or device, " +
   "are likely City public records under the California Public Records Act and may have to be released on request. " +
