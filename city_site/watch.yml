@@ -1,28 +1,83 @@
 # The City staff site's daily check, run in the PRIVATE deploy repository (publish_city_site.py copies it
-# to .github/workflows/watch.yml there). It fails, and opens an issue that notifies everyone watching the
-# repository, when Render is not serving the latest commit (a deploy failed) or the export expires in
-# under 4 days (refresh now). /healthz is open and carries no data, so no secret is needed.
+# to .github/workflows/watch.yml there). It reads the live site only: /healthz is open and carries no data,
+# so no secret is needed and nothing is checked out. It fails when
+#   - Render is not serving this repository's latest commit (/healthz "source" is not GITHUB_SHA): a deploy
+#     failed or is stuck;
+#   - the site is closed (its sunset has passed, or it is not serving the staff export), its export is
+#     stale, or the export expires in under 4 days (refresh now);
+#   - the frozen rule needs a refit (/healthz "refit_needed": the record has drifted from it);
+#   - the export can be read without signing in (GET /data/meta.json must be refused: 401, or a 303 to
+#     /login).
+# A failure opens an issue titled "staff site check failed", or comments on the one already open, so a
+# problem that lasts a week is one issue, not seven; everyone watching the repository is notified. When
+# the sunset date is less than 30 days away it also opens (once) an issue saying so.
 name: watch
 on:
   schedule: [{ cron: "23 14 * * *" }]     # about 07:23 in San Diego
   workflow_dispatch: {}
-permissions: { contents: read, issues: write }
+permissions: { issues: write }
 jobs:
   watch:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env: { SITE: "https://sdfood-city.onrender.com" }
     steps:
-      - uses: actions/checkout@v4
-      - name: the live site serves main, and its export is not about to expire
-        env: { SITE: "https://sdfood-city.onrender.com" }
+      - name: the live site serves main, is open and fresh, refuses data without a sign-in, and is not about to expire
+        id: check
         run: |
-          set -euo pipefail
+          set +e -uo pipefail                 # run every check, then fail if any did
+          problems="$RUNNER_TEMP/problems.md"; : > "$problems"
+          fail() { echo "::error::$1"; echo "- $1" >> "$problems"; }
+          days() { echo $(( ($(date -ud "$1" +%s) - $(date -u +%s)) / 86400 )); }
           h=$(curl -fsS --retry 6 --retry-all-errors --retry-delay 20 --max-time 90 "$SITE/healthz")   # also wakes a free instance
-          got=$(jq -r .source <<<"$h"); exp=$(jq -r .expires <<<"$h"); want=$(git rev-parse HEAD)
-          left=$(( ($(date -ud "$exp" +%s) - $(date -u +%s)) / 86400 ))
-          echo "live ${got:0:7} (main ${want:0:7}); export expires $exp; $left days left" >> "$GITHUB_STEP_SUMMARY"
-          [ "$got" = "$want" ] || { echo "::error::Render is not serving main: the last deploy failed or is stuck"; exit 1; }
-          [ "$left" -ge 4 ]    || { echo "::error::the export expires $exp: refresh it now (docs/RUNBOOK.md)"; exit 1; }
-      - if: failure()
-        env: { GH_TOKEN: "${{ github.token }}" }
-        run: gh issue create -R "$GITHUB_REPOSITORY" --title "staff site check failed $(date -u +%F)" --body "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          if [ $? -ne 0 ] || ! jq -e . >/dev/null <<<"$h"; then
+            fail "$SITE/healthz did not answer: the site is down"; cat "$problems" >> "$GITHUB_STEP_SUMMARY"; exit 1
+          fi
+          field() { jq -r "$1 // empty" <<<"$h"; }
+          got=$(field .source); exp=$(field .expires); sunset=$(field .sunset); closed=$(field .closed); rule=$(field .rule_version)
+          stale=$(jq -r '.stale == true' <<<"$h"); refit=$(jq -r '.refit_needed == true' <<<"$h")
+          echo "live ${got:0:7} (main ${GITHUB_SHA:0:7}); export expires ${exp:-?}; sunset ${sunset:-?}; rule ${rule:-not frozen}" >> "$GITHUB_STEP_SUMMARY"
+
+          [ "$got" = "$GITHUB_SHA" ] || fail "Render is not serving main (live ${got:0:7}, main ${GITHUB_SHA:0:7}): the last deploy failed or is stuck"
+          [ -z "$closed" ] || fail "the site is closed: $closed"
+          [ "$stale" = false ] || fail "the export is stale (it expired $exp): refresh it now (docs/RUNBOOK.md)"
+          if [ -z "$exp" ]; then fail "the health check reports no export expiry date"
+          elif [ "$(days "$exp")" -lt 4 ]; then fail "the export expires $exp: refresh it now (docs/RUNBOOK.md)"; fi
+          [ "$refit" = false ] || fail "the frozen rule needs a refit: the record has drifted from it (docs/RUNBOOK.md)"
+
+          # The export must be refused without a sign-in: 401 to a script, a 303 to /login to a browser.
+          for accept in '*/*' 'text/html'; do
+            read -r code loc < <(curl -sS -o /dev/null -H "Accept: $accept" -w '%{http_code} %{redirect_url}\n' --max-time 60 "$SITE/data/meta.json" || echo "000 -")
+            case "$code" in
+              401) ;;
+              303) [[ "$loc" == "$SITE/login"* ]] || fail "GET /data/meta.json (Accept: $accept) without a sign-in redirects to $loc, not to /login" ;;
+              200) fail "the export is served WITHOUT a sign-in (GET /data/meta.json, Accept: $accept, answered 200): take the site down now" ;;
+              503) [ -n "$closed" ] || fail "GET /data/meta.json (Accept: $accept) without a sign-in answered 503" ;;
+              *)   fail "GET /data/meta.json (Accept: $accept) without a sign-in answered $code, not 401 or a redirect to /login" ;;
+            esac
+          done
+
+          if [ -n "$sunset" ] && left=$(days "$sunset") && [ "$left" -ge 0 ] && [ "$left" -lt 30 ]; then
+            echo "::warning::the site comes down on its sunset date, $sunset ($left days)"
+            echo "sunset_soon=$sunset" >> "$GITHUB_OUTPUT"
+          fi
+          cat "$problems" >> "$GITHUB_STEP_SUMMARY"
+          [ ! -s "$problems" ]
+      - name: open an issue, or add to the one already open
+        if: failure()
+        env: { GH_TOKEN: "${{ github.token }}", TITLE: "staff site check failed" }
+        run: |
+          body="$(date -u +%F): $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"$'\n\n'"$(cat "$RUNNER_TEMP/problems.md" 2>/dev/null)"
+          n=$(gh issue list -R "$GITHUB_REPOSITORY" --state open --limit 200 --json number,title \
+                | jq -r --arg t "$TITLE" '[.[] | select(.title == $t)][0].number // empty')
+          if [ -n "$n" ]; then gh issue comment "$n" -R "$GITHUB_REPOSITORY" --body "$body"
+          else gh issue create -R "$GITHUB_REPOSITORY" --title "$TITLE" --body "$body"; fi
+      - name: warn, once, that the sunset is near
+        if: always() && steps.check.outputs.sunset_soon != ''
+        env: { GH_TOKEN: "${{ github.token }}", SUNSET: "${{ steps.check.outputs.sunset_soon }}" }
+        run: |
+          title="staff site comes down on its sunset date, $SUNSET"
+          n=$(gh issue list -R "$GITHUB_REPOSITORY" --state open --limit 200 --json number,title \
+                | jq -r --arg t "$title" '[.[] | select(.title == $t)][0].number // empty')
+          [ -n "$n" ] || gh issue create -R "$GITHUB_REPOSITORY" --title "$title" --body \
+            "The site closes itself after $SUNSET. Before then, record a City owner and a new sunset date and publish again, or plan the take-down (docs/STAFF_SITE.md). $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"

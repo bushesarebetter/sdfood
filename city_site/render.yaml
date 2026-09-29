@@ -6,7 +6,11 @@ services:
     name: sdfood-city
     runtime: node
     region: oregon                 # the nearest to San Diego; cannot change after creation
-    plan: starter                  # $7 a month stays awake; free sleeps after 15 idle minutes (Render: not for production)
+    # The free plan, which the service runs on. It sleeps after 15 idle minutes, and the first request
+    # after that waits up to a minute while it wakes. Sleeping, like any restart or deploy, empties the
+    # server's memory: everyone is signed out (sessions), the sign-in failure counters and the address
+    # lookup cache start over. Render does not recommend free for production; starter ($7 a month) stays awake.
+    plan: free
     branch: main
     buildCommand: npm ci && npx vite build
     startCommand: node server.mjs
@@ -15,6 +19,6 @@ services:
       - { key: NODE_VERSION, value: "24" }
       - { key: SITE_USERS, sync: false }        # "name:token,..." one sign-in per person (tokens 16+ characters)
       - { key: SITE_PASSWORD, sync: false }     # the older shared sign-in, 16+ characters, while migrating
-      - { key: SITE_CONTACT, sync: false }      # who to ask for access, shown when sign-in is refused
+      - { key: SITE_CONTACT, sync: false }      # who to ask for access, shown on the sign-in page
       - { key: VITE_GOOGLE_MAPS_API_KEY, sync: false }
       - { key: VITE_GOOGLE_MAPS_MAP_ID, sync: false }

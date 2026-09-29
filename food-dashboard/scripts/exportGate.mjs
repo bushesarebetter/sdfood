@@ -18,9 +18,11 @@
  *     behind a password by server.mjs, never publicly) and still built into dist/. The marker is a
  *     file, not an environment variable, so a public build cannot switch this on by a setting;
  *     tests/test_publish_city_site.py checks this public repository never contains it.
+ *     The staff build also stops unless its meta.json is the staff copy (audience "staff") with a
+ *     sunset date that has not passed: the same conditions under which server.mjs closes the site.
  */
 import { spawnSync } from "node:child_process";
-import { cpSync, existsSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -43,6 +45,28 @@ export function checkExport(dir, { review = false } = {}) {
   return problems;
 }
 
+/** Why a staff build of `dir` may not ship ([] when it may): its meta.json must be the staff copy that
+ *  publish_city_site.py writes (audience "staff") and carry a sunset date (YYYY-MM-DD, UTC) that has not
+ *  passed. `today` is YYYY-MM-DD. */
+export function staffProblems(dir, today = new Date().toISOString().slice(0, 10)) {
+  let meta;
+  try {
+    meta = JSON.parse(readFileSync(join(dir, "meta.json"), "utf8"));
+  } catch (e) {
+    return [`cannot read ${join(dir, "meta.json")}: ${e.message}`];
+  }
+  const problems = [];
+  if (meta?.audience !== "staff") {
+    problems.push(`meta.audience is ${JSON.stringify(meta?.audience)}, not "staff": publish the staff site with publish_city_site.py`);
+  }
+  const sunset = meta?.sunset;
+  const isDate = typeof sunset === "string" && /^\d{4}-\d{2}-\d{2}$/.test(sunset)
+    && !Number.isNaN(Date.parse(`${sunset}T00:00:00Z`)) && new Date(`${sunset}T00:00:00Z`).toISOString().slice(0, 10) === sunset;
+  if (!isDate) problems.push(`meta.sunset is ${JSON.stringify(sunset)}, not a date (YYYY-MM-DD)`);
+  else if (sunset < today) problems.push(`the sunset date ${sunset} has passed: take the site down, or record a City owner and a new date`);
+  return problems;
+}
+
 export default function exportGate(env = process.env, root = join(scripts, "..")) {
   const external = env.SDFOOD_SITE_DATA ? resolve(env.SDFOOD_SITE_DATA) : null;
   const review = env.SDFOOD_SITE_REVIEW === "1";
@@ -62,6 +86,7 @@ export default function exportGate(env = process.env, root = join(scripts, "..")
       const dir = external ?? (publicDir ? join(publicDir, "data") : null);
       if (!dir) this.error("the build has no public directory, so it has no export to check");
       const problems = checkExport(dir, { review: review || staff });
+      if (staff) problems.push(...staffProblems(dir));
       if (problems.length) this.error(`the export at ${dir} may not ship:\n${problems.join("\n")}`);
     },
     closeBundle() {

@@ -28,7 +28,7 @@ cd "$WORK/repo.git"
 # Keep only the dashboard.html on the default branch tip, and only if it passes the privacy gate.
 GATE="$ROOT/privacy_gate.py"
 DEFAULT=$(git symbolic-ref --short HEAD)
-KEEP=$(git rev-parse "$DEFAULT:dashboard.html" 2>/dev/null || true)
+KEEP=$(git rev-parse --quiet --verify "$DEFAULT:dashboard.html" 2>/dev/null || true)   # --verify: nothing, not the name, when absent
 if [ -n "$KEEP" ]; then
   git cat-file -p "$KEEP" > "$WORK/keep.html"
   python "$GATE" "$WORK/keep.html" || { echo "the default branch's dashboard.html fails the privacy gate; fix it first"; exit 1; }
@@ -50,14 +50,30 @@ if [ "$PUSH" = "--push" ]; then
   git push --force --all origin
   git push --force --tags origin
   # GitHub keeps each pull request's head under refs/pull/N/head, and no push can rewrite those: a
-  # purged blob stays public through the pull request's Commits and Files tabs. Check them.
+  # purged blob stays public through the pull request's Commits and Files tabs. Check them. A check that
+  # could not run fails: it never reports clean without having looked.
   CHECK=$(mktemp -d); git init -q --bare "$CHECK"
-  git -C "$CHECK" fetch -q "$URL" '+refs/pull/*:refs/pull/*' || true
-  STILL=""
-  for r in $(git -C "$CHECK" for-each-ref --format='%(refname)' refs/pull); do
-    if git -C "$CHECK" rev-list "$r" | while read -r c; do git -C "$CHECK" rev-parse -q --verify "$c:dashboard.html" 2>/dev/null; done \
-        | grep -qFxf "$WORK/blobs.txt"; then STILL="$STILL $r"; fi
+  git -C "$CHECK" fetch -q "$URL" '+refs/pull/*:refs/pull/*' || { echo "could not fetch PR refs: NOT verified"; exit 1; }
+  REFS=$(git -C "$CHECK" for-each-ref --format='%(refname)' refs/pull)
+  STILL=""; N=0
+  for r in $REFS; do
+    N=$((N + 1))
+    # Every object the ref reaches (any path, any commit, the root included), against the stripped blobs.
+    # grep has no -q, so it reads all of its input and nothing before it dies of SIGPIPE; PIPESTATUS tells
+    # "no stripped blob" (grep 1) apart from a listing that failed.
+    set +e
+    git -C "$CHECK" rev-list --objects "$r" | cut -d' ' -f1 | sort -u | grep -Fxf "$WORK/blobs.txt" >/dev/null
+    st=("${PIPESTATUS[@]}")
+    set -e
+    [ "${st[0]}" -eq 0 ] && [ "${st[1]}" -eq 0 ] && [ "${st[2]}" -eq 0 ] \
+      || { echo "could not list the objects of $r (exit ${st[*]}): NOT verified"; exit 1; }
+    case "${st[3]}" in
+      0) STILL="$STILL $r" ;;
+      1) ;;
+      *) echo "could not compare the objects of $r with the stripped blobs: NOT verified"; exit 1 ;;
+    esac
   done
+  echo "checked $N pull request refs"
   if [ -n "$STILL" ]; then
     echo "STILL PUBLIC through read-only pull request refs:$STILL"
     echo "Make the repository private now, and ask GitHub Support to remove these refs and garbage-collect (docs/PUBLISHING.md)."
