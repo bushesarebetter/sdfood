@@ -77,7 +77,7 @@ def checks(skip_fetch=False, url=SITE_URL, today=None, *, sh=None, fetch=None):
     check(shutil.which("node"), "node is installed (the export's contract check)", "install Node 24")
     check(sh(["gh", "auth", "status"]).returncode == 0, "gh is signed in (the publish pushes to the private repository)",
           "gh auth login")
-    for w in pcs.approval_warnings(approval) + pcs.open_items(approval):
+    for w in pcs.open_items(approval):
         lines.append(f"[..] not yet done: {w}")
     fetch = fetch or (lambda u: json.loads(urllib.request.urlopen(u, timeout=90).read()))
     try:

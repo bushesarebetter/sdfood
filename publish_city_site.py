@@ -190,7 +190,7 @@ def approval_warnings(a):
     if not ((a or {}).get("city_requestor") or {}).get("name"):
         w.append("no city_requestor yet: record who at the City asked for access, and when, before issuing sign-ins")
     if not ((a or {}).get("trust_determination") or {}).get("date"):
-        w.append("no trust_determination yet: ask the City whether its TRUST Ordinance (SDMC ch. 2, art. 10, div. 1) applies")
+        w.append("no trust_determination yet: ask the City whether its TRUST Ordinance (SDMC 210.0101-210.0112) applies")
     return w
 
 
