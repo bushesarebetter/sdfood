@@ -1,11 +1,15 @@
-"""The invented export for the food-inspection site keeps the v3.1 contract's shape: a small
-index, one place file per place that matches its index entry, County records with the County's
-status text, a published rule whose worksheet rows add up, bands cut so equal points are never
-split, and nothing that reads as a real address."""
+"""The invented export for the food-inspection site keeps the contract's shape: a small index, one
+place file per place that matches its index entry, County records with the County's status text
+(a closure with the date the County reopened it), items under the sections of the County's report,
+flags counted back from the list date, a published rule whose worksheet rows add up (a health
+closure read as 70), bands cut so equal points are never split, the frozen-rule, drift, route and
+district fields the real meta carries, and nothing that reads as a real address."""
 import importlib.util
 import json
+import re
 import shutil
 import subprocess
+from datetime import date, timedelta
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -17,6 +21,11 @@ INDEX_KEYS = {"facility_id", "name", "address", "facility_type", "council_distri
 DETAIL_KEYS = {"business_type", "inspections", "violations", "score_card", "band_stability", "scores_used", "estimate"}
 FORBIDDEN = {"rank", "percentile", "oof_rank", "score", "shap_features", "is_known_positive"}
 REAL_STREETS = ("Convoy", "Garnet", "University Ave", "5th Ave", "India St", "El Cajon", "Adams Ave", "Rosecrans")
+# The sections of the County's inspection report (food-dashboard/src/lib/inspections.js THEMES).
+THEMES = ("knowledge", "health", "hands", "handsink", "temperature", "condition", "sanitizing", "supplier", "process",
+          "advisory", "hsp", "water", "sewage", "vermin", "grp_staff", "grp_food", "grp_storage", "grp_equipment",
+          "grp_facility", "grp_signs", "grp_other", "other")
+RECORD_FLAGS = {"major", "closed", "bc", "repeat", "closures2", "repeat_item", "lt90_2"}
 
 
 def load():
@@ -48,7 +57,7 @@ def test_index_and_place_files_are_deterministic_and_match():
         assert p["facility_type"] in {"restaurant", "limited", "market"}
         assert 1 <= p["council_district"] <= 9
         assert p["last_visit"] == {"date": detail["inspections"][-1]["date"], "type": detail["inspections"][-1]["type"]}
-        assert set(p["flags"]) <= {"major", "closed", "bc", "repeat", *mod.THEMES}
+        assert set(p["flags"]) <= RECORD_FLAGS | set(THEMES) - {"other"}, "a major's theme is never flagged as other"
         lon, lat = f["geometry"]["coordinates"]
         assert 32.4 < lat < 33.2 and -117.4 < lon < -116.8
 
@@ -71,6 +80,13 @@ def test_records_carry_the_county_status_and_single_record_grades():
             assert (i["reopened"] is None) == (i["closure"] is None)
             if i["status"] == "Approved to Reopen":
                 assert i["type"] == "followup"
+            # A closure carries the date of the County's "Approved to Reopen" record that ended it, or None.
+            assert ("reopened_on" in i) == i["closed"]
+            if i["closed"] and i["reopened"]:
+                assert i["reopened_on"] > i["date"]
+                assert any(j["date"] == i["reopened_on"] and j["status"] == "Approved to Reopen" for j in d["inspections"])
+            elif i["closed"]:
+                assert i["reopened_on"] is None
         g = f["properties"]["grade"]
         if g:
             record = [i for i in d["inspections"] if i["date"] == g["date"] and i["grade"] == g["grade"] and i["score"] == g["score"]]
@@ -79,11 +95,105 @@ def test_records_carry_the_county_status_and_single_record_grades():
         sev = [v["severity"] for v in d["violations"]]
         assert sev == sorted(sev, key=["major", "minor", "grp"].index), "majors first"
         for v in d["violations"]:
-            assert v["theme"] in mod.ITEMS and v["severity"] in SEVERITIES and v["visit"] in VISIT_TYPES
+            assert v["theme"] in THEMES and v["severity"] in SEVERITIES and v["visit"] in VISIT_TYPES
             assert v["code"] and v["description"]
+            assert v["theme"] == mod.FIXED_FORM[v["code"]], "an item's theme is its section on the County's form"
+            assert v["theme"].startswith("grp_") == (v["severity"] == "grp")
     assert {"Complete", "Ordered Closed", "Approved to Reopen"} <= statuses
-    assert {"supplier", "condition", "process"} <= set(mod.ITEMS), "the split themes of contract v3"
-    assert "source" not in mod.ITEMS
+
+
+def test_themes_follow_the_county_forms():
+    mod = load()
+    assert mod.THEMES == THEMES
+    for old in ("handwashing", "hygiene", "plumbing", "storage", "equipment", "labeling", "source"):
+        assert old not in mod.THEMES and old not in mod.ITEMS
+    for theme, items in mod.ITEMS.items():
+        for code, text in items:
+            assert mod.FIXED_FORM[code] == theme, (code, text)
+    fixed = {"1a": "knowledge", "1b": "knowledge", "4": "health", "5": "hands", "6": "handsink", "11": "temperature",
+             "13": "condition", "14": "sanitizing", "17": "supplier", "18": "process", "19": "advisory", "20": "hsp",
+             "21": "water", "22": "sewage", "23": "vermin", "25": "grp_staff", "29": "grp_food", "32": "grp_storage",
+             "33": "grp_equipment", "40": "grp_equipment", "46": "grp_facility", "47": "grp_signs", "52": "grp_signs"}
+    assert {k: mod.FIXED_FORM[k] for k in fixed} == fixed
+    mobile = {"1b": "knowledge", "15": "supplier", "18": "advisory", "19": "water", "20": "handsink", "21": "sewage",
+              "22": "vermin", "23": "grp_staff", "27": "grp_food", "29": "grp_storage", "32": "grp_equipment",
+              "33": "grp_facility", "34": "grp_equipment", "36": "grp_equipment", "37": "grp_facility", "39": "grp_other",
+              "40": "grp_facility", "41": "grp_signs", "42": "grp_signs"}
+    assert {k: mod.MOBILE_FORM[k] for k in mobile} == mobile
+    assert "16" not in mod.MOBILE_FORM and "17" not in mod.MOBILE_FORM
+
+
+def test_flags_count_back_from_the_list_date():
+    mod = load()
+    fc, places, meta = mod.build(1400, seed=9)
+    list_date = date.fromisoformat(meta["generated"])
+    lo1, lo2 = (list_date - timedelta(days=365)).isoformat(), (list_date - timedelta(days=730)).isoformat()
+    seen = set()
+    for f in fc["features"]:
+        p = f["properties"]
+        d = places[p["facility_id"]]
+        seen |= set(p["flags"])
+        year = [i for i in d["inspections"] if i["date"] >= lo1]
+        two = [i for i in d["inspections"] if i["date"] >= lo2]
+        assert ("major" in p["flags"]) == any(i["major"] for i in year)
+        assert ("closed" in p["flags"]) == any(i["closed"] and i["closure"] == "health" for i in year)
+        assert ("closures2" in p["flags"]) == (sum(i["closed"] and i["closure"] == "health" for i in two) >= 2)
+        assert ("lt90_2" in p["flags"]) == (sum(i["type"] == "routine" and i["score"] is not None and i["score"] < 90 for i in two) >= 2)
+        for t in set(p["flags"]) - RECORD_FLAGS:
+            assert any(v["theme"] == t and v["severity"] == "major" and v["date"] >= lo1 for v in d["violations"]), (p["facility_id"], t)
+        if "repeat_item" in p["flags"]:
+            dates = {}
+            for v in d["violations"]:
+                if v["severity"] == "major" and v["visit"] == "routine" and v["date"] >= lo2:
+                    dates.setdefault(v["code"], set()).add(v["date"])
+            assert max(len(s) for s in dates.values()) >= 2
+    assert {"closures2", "repeat_item", "lt90_2"} <= seen, "the sample shows every escalation fact"
+    # A place whose last visit is more than a year before the list date has none of the 12-month facts.
+    stale = [f["properties"] for f in fc["features"] if f["properties"]["last_visit"]["date"] < lo1]
+    assert stale and not any({"major", "closed", "bc", "repeat"} & set(p["flags"]) for p in stale)
+
+
+def test_scores_used_read_a_closure_as_70_beside_the_county_score():
+    mod = load()
+    _, places, meta = mod.build(1400, seed=9)
+    rows = [u for d in places.values() for u in d.get("scores_used", [])]
+    assert rows and all(set(u) == {"date", "score", "closure", "county_score"} for u in rows)
+    closures = [u for u in rows if u["closure"]]
+    assert closures and all(u["score"] == 70 for u in closures)
+    assert {u["county_score"] is None for u in closures} == {True, False}, "the County scores some closures and not others"
+    assert all(u["score"] == u["county_score"] for u in rows if not u["closure"])
+    for d in places.values():
+        used = d.get("scores_used")
+        if used:
+            avg = next(r for r in d["score_card"] if r["item"] == "avg_deficit")
+            mean = sum(u["score"] for u in used) / len(used)
+            assert avg["value"] == max(0, 100 - int(mean + 0.5))
+    assert meta["card"]["closure_score"] == 70
+
+
+def test_meta_carries_the_frozen_rule_drift_routes_and_district_precision():
+    mod = load()
+    _, _, meta = mod.build(1400, seed=9)
+    f = meta["frozen"]
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}-[0-9a-f]{8}", f["version"]) and f["version"].startswith(f["frozen_on"]) and f["from_run"]
+    dr = meta["drift"]
+    for k in ("major_rate_backtest", "major_rate_recent", "band_1_share_backtest", "band_1_share_now"):
+        assert dr[k] is None or 0 <= dr[k] <= 1, k
+    assert dr["refit_needed"] == bool(dr["reasons"]) and dr["thresholds"] == {"major_rate": 0.05, "band_share": 0.05}
+    route = meta["card"]["band_1_by_route"]
+    band_1 = next(b for b in meta["card"]["bands"] if b["band"] == "1")
+    assert route["closure"]["labelled"] + route["scores"]["labelled"] == band_1["labelled"]
+    assert route["closure"]["positives"] + route["scores"]["positives"] == band_1["positives"]
+    assert route["closure"]["labelled"] and route["scores"]["labelled"], "the sample shows both routes into band 1"
+    for r in route.values():
+        assert len(r["interval"]) == 2 and (r["rate"] is None or r["interval"][0] <= r["rate"] <= r["interval"][1])
+    by = meta["fairness"]["by_district"]
+    assert set(by) == {str(n) for n in range(1, 10)}
+    for row in by.values():
+        iv = row["precision_interval"]
+        assert iv is None or (0 <= iv[0] <= row["precision"] <= iv[1] <= 1)
+    _, _, record = mod.build(200, seed=5, mode="record")
+    assert not {"frozen", "drift", "fairness"} & set(record)
 
 
 def test_worksheets_add_up_and_bands_never_split_a_tie():
