@@ -81,7 +81,7 @@ class Resp:
 def _req(port, path, method="GET", headers=None, body=b"", cookie=None, timeout=5):
     hs = dict(headers or {})
     if cookie:
-        hs["Cookie"] = f"s={cookie}"
+        hs["Cookie"] = f"__Host-s={cookie}"
     if body or method == "POST":
         hs.setdefault("Content-Length", str(len(body)))
     head = f"{method} {path} HTTP/1.1\r\nHost: x\r\nConnection: close\r\n"
@@ -96,7 +96,7 @@ def _login(port, user, password, nxt="/", headers=None):
 
 def _cookie(resp):
     sc = resp.header("set-cookie") or ""
-    m = re.match(r"s=([^;]*)", sc)
+    m = re.match(r"__Host-s=([^;]*)", sc)
     return m.group(1) if m else None
 
 
@@ -258,7 +258,7 @@ def test_every_person_signs_in_with_their_own_token_and_it_is_logged(site):
     assert ok.status == 303 and ok.header("location") == "/data/place/X.json"
     cookie = _cookie(ok)
     assert re.fullmatch(r"[A-Za-z0-9_-]{43}", cookie), "32 random bytes, base64url"
-    assert ok.header("set-cookie") == f"s={cookie}; HttpOnly; Secure; SameSite=Strict; Path=/"
+    assert ok.header("set-cookie") == f"__Host-s={cookie}; HttpOnly; Secure; SameSite=Strict; Path=/"
     assert _cookie(_login(port, "ana", ANA)) != cookie, "a new session each time"
     page = _req(port, "/", cookie=cookie)
     assert page.status == 200 and b"staff" in page.body
@@ -276,11 +276,18 @@ def test_next_is_only_ever_a_path_on_this_site(site):
     for nxt, want in [("/data/place/X.json?a=1", "/data/place/X.json?a=1"), ("/place/Caf%C3%A9", "/place/Caf%C3%A9"),
                       ("//evil.example/x", "/"), ("/\\evil.example", "/"), ("/\t/evil.example", "/"),
                       ("https://evil.example/", "/"), ("javascript:alert(1)", "/"), ("", "/"), ("evil", "/"),
-                      ("/\r\nSet-Cookie: x=1", "/"), ("/logout", "/"), ("/login?next=//evil.example", "/")]:
+                      ("/\r\nSet-Cookie: x=1", "/"), ("/logout", "/"), ("/login?next=//evil.example", "/"),
+                      ("/.//evil.example", "/"), ("/a/..//evil.example/x", "/"), ("/%2e//evil.example", "/"),
+                      ("/./\\evil.example", "/")]:
         r = _login(port, "city", SECRET, nxt=nxt)
         assert r.status == 303 and r.header("location") == want, (nxt, r.header("location"))
     r = _req(port, "/login?next=//evil.example")
     assert b'name="next" value="/"' in r.body
+    r = _req(port, "/login?next=/.//evil.example")
+    assert b'name="next" value="/"' in r.body, "dot segments cannot turn a path into another site"
+    c = _session(port)
+    r = _req(port, "/login?next=/a/..//evil.example/x", cookie=c)
+    assert r.status == 303 and r.header("location") == "/", "not even for someone already signed in"
 
 
 def test_sign_in_takes_only_a_small_same_site_form(site):
@@ -293,6 +300,10 @@ def test_sign_in_takes_only_a_small_same_site_form(site):
     r = _login(port, "city", SECRET, headers={"Sec-Fetch-Site": "cross-site"})
     assert r.status == 403 and _cookie(r) is None
     assert _login(port, "city", SECRET, headers={"Sec-Fetch-Site": "same-origin"}).status == 303
+    r = _login(port, "city", SECRET, headers={"Origin": "https://evil.example"})
+    assert r.status == 403 and _cookie(r) is None, "an older browser sends Origin, not Sec-Fetch-Site"
+    assert _login(port, "city", SECRET, headers={"Origin": "null"}).status == 403
+    assert _login(port, "city", SECRET, headers={"Origin": "http://x"}).status == 303, "this site's own origin"
     assert _req(port, "/login", "PUT").status == 405
 
 
@@ -318,9 +329,15 @@ def test_sign_out_ends_the_session_and_clears_the_site(site):
     port = site.port
     c = _session(port)
     assert _req(port, "/data/meta.json", cookie=c).status == 200
-    out = _req(port, "/logout", cookie=c)
+    ask = _req(port, "/logout", cookie=c)
+    assert ask.status == 200 and b'method="post" action="/logout"' in ask.body, "a link from anywhere only asks"
+    assert _req(port, "/data/meta.json", cookie=c).status == 200, "asking does not sign out"
+    assert _req(port, "/logout", "POST", {"Sec-Fetch-Site": "cross-site"}, cookie=c).status == 403
+    assert _req(port, "/data/meta.json", cookie=c).status == 200, "another site cannot sign anyone out"
+    out = _req(port, "/logout", "POST", cookie=c)
     assert out.status == 303 and out.header("location") == "/login?out=1"
-    assert out.header("set-cookie") == "s=; Max-Age=0; Path=/; HttpOnly; Secure; SameSite=Strict"
+    assert out.headers["set-cookie"] == ["__Host-s=; Max-Age=0; HttpOnly; Secure; SameSite=Strict; Path=/",
+                                         "s=; Max-Age=0; Path=/; HttpOnly; Secure; SameSite=Strict"]
     assert out.header("clear-site-data") == '"cache", "storage"' and out.header("cache-control") == "no-store"
     assert out.header("www-authenticate") is None
     assert _req(port, "/data/meta.json", cookie=c).status == 401, "the session is gone on the server, not just the cookie"
@@ -328,7 +345,7 @@ def test_sign_out_ends_the_session_and_clears_the_site(site):
     c2 = _session(port)
     assert _req(port, "/logout", "POST", cookie=c2).status == 303
     assert _req(port, "/data/meta.json", cookie=c2).status == 401
-    assert _req(port, "/logout").status == 303, "signing out without a session is harmless"
+    assert _req(port, "/logout", "POST").status == 303, "signing out without a session is harmless"
     assert "sign-out user=city" in site.log()
 
 
@@ -439,7 +456,8 @@ def test_the_health_check_says_which_export_and_rule_are_live(site):
 def test_the_site_closes_itself_past_its_sunset_or_without_the_staff_export(site):
     port = site.port
     c = _session(port)
-    today = datetime.now(timezone.utc).date().isoformat()
+    from zoneinfo import ZoneInfo
+    today = datetime.now(ZoneInfo("America/Los_Angeles")).date().isoformat()     # the site's dates are San Diego's
     for meta, why in [({**META, "sunset": "2020-01-01"}, b"its sunset date, 2020-01-01, has passed"),
                       ({**META, "audience": "public"}, b'audience is not &#34;staff&#34;'),
                       ({k: v for k, v in META.items() if k != "audience"}, b"not the staff copy"),
@@ -453,7 +471,7 @@ def test_the_site_closes_itself_past_its_sunset_or_without_the_staff_export(site
         assert _audit(port, c, {"event": "csv"}).status == 503
         assert _req(port, "/healthz").json()["closed"], "the health check says so"
         assert _req(port, "/login").status == 200 and _req(port, "/sw.js").status == 200
-        assert _req(port, "/logout").status == 303
+        assert _req(port, "/logout", "POST").status == 303
         assert _req(port, "/csp-report", "POST", {"Content-Type": "application/csp-report"},
                     b'{"csp-report": {"violated-directive": "img-src"}}').status == 204
     _write_meta(site.dist, {**META, "sunset": today})
@@ -571,3 +589,24 @@ def test_at_most_two_census_lookups_run_at_once(start, geocoders):
     before = len(geocoders.calls)
     assert _req(s.port, paths[codes.index(503)], cookie=c).status == 404
     assert len(geocoders.calls) == before + 2, "busy is not remembered as a miss: it is looked up again"
+
+
+def test_before_the_city_asks_only_the_operator_sees_the_named_list(start):
+    """Until a City request and a TRUST determination are on record, a City sign-in issued early sees
+    why, not the list; the operator's own sign-in (SITE_OPERATORS, by default the shared one) builds
+    and checks it."""
+    s = start(meta={**META, "access_approved": False})
+    op, ana = _session(s.port), _session(s.port, "ana", ANA)
+    assert _req(s.port, "/data/place/X.json", cookie=op).status == 200, "the operator"
+    for path in ("/data/place/X.json", "/", "/geocode?q=x"):
+        r = _req(s.port, path, cookie=ana)
+        assert r.status == 503 and b"withheld until the City has recorded a request" in r.body, path
+    assert _req(s.port, "/data/meta.json", cookie=ana).status == 200, "the app can still say why"
+    assert _req(s.port, "/healthz").json()["named_list"] == "operators only"
+    assert "withheld user=ana" in s.log()
+    s2 = start(env={"SITE_OPERATORS": "ana"}, meta={**META, "access_approved": False})
+    assert _req(s2.port, "/data/place/X.json", cookie=_session(s2.port, "ana", ANA)).status == 200
+    assert _req(s2.port, "/data/place/X.json", cookie=_session(s2.port)).status == 503, "the shared sign-in is not an operator then"
+    _write_meta(s.dist, {**META, "access_approved": True})
+    assert _req(s.port, "/data/place/X.json", cookie=ana).status == 200, "once recorded, every signed-in person"
+

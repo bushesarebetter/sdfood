@@ -128,6 +128,10 @@ function parseUsers(env) {
 }
 
 const { users: USERS, weak: WEAK } = parseUsers(process.env);
+// Who may see the named list before the City has asked for it: SITE_OPERATORS (ids, comma-separated), by
+// default the older shared sign-in's user, which only the operator holds.
+const OPERATORS = new Set((process.env.SITE_OPERATORS ?? (process.env.SITE_PASSWORD ? process.env.SITE_USER || "city" : ""))
+  .split(",").map((u) => u.trim()).filter(Boolean));
 if (WEAK.length) {
   console.error(`refusing to start: the sign-in for ${WEAK.join(", ")} is shorter than ${MIN_SECRET} characters. ` +
     'Make one with: python -c "import secrets; print(secrets.token_urlsafe(24))"');
@@ -146,7 +150,16 @@ const clean = (s, max = 200) => String(s).replace(/[\p{Cc}\p{Zl}\p{Zp}\p{Bidi_Co
 
 // A POST another site made the browser send. SameSite=Strict already keeps the session cookie off it;
 // this also stops another site from signing a browser in to an account of its choosing.
-const crossSite = (req) => ["cross-site", "same-site"].includes(req.headers["sec-fetch-site"]);
+const crossSite = (req) => {
+  if (["cross-site", "same-site"].includes(req.headers["sec-fetch-site"])) return true;
+  const origin = req.headers.origin;
+  if (origin === undefined) return false;
+  try {
+    return origin === "null" || new URL(origin).host !== req.headers.host;
+  } catch {
+    return true;
+  }
+};
 
 // ── sessions ────────────────────────────────────────────────────────────────────────────
 // Held in this process's memory only, never on disk: a restart or redeploy (and, on Render's free plan,
@@ -156,6 +169,7 @@ const IDLE_MS = Number(process.env.SESSION_IDLE_MS) || 30 * 60e3;
 const MAX_MS = Number(process.env.SESSION_MAX_MS) || 10 * 3600e3;
 const MAX_SESSIONS = 5000;
 const COOKIE = "HttpOnly; Secure; SameSite=Strict; Path=/";
+const COOKIE_NAME = "__Host-s";                   // the __Host- prefix: this host only, Secure, Path=/, no Domain
 
 function cookie(req, name) {
   for (const part of (req.headers.cookie || "").split(";")) {
@@ -176,7 +190,7 @@ function startSession(user, now) {
 
 /** The request's session, marked as used now; or null. */
 function session(req, now) {
-  const id = cookie(req, "s");
+  const id = cookie(req, COOKIE_NAME);
   const s = id ? SESSIONS.get(id) : undefined;
   if (!s) return null;
   if (!current(s, now)) {
@@ -193,7 +207,9 @@ function safeNext(next) {
       || /[\\\p{Cc}\s]/u.test(next)) return "/";
   try {
     const u = new URL(next, "https://this.invalid");
-    if (u.origin !== "https://this.invalid" || u.pathname === "/login" || u.pathname === "/logout") return "/";
+    // Check what the browser will follow, after dot segments resolve: "/.//evil.example" becomes
+    // "//evil.example", which is another site.
+    if (u.origin !== "https://this.invalid" || /^[/\\]{2}/.test(u.pathname) || u.pathname === "/login" || u.pathname === "/logout") return "/";
     return u.pathname + u.search;
   } catch {
     return "/";
@@ -212,6 +228,9 @@ const WINDOW_MS = 15 * 60e3, MAX_FAILS = 10, MAX_FAIL_KEYS = 10_000;
 // Against guessing spread over many addresses and names: past 300 failures in all in 15 minutes, every
 // sign-in answer (right or wrong, so a quick answer does not give a right password away) waits 2 s.
 const GLOBAL_FAILS = 300, SLOW_MS = 2000;
+// ...and at most MAX_CHECKING of those slowed answers at once: parallel requests cannot get round the wait.
+const MAX_CHECKING = 4;
+let checking = 0;
 const FAILS_BY_MINUTE = new Map();                // minute -> failures in it
 
 function blocked(key, now) {
@@ -226,7 +245,12 @@ function failed(key, now) {
     FAILS.delete(key);                            // re-inserted at the end: the map stays oldest first
     FAILS.set(key, { n: 1, since: now });
   }
-  while (FAILS.size > MAX_FAIL_KEYS) FAILS.delete(FAILS.keys().next().value);
+  if (FAILS.size > MAX_FAIL_KEYS) {                // room is made from keys that are not locked out, oldest first
+    for (const k of FAILS.keys()) {
+      if (FAILS.size <= MAX_FAIL_KEYS) break;
+      if (k !== key && !blocked(k, now)) FAILS.delete(k);
+    }
+  }
   const minute = Math.floor(now / 60e3);
   FAILS_BY_MINUTE.set(minute, (FAILS_BY_MINUTE.get(minute) || 0) + 1);
 }
@@ -353,7 +377,9 @@ async function meta() {
   }
 }
 
-const today = () => new Date().toISOString().slice(0, 10);
+// The date in San Diego (YYYY-MM-DD): a sunset or expiry date ends at midnight Pacific, not UTC.
+const PACIFIC = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Los_Angeles", year: "numeric", month: "2-digit", day: "2-digit" });
+const today = () => PACIFIC.format(new Date());
 
 /** Why the site is closed, or null. It closes itself once its export is not the staff copy
  *  (publish_city_site.py writes audience "staff") or the sunset date agreed for it has passed. */
@@ -444,7 +470,8 @@ async function handle(req, res) {
   if (path === "/logout") return allow(req, res, "GET", "POST") && logout(req, res);
   if (path === "/csp-report") return allow(req, res, "POST") && cspReport(req, res, now);
 
-  const why = closedReason(await meta(), today());
+  const m = await meta();
+  const why = closedReason(m, today());
   if (why) return sendPage(req, res, 503, "Closed", `<h1>Food Inspection Record</h1><p>This site is closed: ${esc(why)}.</p>`);
 
   const s = session(req, now);
@@ -455,6 +482,15 @@ async function handle(req, res) {
     return send(req, res, 401, NO_STORE, "Sign in first: /login");
   }
 
+  // Until a City request and a TRUST Ordinance determination are on record (meta.access_approved), the
+  // named list is shown only to the site's operators (SITE_OPERATORS), who build and check it; a City
+  // sign-in issued early sees why, not the list (docs/STAFF_SITE.md, "Who may use it").
+  if (!m.access_approved && !OPERATORS.has(s.user) && path !== "/data/meta.json" && !path.startsWith("/assets/")) {
+    console.log(`withheld user=${s.user} ${path}`);
+    return sendPage(req, res, 503, "Withheld", "<h1>Food Inspection Record</h1><p>The named list is withheld until the City " +
+      "has recorded a request for this site and a TRUST Ordinance determination.</p>" +
+      '<form method="post" action="/logout"><button type="submit">Sign out</button></form>');
+  }
   if (path === "/audit") return allow(req, res, "POST") && audit(req, res, s.user);
   if (!allow(req, res, "GET", "HEAD")) return;
   if (path === "/geocode") return geocodeRoute(req, res, query, s.user);
@@ -469,6 +505,7 @@ async function healthz(req, res) {
     stale: Boolean(m.expires && day > m.expires), source: process.env.RENDER_GIT_COMMIT ?? null, server: SERVER_BUILD,
     sunset: m.sunset ?? null, closed: closedReason(m, day), refit_needed: !!m.drift?.refit_needed,
     rule_version: m.frozen?.version ?? null, access_approved: !!m.access_approved,
+    named_list: m.access_approved ? "signed-in staff" : "operators only",
   }));
 }
 
@@ -501,8 +538,20 @@ async function login(req, res) {
     return sendPage(req, res, 429, TITLE, loginForm({ next, user, bad: true,
       notice: "Too many failed sign-ins for this user name. Try again in 15 minutes." }), { "Retry-After": "900" });
   }
+  const over = recentFailures(now) > GLOBAL_FAILS;
+  if (over && checking >= MAX_CHECKING) {
+    return sendPage(req, res, 429, TITLE, loginForm({ next, user, bad: true,
+      notice: "Too many sign-ins at once. Try again in a few seconds." }), { "Retry-After": "5" });
+  }
   const ok = credentialsMatch(user, password);
-  if (recentFailures(now) > GLOBAL_FAILS) await new Promise((r) => setTimeout(r, SLOW_MS));
+  if (over) {
+    checking += 1;
+    try {
+      await new Promise((r) => setTimeout(r, SLOW_MS));
+    } finally {
+      checking -= 1;
+    }
+  }
   if (!ok) {
     failed(key, now);
     console.warn(`sign-in failed user=${JSON.stringify(clean(user, 100))} from ${clean(ip, 64)}`);
@@ -510,22 +559,29 @@ async function login(req, res) {
       notice: "The user name or password is not right. Try again." }));
   }
   FAILS.delete(key);
-  const old = cookie(req, "s");
+  const old = cookie(req, COOKIE_NAME);
   if (old) SESSIONS.delete(old);                  // a new id at every sign-in: none can be planted beforehand
   const id = startSession(user, Date.now());
   console.log(`sign-in user=${user} from ${clean(ip, 64)}`);
-  return send(req, res, 303, { "Cache-Control": "no-store", "Set-Cookie": `s=${id}; ${COOKIE}`, Location: next }, "");
+  return send(req, res, 303, { "Cache-Control": "no-store", "Set-Cookie": `${COOKIE_NAME}=${id}; ${COOKIE}`, Location: next }, "");
+}
+
+function logoutPage(req, res) {
+  return sendPage(req, res, 200, TITLE, '<h1>Food Inspection Record</h1><form method="post" action="/logout">' +
+    '<p class="sub">Sign out of the staff site on this browser?</p><button type="submit">Sign out</button></form>');
 }
 
 function logout(req, res) {
-  const id = cookie(req, "s");
+  if (req.method !== "POST") return logoutPage(req, res);
+  if (crossSite(req)) return send(req, res, 403, NO_STORE, "Sign out from this site's own page.");
+  const id = cookie(req, COOKIE_NAME);
   const s = id ? SESSIONS.get(id) : undefined;
   if (id) SESSIONS.delete(id);
   if (s) console.log(`sign-out user=${s.user}`);
   // Cookies are cleared by name (below), not by Clear-Site-Data, which Firefox does not apply to them all.
   return send(req, res, 303, {
     "Cache-Control": "no-store",
-    "Set-Cookie": "s=; Max-Age=0; Path=/; HttpOnly; Secure; SameSite=Strict",
+    "Set-Cookie": [`${COOKIE_NAME}=; Max-Age=0; ${COOKIE}`, "s=; Max-Age=0; Path=/; HttpOnly; Secure; SameSite=Strict"],
     "Clear-Site-Data": '"cache", "storage"',
     Location: "/login?out=1",
   }, "");

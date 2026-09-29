@@ -24,7 +24,12 @@ export default function StaffBanner({ fixed = false, compact = false }) {
   const contact = contactLine(meta);
   const open = reviewStatus(meta).length;
   const guidance = reviewGuidance(meta);
-  const signOut = <a href="/logout" className="whitespace-nowrap border-b border-ink/40 font-semibold text-ink hover:border-ink">Sign out</a>;
+  // A POST from this page: the server signs out only on a same-site POST, so no link elsewhere can do it.
+  const signOut = (
+    <form method="post" action="/logout" className="inline">
+      <button type="submit" className="whitespace-nowrap border-b border-ink/40 font-semibold text-ink hover:border-ink">Sign out</button>
+    </form>
+  );
   if (compact) {
     const demo = guidance[0] === GUIDANCE.demonstration ? guidance[0] : null;
     return (
