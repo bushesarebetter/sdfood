@@ -1,6 +1,7 @@
 """export_worklist.py on a small synthetic inspection table: who is due, the rule's order, the
 files the API reads, and the frozen copy a pilot is scored against."""
 import csv
+import re
 import json
 import os
 import stat
@@ -178,8 +179,9 @@ def test_the_countys_escalation_criteria_come_first(data, tmp_path):
     d1 = f[f["due_this_month"] & (f["district"] == 1)].sort_values("rule_order")
     assert list(d1.index)[0] == 3, "a place meeting the County's criteria comes first, whatever its points"
     r = f.loc[3]
-    assert r["escalation"] == "two or more health closures in two years; two or more routine scores below 90 in two years"
+    assert r["escalation"].startswith("two or more health closures in two years; two or more routine scores below 90 in two years")
     assert r["why"].startswith("First: two or more health closures")
+    assert "the County sets no count or period" in r["why"] and "not a County finding" in r["why"]
     assert (r["closures_24m"], r["last_closure"], r["reopened_on"], r["posted_grade"]) == (2, "2026-03-02", "", "A (2026-05-30)"), \
         "the export's episodes in the 24 months before its list date (2026-09-20): the 2024 closure is older"
 
@@ -189,8 +191,10 @@ def test_a_held_place_keeps_its_record_and_loses_its_points(data, tmp_path):
     card = ew.load_card(site_export(tmp_path, {"FA0001": (30, "1"), "FA0003": (3, None)}), holds=["FA0001"])
     assert "FA0001" not in card["points"] and "FA0001" not in card["band"] and card["held"] == {"FA0001"}
     f = ew.worklist(insp, info, MONTH, lookup, card=card)
-    assert "band 1" not in f.loc[1, "why"] and f.loc[1, "why"].startswith("On hold: its points and band are withheld")
-    assert f.loc[1, "rule_points"] == f.loc[1, "mean_points"], "placed by the one-line rule, like any unscored place"
+    assert f.loc[1, "why"] == "On hold at the owner's request: its points, band and order are withheld while the request is reviewed."
+    assert pd.isna(f.loc[1, "rule_points"]) and pd.isna(f.loc[1, "rule_mean"]), "no number that gives the points away"
+    d1 = f[f["district"] == 1].sort_values("rule_order_all")
+    assert list(d1.index)[-1] == 1, "and no place in the order: listed after every other place in its district"
 
 
 def test_a_closure_reads_as_the_rules_70_not_the_countys_score():
@@ -256,3 +260,21 @@ def test_a_scored_row_explains_its_points_from_the_scores_its_worksheet_averages
     f = ew.worklist(insp, info, MONTH, lookup, card=card)
     assert "It averages the routine scores of the two years before the list: 92, 90; mean 91.0" in f.loc[1, "why"]
     assert f.loc[1, "last_routine_outcome"] == "Complete" and f.loc[1, "closures_24m"] == 0
+
+
+def test_every_explanation_averages_the_same_readings_as_its_number(data, tmp_path):
+    """A closure the County also scored reads as 70 in the number, so it reads as 70 in the line too,
+    with the County's score beside it: the explanation's mean is always the row's rule_mean."""
+    insp, info = data
+    closed = insp["business_id"] == 3
+    insp = insp.copy()
+    insp["closure_order"] = None
+    last = insp[closed].index[-1]
+    insp.loc[last, ["closure_order", "rated_score"]] = ["health", 70.0]            # scored 98 that day, and closed
+    f = ew.worklist(insp, info, MONTH, lookup)
+    for b, r in f.iterrows():
+        m = re.search(r"\(mean ([0-9.]+)\)", r["why"])
+        if m:
+            assert abs(float(m.group(1)) - (100 - r["mean_points"])) < 0.051, (b, r["why"], r["mean_points"])
+    assert "70 (closed; the County's score that day 98, this rule counts a closure as 70)" in f.loc[3, "why"]
+

@@ -17,13 +17,18 @@
     "title": "",
     "office": "",
     "date": "",
-    "_note": "who at the City asked, in writing, for access; record it before issuing any sign-in"
+    "_note": "who at the City asked, in writing, for access, and the date; both are needed before any City sign-in sees the named list"
   },
   "trust_determination": {
     "date": "",
     "by": "",
     "result": "",
-    "_note": "the City's answer to whether its TRUST Ordinance (SDMC 210.0101-210.0112) applies; if it does, Privacy Advisory Board review and a Council vote come first"
+    "_note": "the City's answer: \"does not apply\" or \"applies\" (SDMC 210.0101-210.0112). If it applies, Privacy Advisory Board review and a Council vote come first: record the vote in council_approval"
+  },
+  "council_approval": {
+    "date": "",
+    "resolution": "",
+    "_note": "only when the TRUST Ordinance applies: the date and resolution of the Council's approval"
   },
   "legal_review": {
     "reviewer": "",

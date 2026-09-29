@@ -123,8 +123,6 @@ def approval_problems(a, today):
 # What has not been done, in plain words, from docs/STAFF_APPROVAL.json. Shown to staff on every page
 # (StaffBanner): a list of open checks is not a substitute for doing them, but staff must know.
 OPEN_ITEMS = (
-    ("city_requestor", "name", "no City request for access is on record (city_requestor)"),
-    ("trust_determination", "result", "no TRUST Ordinance determination is on record (trust_determination)"),
     ("legal_review", "date", "no lawyer has reviewed naming these businesses (legal_review)"),
     ("county_informed", "date", "the County has not commented on this list (county_informed)"),
     ("owner_notice", "date", "no business on the list has been told it is on it (owner_notice)"),
@@ -133,15 +131,22 @@ OPEN_ITEMS = (
 
 def open_items(a):
     a = a or {}
-    return [text for key, field, text in OPEN_ITEMS if not ((a.get(key) or {}).get(field) or "").strip()]
+    out = []
+    if not _requested(a):
+        out.append("no City request for access is on record (city_requestor)")
+    if _trust(a) is None:
+        out.append("no TRUST Ordinance determination is on record (trust_determination)")
+    elif _trust(a) == "applies" and not _council_approved(a):
+        out.append("the TRUST Ordinance applies and the Council has not approved this use (council_approval)")
+    return out + [text for key, field, text in OPEN_ITEMS if not ((a.get(key) or {}).get(field) or "").strip()]
 
 
 def access_approved(a):
-    """Someone at the City asked for access in writing, and the City answered whether its TRUST
-    Ordinance applies: until both are on record the site is a demonstration, not a City tool."""
-    a = a or {}
-    return bool(((a.get("city_requestor") or {}).get("date") or "").strip()
-                and ((a.get("trust_determination") or {}).get("result") or "").strip())
+    """Someone at the City asked for access in writing (name and date), and the City has answered
+    whether its TRUST Ordinance applies: "does not apply", or "applies" with the Council's approval
+    on record. One predicate for the banner, the open items and the server (which, until then, shows
+    the named list only to the site's operators)."""
+    return _requested(a) and (_trust(a) == "does not apply" or (_trust(a) == "applies" and _council_approved(a)))
 
 
 def drift_items(meta):
@@ -185,12 +190,34 @@ def unpushed_warning():
                             "this list (its source is in the private repository's ops/ either way)")
 
 
+TRUST_RESULTS = ("does not apply", "applies")
+
+
+def _requested(a):
+    r = (a or {}).get("city_requestor") or {}
+    return bool((r.get("name") or "").strip() and (r.get("date") or "").strip())
+
+
+def _trust(a):
+    """The City's TRUST Ordinance answer: "does not apply", "applies", or None when none is recorded."""
+    res = (((a or {}).get("trust_determination") or {}).get("result") or "").strip().lower()
+    return res if res in TRUST_RESULTS else None
+
+
+def _council_approved(a):
+    return bool((((a or {}).get("council_approval") or {}).get("date") or "").strip())
+
+
 def approval_warnings(a):
     w = []
-    if not ((a or {}).get("city_requestor") or {}).get("name"):
-        w.append("no city_requestor yet: record who at the City asked for access, and when, before issuing sign-ins")
-    if not ((a or {}).get("trust_determination") or {}).get("date"):
-        w.append("no trust_determination yet: ask the City whether its TRUST Ordinance (SDMC 210.0101-210.0112) applies")
+    if not _requested(a):
+        w.append("no city_requestor yet (name and date): record who at the City asked for access, and when, before issuing sign-ins")
+    if _trust(a) is None:
+        w.append(f"no trust_determination yet (result: one of {', '.join(TRUST_RESULTS)}): ask the City whether its TRUST "
+                 "Ordinance (SDMC 210.0101-210.0112) applies")
+    elif _trust(a) == "applies" and not _council_approved(a):
+        w.append("the TRUST Ordinance applies and no council_approval is on record: Privacy Advisory Board review and a Council "
+                 "vote come before any staff use")
     return w
 
 
@@ -231,7 +258,9 @@ def review_status(meta, today):
 
 
 def apply_holds(fc, details, held):
-    """A held place keeps its County record and loses its points and band, at once."""
+    """A held place keeps its County record and loses its points and band, at once, and moves to the
+    end of the list file, so its position does not give its points away."""
+    fc["features"].sort(key=lambda f: bool(f["properties"].get("on_hold")) or f["properties"]["facility_id"] in held)
     for f in fc["features"]:
         p = f["properties"]
         if p["facility_id"] in held and any(k in p for k in BAND_FIELDS):

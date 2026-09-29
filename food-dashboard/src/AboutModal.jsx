@@ -2,8 +2,8 @@ import Dialog, { CloseButton } from "./Dialog";
 import { useAdvanced } from "./useAdvanced";
 import { useExpired, useMeta, useMode, useSample } from "./useMeta";
 import {
-  GROUP_NOTE, bandDefs, bandPoints, bandSummary, backtestList, driftLine, frozenLine, persistenceSentence, rateRatio, restRate, restRatio,
-  routeSentence, ruleSentence, utilityRows,
+  GROUP_NOTE, auditedBandsName, bandDefs, bandPoints, bandSummary, backtestList, costLimitSentence, driftLines, frozenLine, persistenceSentence,
+  rateRatio, restRate, restRatio, routeSentence, ruleSentence, utilityRows,
 } from "./lib/bands";
 import { isStaff, reviewStatus } from "./lib/staff";
 import { gradeContextSentence } from "./lib/framing";
@@ -21,6 +21,15 @@ const pct = (x) => (typeof x === "number" ? `${Math.round(x * 100)}%` : "");
 const rule = (s) => s.replace(/\.$/, "");
 const sentence = (s) => (s ? `${s.charAt(0).toUpperCase()}${s.slice(1)}` : s);
 const num = (x) => (typeof x === "number" ? x.toLocaleString("en-US") : "");
+const isRange = (iv) => Array.isArray(iv) && iv.length === 2 && iv.every((x) => typeof x === "number");
+/** "1.2 to 2.6"; with `floor`, a low end below it (a widened interval can reach below 0) shown at it. */
+const ratioRange = (iv, { floor = null } = {}) => (isRange(iv) ? `${floor != null ? Math.max(floor, iv[0]) : iv[0]} to ${iv[1]}` : "");
+
+/** Under the district table: a finding from the statistics review, stated as what it is. */
+const CUISINE_NOTE =
+  "A rough check by restaurant name, not a validated measure, suggests that among restaurants with no major violation at their next " +
+  "routine inspection, those serving some cuisines are put in band 1 about twice as often as others; it comes through the County's " +
+  "scores, which the rule passes on unchanged, and may reflect how items are cited.";
 
 /**
  * About this site. Everything it says about the export is read from
@@ -152,13 +161,15 @@ function Rule({ meta, advanced, expired }) {
   const base = typeof card?.base_rate === "number" ? card.base_rate : null;
   const cr = meta?.catch_run;
   const utility = utilityRows(meta);
+  const limit = costLimitSentence(meta);
   const byRoute = routeSentence(meta);
+  const drift = driftLines(meta);
   return (
     <>
       <Section heading="The students' point rule (not a County grade or rating)">
         <p>{ruleSentence(meta)}</p>
         {frozenLine(meta) && <p>{frozenLine(meta)} Each list applies this version to the County&rsquo;s record as it stands on the list date.</p>}
-        {driftLine(meta) && <p className="text-ink">{driftLine(meta)}</p>}
+        {drift.map((l) => <p key={l} className="text-ink">{l}</p>)}
         {typeof card?.eligibility === "string" && <p>It scores {card.eligibility.replace(/\.$/, "")}. Every other place carries no points.</p>}
         {items.length > 0 && (
           <Table
@@ -180,7 +191,7 @@ function Rule({ meta, advanced, expired }) {
         <Section heading="What the bands have been worth">
           <p>
             The rule was applied to the record as it stood on {cr?.as_of ? fmtDate(cr.as_of) : "an earlier date"}, from only
-            what was known then{cr?.candidates ? `, for ${num(cr.candidates)} scored places` : ""}, and checked against each
+            what was known then{typeof cr?.eligible === "number" ? `, for ${num(cr.eligible)} scored places` : ""}, and checked against each
             place&rsquo;s next routine inspection in the year that followed ({backtestList(meta)}).
           </p>
           <Table
@@ -216,18 +227,19 @@ function Rule({ meta, advanced, expired }) {
         </Section>
       )}
 
-      {Array.isArray(card?.curve?.bins) && card.curve.bins.length > 0 && (
+      {curveRows(card).length > 0 && (
         <Section heading="What the points say, place by place">
           <p>
             Every scored place is also given an estimate: what places with about its points did in the backtest, read from a
-            monotone fit to the counts below: more points never means a lower rate, and where the counts cannot tell point values apart their rate is pooled, so it levels off where the rates do. Each estimate comes with a likely range. The counts
-            themselves:
+            monotone fit to the counts below: more points never means a lower rate, and where the counts cannot tell point values apart their rate is pooled, so it levels off where the rates do. Each estimate comes with a likely range.
+            {card && "curve_closure" in card && (
+              <> There are two fits: one for places whose two scored years include no closure, and one for places whose two years
+                include a routine inspection that ended in a closure, which the rule counts as 70; each place is read from its own,
+                and an estimate from the second says so.</>
+            )}{" "}
+            The counts themselves:
           </p>
-          <Table
-            head={["Points", "Places", "Had a major", "Rate"]}
-            rows={card.curve.bins.map((b) => [b.min_points === b.max_points ? `${b.min_points}` : `${b.min_points} to ${b.max_points}`,
-                                                num(b.labelled), num(b.positives), pct(b.rate)])}
-          />
+          <Table head={["Points", "Places", "Had a major", "Rate"]} rows={curveRows(card)} />
         </Section>
       )}
 
@@ -237,19 +249,24 @@ function Rule({ meta, advanced, expired }) {
         </Section>
       )}
 
-      {utility && (
+      {(utility || limit) && (
         <Section heading="When a band would be named">
           <p>
             Naming a band is worth it only if enough of its places go on to have a major. Call B the benefit of naming a place that
             does, and C the cost of naming one that does not: the share must be above C/(B+C). A band is named only when the low end
-            of its interval clears that bar for a cost ratio (C/B) someone signs.{" "}
-            {typeof meta?.cost_ratio === "number" ? <>The signed cost ratio for this list is {meta.cost_ratio}.</> : <>No one has signed a cost ratio for this list.</>}
+            of its interval clears that bar for a cost ratio C/B that someone at the City sets.{limit && <> {limit}</>}{" "}
+            {typeof meta?.cost_ratio === "number"
+              ? <>The cost ratio set for this list is {meta.cost_ratio}.</>
+              : <>No one at the City has set a cost ratio for this list.</>}{" "}
+            Bands support no decision about a business and no comparison between districts.
           </p>
-          <Table
-            head={["Cost ratio C/B", "Bar C/(B+C)", "Bands that clear it"]}
-            rows={utility.map((u) => [String(u.cost_ratio), pct(u.bar), u.named.length ? u.named.map((b) => `Band ${b}`).join(", ") : "none"])}
-          />
-          {utility.every((u) => !u.named.length) && <p>No band clears any of these.</p>}
+          {utility && (
+            <Table
+              head={["Cost ratio C/B", "Bar C/(B+C)", "Bands that clear it"]}
+              rows={utility.map((u) => [String(u.cost_ratio), pct(u.bar), u.named.length ? u.named.map((b) => `Band ${b}`).join(", ") : "none"])}
+            />
+          )}
+          {utility && utility.every((u) => !u.named.length) && <p>No band clears any of these.</p>}
         </Section>
       )}
 
@@ -267,24 +284,7 @@ function Rule({ meta, advanced, expired }) {
       )}
 
       {meta?.fairness?.by_district && Object.keys(meta.fairness.by_district).length > 0 && (
-        <Section heading="By council district">
-          <p>
-            For a list of named places, the harm is a place in a band that then had no major. By council district, in the backtest:
-            the places in the bands, how many had a major, and each district&rsquo;s share of the places in a band without one,
-            against its share of all scored places (1 is even).
-          </p>
-          <Table
-            head={["District", "In a band", "Had a major", "Share of those without one"]}
-            rows={Object.entries(meta.fairness.by_district).filter(([d]) => d !== "None").map(([d, f]) => [
-              `District ${d}`, num(f.named),
-              f.precision != null ? `${pct(f.precision)}${Array.isArray(f.precision_interval) && f.precision_interval.every((x) => typeof x === "number") ? ` (${pct(f.precision_interval[0])} to ${pct(f.precision_interval[1])})` : ""}` : "",
-              f.false_share_ratio != null ? `${f.false_share_ratio}×${Array.isArray(f.interval) ? ` (${f.interval[0]} to ${f.interval[1]})` : ""}` : ""])}
-            note="Had a major: the share of the district's places in a band that had one at their next routine inspection, with its likely range where the export gives one."
-          />
-          {Array.isArray(meta.fairness.problems) && meta.fairness.problems.length > 0 && (
-            <p>Uneven: {meta.fairness.problems.join("; ")}. Part of a district&rsquo;s gap may be how its inspectors cite, not its restaurants: the record does not say which inspector made a visit.</p>
-          )}
-        </Section>
+        <DistrictTable meta={meta} />
       )}
 
       {isStaff(meta) && reviewStatus(meta).length > 0 && (
@@ -294,6 +294,84 @@ function Rule({ meta, advanced, expired }) {
         </Section>
       )}
     </>
+  );
+}
+
+/** A curve's counts by points (`bins`), as table rows. */
+const binRows = (c) => (Array.isArray(c?.bins) ? c.bins : []).map((b) => [
+  b.min_points === b.max_points ? `${b.min_points}` : `${b.min_points} to ${b.max_points}`, num(b.labelled), num(b.positives), pct(b.rate),
+]);
+
+/** A curve's row of totals, headed by the places it covers. */
+const totalRow = (c, label) => [
+  <span className="font-semibold">{label}</span>, num(c?.labelled), num(c?.positives),
+  typeof c?.labelled === "number" && c.labelled > 0 && typeof c?.positives === "number" ? pct(c.positives / c.labelled) : "",
+];
+
+/**
+ * The counts under the estimate curves. An export with `curve_closure` fits `curve` to the places
+ * whose two scored years include no closure, so each curve is headed by the places it covers, the
+ * closure curve (when there is one) second; an older export's one curve covers every scored place.
+ */
+function curveRows(card) {
+  if (!card) return [];
+  const plain = binRows(card.curve);
+  if (!("curve_closure" in card)) return plain;
+  const rows = plain.length ? [totalRow(card.curve, "Places whose two scored years include no closure"), ...plain] : [];
+  if (card.curve_closure) rows.push(totalRow(card.curve_closure, "Places whose two years include a closure counted as 70"), ...binRows(card.curve_closure));
+  return rows;
+}
+
+/**
+ * The backtest by council district (`meta.fairness.by_district`): the places in the audited bands,
+ * how many had a major, the district's share of the wrongly named over its share of the labelled
+ * scored places with its 95% and family-wise intervals (the family-wise one also widened for an
+ * assumed design effect of 2, allowing for inspectors, when the export has it), and the
+ * false-positive rate against the City's. A column the export has no figure for is left out.
+ */
+function DistrictTable({ meta }) {
+  const f = meta.fairness;
+  const rows = Object.entries(f.by_district).filter(([d]) => d !== "None");
+  const any = (test) => rows.some(([, r]) => test(r ?? {}));
+  const family = any((r) => isRange(r.interval_family));
+  const deff = any((r) => isRange(r.interval_family_deff));
+  const fpr = any((r) => typeof r.fpr_ratio === "number");
+  const bands = auditedBandsName(meta).toLowerCase();
+  return (
+    <Section heading="By council district">
+      <p>
+        For a list of named places, the harm is a place in a band that then had no major: a wrongly named place. By council
+        district, in the backtest, for places in {bands}: how many there were, how many had a major, and the district&rsquo;s share
+        of the wrongly named over its share of the labelled scored places (the scored places whose next routine inspection is
+        known), where 1 is even{fpr ? "; and, of its labelled places with no major, the share in a band over the same share for the City" : ""}.
+      </p>
+      <Table
+        head={[
+          "District", "In a band", "Had a major", "Its share of the wrongly named, over its share of the labelled scored places",
+          ...(family ? ["Family-wise"] : []), ...(deff ? ["Allowing for inspectors (an assumed design effect of 2)"] : []),
+          ...(fpr ? ["Of its places with no major, the share in a band, over the City's"] : []),
+        ]}
+        rows={rows.map(([d, r]) => [
+          `District ${d}`, num(r.named),
+          typeof r.precision === "number" ? `${pct(r.precision)}${isRange(r.precision_interval) ? ` (${pct(r.precision_interval[0])} to ${pct(r.precision_interval[1])})` : ""}` : "",
+          typeof r.false_share_ratio === "number" ? `${r.false_share_ratio}×${isRange(r.interval) ? ` (${ratioRange(r.interval)})` : ""}` : "",
+          ...(family ? [ratioRange(r.interval_family)] : []), ...(deff ? [ratioRange(r.interval_family_deff, { floor: 0 })] : []),
+          ...(fpr ? [typeof r.fpr_ratio === "number" ? `${r.fpr_ratio}×` : ""] : []),
+        ])}
+        note={
+          "Had a major: the share of the district's places in a band that had one at their next routine inspection, with its likely range. " +
+          "Beside the share ratio, its 95% interval for that district alone" +
+          (family ? "; family-wise, a wider interval that holds for all the districts at once, since one district in nine can look high by chance" : "") +
+          (deff ? "; allowing for inspectors, the family-wise interval widened as if there were half as many places (an assumed design effect of 2), " +
+            "since places one inspector visits may be cited alike and the record does not say which inspector made a visit, shown from 0 where the widening reaches below it" : "") +
+          ". 1 is even."
+        }
+      />
+      {Array.isArray(f.problems) && f.problems.length > 0 && (
+        <p>Uneven: {f.problems.join("; ")}. Part of a district&rsquo;s gap may be how its inspectors cite, not its restaurants: the record does not say which inspector made a visit.</p>
+      )}
+      <p>{CUISINE_NOTE}</p>
+    </Section>
   );
 }
 

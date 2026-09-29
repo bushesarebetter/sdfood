@@ -42,10 +42,18 @@ export function csvColumns({ mode = "record" } = {}) {
 /** Beside a band in a spreadsheet, so a row passed on alone still says what the band is. */
 export const BAND_SOURCE = "Students' point rule, not a County rating.";
 
-/** What a row's band means: the band's line as the place's page states it, then BAND_SOURCE; "" with no band. */
+/** Beside points with no band: where the number comes from, so it says something when passed on alone. */
+export const POINTS_SOURCE =
+  "100 minus the average routine score over the two years before the list date (a health closure counted as 70); in no band. " +
+  "Students' point rule, not a County rating.";
+
+/**
+ * What a row's band means: the band's line as the place's page states it, then BAND_SOURCE; for
+ * points with no band, POINTS_SOURCE; "" with neither (or on hold).
+ */
 export function bandMeaning(p, meta, { mode = "bands" } = {}) {
   const b = shownBand(p, { mode });
-  if (!b) return "";
+  if (!b) return mode === "bands" && p?.points != null && !p?.on_hold ? POINTS_SOURCE : "";
   return `${bandSummary(meta, b, { outside: isOutside(p, meta), district: p?.council_district ?? null })} ${BAND_SOURCE}`;
 }
 

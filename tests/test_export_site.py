@@ -531,6 +531,11 @@ def test_publish_stages_named_bands_with_a_publication_stamp(built, tmp_path, mo
     assert not (tmp_path / "public_data" / "place" / "DEH2099-FFPP-000001.json").exists()
 
 
+def _as_of(meta, run_day):
+    """The same archived list, as if drawn up on `run_day` (to test the monitor's windows)."""
+    return {**meta, "run": f"forward_{run_day}-{meta['run'][-8:]}"}
+
+
 def test_archive_is_write_once_and_registration_is_one_per_rule_version(built, tmp_path):
     fc, details, meta, extra = built
     d, new = es.archive(tmp_path, meta, extra["ranking"])
@@ -538,23 +543,54 @@ def test_archive_is_write_once_and_registration_is_one_per_rule_version(built, t
     assert es.archive(tmp_path, meta, extra["ranking"])[1] is False, "never overwritten"
     with gzip.open(d / "ranking.csv.gz", "rt", encoding="utf-8") as fh:
         header = fh.readline().strip().split(",")
-    assert {"facility_id", "points", "band", "average_rule", "persistence", "district"} <= set(header)
-    v1 = {**meta, "frozen": {"version": "2026-09-22-aaaaaaaa"}}
-    reg = es.register(tmp_path, v1, prospective_dir=tmp_path / "prospective")
+    assert {"facility_id", "business_id", "points", "band", "average_rule", "persistence", "district", "closure_2y"} <= set(header)
+    day = es.run_date(meta["run"])
+    v1 = {**meta, "frozen": {"version": "2026-09-19-aaaaaaaa", "frozen_on": day}}
+    reg = es.register(tmp_path, v1, prospective_dir=tmp_path / "prospective", today=date(2026, 9, 22))
     regs = json.loads(reg.read_text(encoding="utf-8"))["registrations"]
-    assert [(r["run"], r["version"]) for r in regs] == [(meta["run"], "2026-09-22-aaaaaaaa")]
+    assert [(r["run"], r["version"]) for r in regs] == [(meta["run"], "2026-09-19-aaaaaaaa")]
     with pytest.raises(SystemExit, match="already registers rule version"):
-        es.register(tmp_path, v1, prospective_dir=tmp_path / "prospective")
-    es.register(tmp_path, {**meta, "frozen": {"version": "2027-01-05-bbbbbbbb"}}, prospective_dir=tmp_path / "prospective")
+        es.register(tmp_path, v1, prospective_dir=tmp_path / "prospective", today=date(2026, 9, 22))
+    with pytest.raises(SystemExit, match="before rule version .* was frozen"):
+        es.register(tmp_path, {**meta, "frozen": {"version": "2027-01-05-bbbbbbbb", "frozen_on": "2027-01-05"}},
+                    prospective_dir=tmp_path / "prospective", today=date(2027, 1, 6))
+    with pytest.raises(SystemExit, match="more than 14 days old"):
+        es.register(tmp_path, {**meta, "frozen": {"version": "2026-09-19-cccccccc", "frozen_on": day}},
+                    prospective_dir=tmp_path / "prospective", today=date(2027, 1, 6))
+    es.register(tmp_path, {**meta, "frozen": {"version": "2026-09-19-dddddddd", "frozen_on": day}},
+                prospective_dir=tmp_path / "prospective", today=date(2026, 9, 20))
     assert len(es._registrations(reg)) == 2, "a refit rule gets its own registration; the first is kept"
-    results = es.monitor(tmp_path, extra["places"], today=date(2027, 3, 1), log=lambda *_: None)
-    r = results[0]
-    assert r["run"] == meta["run"] and (tmp_path / "monitor.json").exists()
-    assert r["complete"] is False, "fewer than 365 days after the list: interim"
-    assert set(r) >= {"city", "outside", "missing_from_later_pull"}
-    assert r["city"]["labelled"] + r["outside"]["labelled"] == r["labelled"]
-    gone = es.monitor(tmp_path, extra["places"][1:], today=date(2027, 3, 1), log=lambda *_: None)[0]
+
+
+def test_the_monitor_waits_for_the_record_and_sets_like_against_like(built, tmp_path):
+    fc, details, meta, extra = built
+    places = extra["places"]
+    through = max(p["dates"][-1] for p in places if p["dates"])
+    too_soon = es.monitor(tmp_path, places, log=lambda *_: None) if False else None
+    es.archive(tmp_path, meta, extra["ranking"])                                # drawn up after the record ends
+    early = _as_of(meta, (es._d(through) - timedelta(days=150)).isoformat())    # 150 days of record since
+    es.archive(tmp_path, early, extra["ranking"])
+    old = _as_of(meta, (es._d(through) - timedelta(days=400)).isoformat())      # a whole label year since
+    es.archive(tmp_path, old, extra["ranking"])
+    res = {r["run"]: r for r in es.monitor(tmp_path, places, log=lambda *_: None)}
+    assert res[meta["run"]]["window_days"] is None and "city" not in res[meta["run"]], "no record since: too early"
+    e = res[early["run"]]
+    assert e["complete"] is False and e["window_days"] == 90, "interim: the longest window the record covers"
+    assert e["city"]["bands"].get("1", {}).get("expected") == meta["card"]["interim"]["90"]["1"]["rate"], \
+        "set against the backtest's rate over the same 90 days"
+    o = res[old["run"]]
+    assert o["complete"] is True and o["window_days"] == es.LABEL_DAYS
+    assert o["city"]["labelled"] + o["outside"]["labelled"] == o["labelled"]
+    assert "observed_over_expected" in o["city"] and o["city"]["observed_over_expected"]["expected"] > 0
+    if o["city"]["bands"].get("1"):
+        assert o["city"]["bands"]["1"]["expected"] == meta["card"]["bands"][0]["rate"]
+        assert len(o["city"]["band_1_minus_persistence"]) == 2
+    out_b1 = o["outside"]["bands"].get("1")
+    if out_b1 and meta["card"]["outside"]["bands"]:
+        assert out_b1["expected"] == meta["card"]["outside"]["bands"][0]["rate"], "outside places against outside rates"
+    gone = {r["run"]: r for r in es.monitor(tmp_path, places[1:], log=lambda *_: None)}[old["run"]]
     assert sum(gone["missing_from_later_pull"].values()) >= 1, "a place gone from the later pull is counted, not dropped"
+    assert "| area |" in (tmp_path / "monitor.md").read_text(encoding="utf-8")
 
 
 def test_an_older_single_registration_is_still_read(tmp_path):
@@ -563,11 +599,13 @@ def test_an_older_single_registration_is_still_read(tmp_path):
     assert es._registrations(tmp_path / "missing.json") == []
 
 
-def _monitor_row(run, *, days=400, complete=True, b1=(400, [0.55, 0.7], 0.62), all_rate=0.2):
+def _monitor_row(run, *, days=400, complete=True, b1=(400, [0.55, 0.7], 0.62), all_rate=0.2, oe=1.02, vp=(3.0, 20.0)):
     n, interval, rate = b1
     return {"run": run, "days": days, "complete": complete, "labelled": 2000, "positives": 500, "bands": {},
             "city": {"labelled": 1500, "all_rate": all_rate, "bands": {"1": {"labelled": n, "positives": int(n * rate),
-                                                                          "rate": rate, "interval": interval}}},
+                                                                          "rate": rate, "interval": interval}},
+                     "observed_over_expected": {"observed": 100, "expected": 100 / oe, "ratio": oe},
+                     "band_1_minus_persistence": list(vp)},
             "rule_minus_average": [0.01, 0.03]}
 
 
@@ -576,14 +614,21 @@ def test_the_prospective_gate(built, tmp_path, monkeypatch):
     ok, why = es.prospective_ok(tmp_path, 1.0, prospective_dir=tmp_path / "p")
     assert not ok and "no registered run" in why
     es.archive(tmp_path, meta, extra["ranking"])
-    frozen = {**meta, "frozen": {"version": "2026-09-22-aaaaaaaa"}}
-    es.register(tmp_path, frozen, prospective_dir=tmp_path / "p")
-    v = "2026-09-22-aaaaaaaa"
+    v = "2026-09-19-aaaaaaaa"
+    frozen = {**meta, "frozen": {"version": v, "frozen_on": es.run_date(meta["run"])}}
+    es.register(tmp_path, frozen, prospective_dir=tmp_path / "p", today=date(2026, 9, 22))
     assert "for rule version 2027" in es.prospective_ok(tmp_path, 1.0, prospective_dir=tmp_path / "p", version="2027-01-01-cccccccc")[1], \
         "a registration tests only the rule version it was made for"
-    monkeypatch.setattr(es, "_git_date", lambda path: None)
+    monkeypatch.setattr(es, "_on_remote", lambda path, needle: True)
+    monkeypatch.setattr(es, "_git_date", lambda path, needle=None: None)
     assert "not committed" in es.prospective_ok(tmp_path, 1.0, prospective_dir=tmp_path / "p", version=v)[1]
-    monkeypatch.setattr(es, "_git_date", lambda path: date(2026, 9, 22))
+    monkeypatch.setattr(es, "_git_date", lambda path, needle=None: date(2026, 11, 30))
+    assert "committed 72 days after its list" in es.prospective_ok(tmp_path, 1.0, prospective_dir=tmp_path / "p", version=v)[1], \
+        "a registration made after part of its label year could be seen does not count"
+    monkeypatch.setattr(es, "_git_date", lambda path, needle=None: date(2026, 9, 22))
+    monkeypatch.setattr(es, "_on_remote", lambda path, needle: False)
+    assert "not pushed" in es.prospective_ok(tmp_path, 1.0, prospective_dir=tmp_path / "p", today=date(2026, 10, 1), version=v)[1]
+    monkeypatch.setattr(es, "_on_remote", lambda path, needle: True)
     assert "90" in es.prospective_ok(tmp_path, 1.0, prospective_dir=tmp_path / "p", today=date(2026, 10, 1), version=v)[1]
     later = date(2027, 11, 1)
     mon = tmp_path / "monitor.json"
@@ -599,6 +644,15 @@ def test_the_prospective_gate(built, tmp_path, monkeypatch):
     mon.write_text(json.dumps([_monitor_row(meta["run"], all_rate=0.58)]))
     assert "not clearly above" in es.prospective_ok(tmp_path, 1.0, prospective_dir=tmp_path / "p", today=later, version=v)[1], \
         "band 1 must beat all scored City places, not only the cost bar"
+    backtest_b1 = meta["card"]["bands"][0]["rate"]
+    mon.write_text(json.dumps([_monitor_row(meta["run"], b1=(400, [0.2, backtest_b1 - 0.06], backtest_b1 - 0.13), all_rate=0.1)]))
+    got = es.prospective_ok(tmp_path, 0.1, prospective_dir=tmp_path / "p", today=later, version=v)[1]
+    assert "fell more than 5 points below its backtest rate" in got, got
+    mon.write_text(json.dumps([_monitor_row(meta["run"], oe=0.7)]))
+    assert "not calibrated" in es.prospective_ok(tmp_path, 1.0, prospective_dir=tmp_path / "p", today=later, version=v)[1]
+    mon.write_text(json.dumps([_monitor_row(meta["run"], vp=(-4.0, 9.0))]))
+    assert "recent major violations' same-size group" in es.prospective_ok(tmp_path, 1.0, prospective_dir=tmp_path / "p",
+                                                                             today=later, version=v)[1]
 
 
 def test_a_frozen_rule_is_applied_unchanged(built):
@@ -632,17 +686,65 @@ def test_the_version_names_the_rule(built):
     assert a["version"] != b["version"], "two different rules frozen on one day never share a version"
 
 
-def test_drift_asks_for_a_refit_when_the_record_moves():
-    fitted = {"label_quarters": ["2025Q1", "2025Q2"], "card": {"rows": [{"band": "1", "share": 0.12}]}}
-    m = {"major_rate_by_quarter": {"2025Q1": 0.20, "2025Q2": 0.22, "2026Q1": 0.21, "2026Q2": 0.20, "2026Q3": 0.05}}
-    d = es.drift_check(m, fitted, 0.13)
-    assert d["refit_needed"] is False and d["major_rate_backtest"] == 0.21 and d["major_rate_recent"] == 0.205
-    m["major_rate_by_quarter"].update({"2026Q1": 0.30, "2026Q2": 0.31})
-    d = es.drift_check(m, fitted, 0.13)
-    assert d["refit_needed"] and "routine major rate" in d["reasons"][0], "the last full quarters, not the one in progress"
-    d = es.drift_check({"major_rate_by_quarter": {}}, fitted, 0.25)
-    assert d["refit_needed"] and "band 1 holds 25.0%" in d["reasons"][0]
-    assert es.drift_check({}, {"card": {"rows": []}}, None)["refit_needed"] is False
+def test_drift_compares_only_quarters_after_the_label_year_with_a_threshold_from_the_counts():
+    fitted = {"confirm": "2025-01-01", "label_quarters": ["2025Q1", "2025Q2", "2025Q3", "2025Q4"],
+              "card": {"rows": [{"band": "1", "share": 0.12}]}, "catch_run": {"eligible": 3000}}
+    rates = {"2025Q1": 0.20, "2025Q2": 0.20, "2025Q3": 0.20, "2025Q4": 0.20, "2026Q1": 0.205, "2026Q2": 0.21}
+    m = {"major_rate_by_quarter": dict(rates), "routine_n_by_quarter": {q: 2000 for q in rates}}
+    d = es.drift_check(m, fitted, 0.12, through="2025-12-20", n_now=3000)
+    assert d["status"] == "not_yet_measurable" and d["refit_needed"] is False, "no complete quarter after the label year"
+    d = es.drift_check(m, fitted, 0.12, through="2026-07-15", n_now=3000)
+    assert d["status"] == "ok" and d["recent_quarters"] == ["2026Q1", "2026Q2"] and d["major_rate_recent"] == 0.2075
+    m["major_rate_by_quarter"].update({"2026Q1": 0.26, "2026Q2": 0.27})
+    d = es.drift_check(m, fitted, 0.12, through="2026-07-15", n_now=3000)
+    assert d["refit_needed"] and d["status"] == "refit" and "routine major rate 26.5%" in d["reasons"][0]
+    assert d["note"] and "may be low" in d["note"] and "2026 Q3" not in d["note"], "the latest quarter with data (Q2)"
+    d = es.drift_check({"major_rate_by_quarter": {}}, fitted, 0.20, n_now=3000)
+    assert d["refit_needed"] and "band 1 holds 20.0%" in d["reasons"][0]
+    small = es.drift_check({"major_rate_by_quarter": {}}, fitted, 0.135, n_now=3000)
+    assert not small["refit_needed"], "1.5 points on 3,000 places is within the threshold"
+    assert es.drift_check({}, {"card": {"rows": []}}, None)["status"] == "not_yet_measurable"
+
+
+def test_the_frozen_rule_covers_the_code_that_gives_points_their_meaning(built, monkeypatch):
+    fc, details, meta, extra = built
+    rec = json.loads(json.dumps(es.frozen_record(extra["fitted"], meta["run"], date(2026, 9, 22)), default=str))
+    assert es.spec_problems(rec) == []
+    monkeypatch.setattr(es, "CLOSURE_SCORE", 80)
+    assert es.spec_problems(rec) and "refit" in es.spec_problems(rec)[0]
+    with pytest.raises(SystemExit, match="changed since rule version"):
+        es.build(invented_county(), DISTRICTS, pull=PULL, approval=None, today=date(2026, 9, 22), refits=0,
+                 log=lambda *_: None, frozen=rec)
+    monkeypatch.undo()
+    old = {k: v for k, v in rec.items() if k != "feature_spec"}
+    assert "frozen without its feature code" in es.spec_problems(old)[0]
+
+
+def test_each_place_reads_the_estimate_curve_for_its_own_group(built):
+    """Places whose two scored years include a health closure read their own curve: they had a major
+    next time less often than places with the same points from routine scores alone."""
+    fc, details, meta, extra = built
+    groups = {d["estimate"]["group"] for d in details.values() if d.get("estimate")}
+    assert groups <= {"scores", "closure"} and groups
+    for d in details.values():
+        e = d.get("estimate")
+        if not e:
+            continue
+        has = any(u["closure"] for u in d["scores_used"])
+        assert e["group"] == ("closure" if has else "scores")
+        outside = d["council_district"] is None
+        src = meta["card"]["outside"] if outside else meta["card"]
+        c = src.get("curve_closure") if has else src.get("curve")
+        if c:
+            j = min(d["points"], len(c["rate"]) - 1)
+            assert e["rate"] == c["rate"][j]
+
+
+def test_interim_rates_for_the_monitor_are_stored_with_the_rule(built):
+    fc, details, meta, extra = built
+    interim = meta["card"]["interim"]
+    assert set(interim) == {"90", "180", "270"}
+    assert interim["90"]["all"]["labelled"] <= interim["180"]["all"]["labelled"] <= interim["270"]["all"]["labelled"]
 
 
 def test_a_fixed_rule_has_no_refit_stability(built):
@@ -775,6 +877,10 @@ def test_repeat_item_and_scores_below_90_count_inspection_days_not_records():
     f = es.flags(es.display_records(q), q["visits"], "2026-09-29")
     assert "repeat_item" in f, "the same major item at two routine inspection days in two years, clean ones between"
     assert "lt90_2" in f, "two routine scores below 90 in two years (the Guide's middle criterion)"
+    assert "major_2" in f, "majors at two routine inspection days (the Guide's first criterion, any items)"
+    one = _place([inspection("2025-09-01", score="88", grade="B", violations=[violation(VERMIN, "major")]),
+                  inspection("2026-03-01", score="95", violations=[violation(TEMP, "minor")])])
+    assert "major_2" not in es.flags(es.display_records(one), one["visits"], "2026-09-29")
 
 
 def test_every_routine_health_closure_counts_as_70_and_keeps_the_countys_score():
@@ -878,7 +984,11 @@ def test_band_1_is_split_by_route_and_districts_carry_precision_intervals(built)
         assert set(r) == {"closure", "scores"}
         assert r["closure"]["labelled"] + r["scores"]["labelled"] == c["bands"][0]["labelled"]
     for d, e in meta["fairness"]["by_district"].items():
-        assert "labelled" in e and "interval_family" in e
+        assert "labelled" in e and "interval_family" in e and "interval_family_deff" in e
+        assert e["evidence_above_even"] == bool(e["interval_family"] and e["interval_family_deff"]
+                                                and min(e["interval_family"][0], e["interval_family_deff"][0]) > 1)
+        if e["interval_family"] and e["interval_family_deff"]:
+            assert e["interval_family_deff"][0] <= e["interval_family"][0] and e["interval_family"][1] <= e["interval_family_deff"][1]
         if e["precision"] is not None:
             lo, hi = e["precision_interval"]
             assert lo <= e["precision"] <= hi

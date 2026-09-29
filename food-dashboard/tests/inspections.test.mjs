@@ -45,8 +45,8 @@ test("themes are the sections of the County's inspection report", () => {
 });
 
 test("flags: the record facts, the three escalation facts, and every theme but other", () => {
-  assert.deepEqual(ESCALATION_FLAGS, ["closures2", "repeat_item", "lt90_2"]);
-  assert.deepEqual(RECORD_FLAGS, ["major", "closed", "bc", "repeat", "closures2", "repeat_item", "lt90_2"]);
+  assert.deepEqual(ESCALATION_FLAGS, ["major_2", "closures2", "repeat_item", "lt90_2"]);
+  assert.deepEqual(RECORD_FLAGS, ["major", "closed", "bc", "repeat", "major_2", "closures2", "repeat_item", "lt90_2"]);
   for (const k of [...RECORD_FLAGS, "supplier", "process", "grp_staff", "grp_other"]) assert.ok(FLAG_KEYS.includes(k), k);
   assert.ok(!FLAG_KEYS.includes("other"), "a major's theme is never flagged as other");
   for (const k of FLAG_KEYS) assert.ok(FLAG_LABELS[k], `label for ${k}`);
@@ -59,9 +59,10 @@ test("flags: the record facts, the three escalation facts, and every theme but o
 test("flags are read back from the list date, and the escalation facts quote the County's Guide in full", () => {
   assert.equal(OUR_READING.flags, "read from the 12 months before the list date, and 24 months for the three escalation facts.");
   assert.doesNotMatch(OUR_READING.flags, /last visit/);
-  assert.match(ESCALATION_NOTE, /Retail Food Facility Operator's Guide, p\. 8/);
-  assert.ok(ESCALATION_NOTE.includes("“recurring major violations, recurring scores of less than 90%, or recurring facility closures”"));
-  assert.match(ESCALATION_NOTE, /The County may already be acting on these places\.$/);
+  assert.match(ESCALATION_NOTE, /Retail Food Facility Operator's Guide \(p\. 8\)/);
+  assert.ok(ESCALATION_NOTE.includes("“a history of recurring major violations, recurring scores of less than 90%, or recurring facility closures”"));
+  assert.match(ESCALATION_NOTE, /The County sets no count or period\. These are our counts/);
+  assert.match(ESCALATION_NOTE, /is not a County finding and does not mean the County has acted or will\.$/);
 });
 
 test("no grade is ever derived from a score, and a record's grade is its own letter", () => {

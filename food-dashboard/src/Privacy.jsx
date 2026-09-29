@@ -49,7 +49,10 @@ export default function Privacy({ onNavigate }) {
   const staff = isStaff(meta);
   const r = SITE.regulator;
   const authorsRoute = contact ? <>write to <Mail to={contact} /></> : <>open an issue at <Link href={`${REPO_URL}/issues`}>the project&rsquo;s GitHub issues</Link></>;
-  const writeTo = contact ? <Mail to={contact} /> : <>the authors through <Link href={`${REPO_URL}/issues`}>the project&rsquo;s GitHub issues</Link></>;
+  // An owner's question about their business is never asked in public: an email, or nothing yet.
+  const ownerMail = contact || SITE.ownerContact;
+  const ownerRoute = ownerMail ? <>email <Mail to={ownerMail} /></> : <>email the authors (the address appears here once the site&rsquo;s operator sets it)</>;
+  const NOT_ISSUES = "Please do not open a GitHub issue about a business: issues are public.";
   const go = (p) => (e) => { e.preventDefault(); onNavigate(p); };
 
   return (
@@ -60,8 +63,9 @@ export default function Privacy({ onNavigate }) {
       {staff && (
         <Section heading="The City staff site">
           <p>
-            You sign in with a City staff sign-in. The server records the sign-in&rsquo;s name with each place record opened and each
-            address looked up (an access log, kept in the host&rsquo;s logs), and nothing else. The site keeps no offline copy: it removes
+            You sign in with a City staff sign-in. Under your sign-in id the server logs each sign-in and sign-out with its network
+            address, each unsuccessful sign-in with the name typed and the address, each place record opened and each list file fetched, each
+            address lookup (not what you typed), and each CSV download and print. The logs are kept by the site&rsquo;s host. The site keeps no offline copy: it removes
             any service worker and marks every data file not to be stored. On a shared computer, use Sign out at the top of any page, then
             close the browser.
           </p>
@@ -166,8 +170,8 @@ export default function Privacy({ onNavigate }) {
         </p>
         {mode === "bands" && (
           <p>
-            <b className="font-semibold text-ink">A place&rsquo;s points or band.</b> An owner or manager may ask for a review{" "}
-            {contact ? <>at <Mail to={contact} /></> : <>through the project&rsquo;s GitHub issues</>}. Every request goes on hold the
+            <b className="font-semibold text-ink">A place&rsquo;s points or band.</b> An owner or manager may ask for a review:{" "}
+            {ownerRoute}. {NOT_ISSUES} Every request goes on hold the
             same business day it arrives: the place shows &ldquo;Under review&rdquo; and its record, with no band or points. We recount
             each item on the place&rsquo;s worksheet against the County&rsquo;s record and answer within five business days. The outcome
             goes in the corrections log.
@@ -179,8 +183,8 @@ export default function Privacy({ onNavigate }) {
         <p>
           The authors also run a sign-in site for City of San Diego staff that shows, for each restaurant, the County&rsquo;s record and
           points from the students&rsquo; point rule. An owner or manager may ask whether their business appears and see exactly what it
-          shows: write to {writeTo} with its name and address. We answer within five business days, and from the day we receive the
-          request its points and band are withheld from the staff site.
+          shows: {ownerRoute} with its name and address. {NOT_ISSUES} We answer by email within five business days, and from the day
+          we receive the request its points and band are withheld from the staff site and its worklists.
         </p>
       </Section>
 
@@ -221,7 +225,7 @@ export default function Privacy({ onNavigate }) {
       <Section heading="Contact">
         <p>
           The authors are {SITE.authors}. For the County&rsquo;s record, the County&rsquo;s {r.dutyName}; for this site,{" "}
-          {contact ? <Mail to={contact} /> : <Link href={`${REPO_URL}/issues`}>GitHub issues</Link>}.
+          {contact ? <Mail to={contact} /> : <><Link href={`${REPO_URL}/issues`}>GitHub issues</Link> for anything that is not about a particular business</>}.
         </p>
       </Section>
 

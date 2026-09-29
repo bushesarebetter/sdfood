@@ -8,7 +8,7 @@ import { useMeta, useExpired } from "./useMeta";
 import { placeLines } from "./lib/framing";
 import { lastVisitStale, STALE_LABEL } from "./lib/filters";
 import { PLACE_STATUS_TEXT } from "./lib/placeData";
-import { themeCounts, escalationFacts, ESCALATION_NOTE } from "./lib/inspections";
+import { themeCounts, escalationFacts, ESCALATION_NOTE, ESCALATION_TITLE } from "./lib/inspections";
 import { fmtMonth } from "./lib/dates";
 import { SITE } from "./site";
 
@@ -117,8 +117,8 @@ export function RecordFactList({ facts, large = false, empty }) {
 }
 
 /**
- * The County's own criteria for a closer look that the place meets (its escalation flags), with
- * the Guide's words. Nothing when it meets none.
+ * The patterns the County's Operator's Guide names that the place's record shows, as our counts
+ * (its escalation flags), with the Guide's words. Nothing when it shows none.
  */
 export function EscalationFacts({ flags, large = false }) {
   const facts = escalationFacts(flags);
@@ -126,7 +126,7 @@ export function EscalationFacts({ flags, large = false }) {
   const text = large ? "text-[15px]" : "text-[13.5px]";
   return (
     <div className="mb-4 border-l-2 border-ink pl-3">
-      <p className="label">The County&rsquo;s own criteria for a closer look</p>
+      <p className="label">{ESCALATION_TITLE}</p>
       <ul className={`mt-1 list-disc pl-5 leading-[1.5] text-ink ${text}`}>
         {facts.map((f) => <li key={f.key}>{f.label}</li>)}
       </ul>

@@ -79,8 +79,8 @@ export const VISIT_TYPES = ["routine", "reinspection", "followup", "complaint"];
 export const SEVERITIES = ["major", "minor", "grp"];
 export const CLOSURES = ["health", "permit", "other"];
 export const GRADES = ["A", "B", "C"];
-/** The escalation facts: the 24 months before the list date, the County's own criteria for a closer look. */
-export const ESCALATION_FLAGS = ["closures2", "repeat_item", "lt90_2"];
+/** The escalation facts: our counts, in the 24 months before the list date, of patterns the County's Operator's Guide names. */
+export const ESCALATION_FLAGS = ["major_2", "closures2", "repeat_item", "lt90_2"];
 export const RECORD_FLAGS = ["major", "closed", "bc", "repeat", ...ESCALATION_FLAGS];
 /** A flag is a record flag or the theme of a major violation; "other" is never a flag. */
 export const FLAG_KEYS = [...RECORD_FLAGS, ...Object.keys(THEMES).filter((k) => k !== "other")];
@@ -102,6 +102,7 @@ export const FLAG_LABELS = {
   closed: "Ordered closed, health hazard",
   bc: "A B or C grade",
   repeat: "Two or more reinspections",
+  major_2: "Major violations at two or more routine inspections in two years",
   closures2: "Ordered closed, health hazard, two or more times in two years",
   repeat_item: "Same major item at two or more routine inspections in two years",
   lt90_2: "Scored below 90 at two or more routine inspections in two years",
@@ -109,12 +110,15 @@ export const FLAG_LABELS = {
 };
 
 /**
- * Where the escalation facts come from, quoted in full: the County's Retail
- * Food Facility Operator's Guide, p. 8, on what brings a closer look.
+ * Where the escalation facts come from, quoted in full: the County's Retail Food Facility
+ * Operator's Guide, p. 8. The Guide sets no count or period; the counts are ours.
  */
 export const GUIDE_CRITERIA = "recurring major violations, recurring scores of less than 90%, or recurring facility closures";
+export const ESCALATION_TITLE = "Patterns the County's Operator's Guide names";
 export const ESCALATION_NOTE =
-  `The three escalation facts follow the County's own criteria for a closer look at a place (Retail Food Facility Operator's Guide, p. 8): “${GUIDE_CRITERIA}”. The County may already be acting on these places.`;
+  `The County's Retail Food Facility Operator's Guide (p. 8) says a facility with “a history of ${GUIDE_CRITERIA}” may be issued a notice to appear for an administrative hearing. ` +
+  "The County sets no count or period. These are our counts (two or more in the 24 months before the list date; a closure, which the County does not score, counts as a closure, not as a score below 90); " +
+  "meeting one is not a County finding and does not mean the County has acted or will.";
 
 export const VISIT_LABELS = {
   routine: "routine inspection",

@@ -72,7 +72,7 @@ test("a last visit more than 365 days before the record's end is stale", async (
 test("the flags are labelled with their window: 12 months before the list date, 24 for the escalation facts", async () => {
   const { flagWindow, flagWindowNote } = await import("../src/lib/filters.js");
   assert.equal(flagWindow("major"), "in the 12 months before the list date");
-  for (const k of ["closures2", "repeat_item", "lt90_2"]) assert.equal(flagWindow(k), "in the 24 months before the list date", k);
+  for (const k of ["major_2", "closures2", "repeat_item", "lt90_2"]) assert.equal(flagWindow(k), "in the 24 months before the list date", k);
   assert.equal(flagWindowNote(["major", "bc"]), "Our reading of the County's record in the 12 months before the list date.");
   assert.match(flagWindowNote(["major", "closures2"]), /^Our reading of the County's record in the 12 months before the list date \(the 24 months before it for: [^;]+\)\.$/);
 });

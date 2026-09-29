@@ -27,15 +27,20 @@ City of San Diego staff, each with their own sign-in (`SITE_USERS` on the servic
 3. after the City has said whether its TRUST Ordinance (San Diego Municipal Code §§ 210.0101–
    210.0112, on surveillance technology) applies (`trust_determination`). If it does, the City needs
    Privacy Advisory Board review (§ 210.0104) and a Council vote (§ 210.0106) before any staff use,
-   even of a free tool. Until then, the method and the counts-only dashboard can be shown, but not the
-   named list; the site itself says, on every page, that it is a demonstration until both are on
-   record (`access_approved` in the staff copy of meta.json).
+   even of a free tool: record the vote in `council_approval`. Until then, the method and the
+   counts-only dashboard can be shown, but not the named list. The server enforces it: until
+   `access_approved` (a request with its name and date, and a TRUST answer of "does not apply", or
+   "applies" with the Council's approval), only the site's operators (`SITE_OPERATORS` on the service:
+   the people who build and check it) see the named list; a City sign-in issued early sees why, not
+   the list. Every page also says the site is a demonstration until then.
 
 One sign-in per person, never shared, under a pseudonymous id (`u01`, `u02`, ...) whose key the
 City's owner of the site keeps. Remove a person's sign-in the day they leave. A sign-in lasts until
-"Sign out", 30 idle minutes or 10 hours. The host's logs record, by id, every data file fetched and
-every CSV download and print; they cannot say which places a person looked at, because the list loads
-every name and band at once.
+"Sign out", 30 idle minutes or 10 hours. Under each id the host's logs record every sign-in and
+sign-out with its network address, every unsuccessful sign-in with the name typed, every place record
+opened (each place's file is fetched when it is opened, so the log does show which places a person
+opened, though the list itself loads every name and band at once), every address lookup (not what
+was typed), and every CSV download and print.
 
 ## What it is for
 
@@ -71,11 +76,14 @@ statistic about a group, and why the students never promise a list will stay con
   `docs/STAFF_APPROVAL.json`, shown on the site. The place goes on hold (`docs/holds.json`) the same
   business day the request arrives, with `publish_city_site.py --holds-only`, which changes nothing
   else and needs no rebuild: it keeps its County record and loses its points and band until the
-  review is done. The worklists apply the same holds. The outcome goes in the corrections log.
+  review is done, and it moves to the end of every list and worklist, so its position does not give
+  its points away. The worklists apply the same holds. The outcome goes in the corrections log.
 - **How an owner can find out.** The site is behind a sign-in and staff do not contact businesses
   about bands, so the public site's privacy page says the staff version exists and how an owner or
-  manager can ask whether their business appears and see exactly what it shows; the answer comes
-  within five business days, and the place is held from the day the request arrives.
+  manager can ask, by email only (`VITE_OWNER_CONTACT` on the public site; never a public GitHub
+  issue, which would publish the business's band), whether their business appears and see exactly
+  what it shows; the answer comes by email within five business days, and the place is held from the
+  day the request arrives.
 
 ## What staff are told the list has not passed
 
@@ -98,9 +106,9 @@ what has not been done, on every page (the banner, as instructions) and in full 
 
 While a silent pilot runs ([PILOT.md](PILOT.md)), no band may reach an inspector or a County
 supervisor from this site: the pilot's result would then measure the list's influence, not its
-accuracy. The access log shows who fetched place files and downloaded lists, so the analysis can
-report the result with and without the districts whose lists staff downloaded; it cannot show which
-single places a person looked at.
+accuracy. The access log shows which place records each person opened and which lists they
+downloaded, so the analysis can report the result with and without the inspections at places staff
+had opened.
 
 ## Sunset
 

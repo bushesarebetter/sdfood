@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   isStaff, contactLine, reviewStatus, reviewGuidance, districtGuidance, auditCsv, auditPrint, signInAgain, GUIDANCE, PUBLIC_RECORD_NOTE, USE_NOTE,
+  evidenceDistricts, fairnessLine,
 } from "../src/lib/staff.js";
 
 const STATUS = [
@@ -70,8 +71,55 @@ test("the district view's guidance is for staff, and names the districts the che
   const g = districtGuidance({ audience: "staff", review_status: STATUS });
   assert.equal(g.length, 3);
   assert.match(g[0], /^Open a district's list/);
-  assert.equal(g[2], "A band is wrong more often in Districts 4 and 9 than elsewhere: do not compare districts by how many places are in a band.");
+  assert.equal(g[2], "A band is wrong more often in Districts 4 and 9 than elsewhere: do not compare districts by how many places are in a band.",
+    "an older export without evidence_above_even: the gate text's districts");
   assert.equal(districtGuidance({ audience: "staff" }).length, 2);
+});
+
+// District 5's share of the wrongly named is above even, but its family-wise interval spans 1.
+const byDistrict = (ev) => ({
+  4: { named: 30, precision: 0.29, false_share_ratio: 1.9, interval_family: [1.1, 3.0], interval_family_deff: [1.02, 3.4], evidence_above_even: ev[4] },
+  5: { named: 22, precision: 0.33, false_share_ratio: 1.5, interval_family: [0.8, 2.6], interval_family_deff: [0.5, 2.9], evidence_above_even: ev[5] },
+  9: { named: 25, precision: 0.3, false_share_ratio: 1.8, interval_family: [1.2, 2.7], interval_family_deff: [1.01, 3.1], evidence_above_even: ev[9] },
+  None: { named: 3, evidence_above_even: true },
+});
+const EVIDENCE_4_9 = "In the backtest, band 1 places in Districts 4 and 9 went on to have no major violation more often than elsewhere, even allowing for chance; " +
+  "part of this may be how inspectors there cite. Do not compare districts by how many places are in a band.";
+
+test("the fairness line names only the districts whose family-wise interval starts above even", () => {
+  const meta = { audience: "staff", review_status: [...STATUS, "district 5: 1.5x its share of wrongly named places (22 named)"],
+                 fairness: { by_district: byDistrict({ 4: true, 5: false, 9: true }) } };
+  assert.deepEqual(evidenceDistricts(meta), [4, 9], "not District 5, whose interval spans even; never the places outside the City");
+  assert.equal(fairnessLine(meta), EVIDENCE_4_9);
+  const g = reviewGuidance(meta);
+  assert.ok(g.includes(EVIDENCE_4_9));
+  assert.ok(!g.some((s) => /wrong more often|District 5\b/.test(s)), "the gate text no longer names districts");
+  assert.equal(g.indexOf(EVIDENCE_4_9), g.indexOf(GUIDANCE.nothingToName) + 1, "where the district line was");
+  assert.equal(districtGuidance(meta)[2], EVIDENCE_4_9, "the district view says the same");
+  // one district; the bands the district figures cover
+  const one = { fairness: { bands_used: ["1", "2", "3"], by_district: byDistrict({ 4: true, 5: false, 9: false }) } };
+  assert.equal(fairnessLine(one),
+    "In the backtest, places in bands 1 to 3 in District 4 went on to have no major violation more often than elsewhere, even allowing for chance; " +
+      "part of this may be how inspectors there cite. Do not compare districts by how many places are in a band.");
+});
+
+test("no district above even at the family-wise low end: no fairness line, whatever the gate text says", () => {
+  const meta = { audience: "staff", review_status: STATUS, fairness: { by_district: byDistrict({ 4: false, 5: false, 9: false }) } };
+  assert.deepEqual(evidenceDistricts(meta), []);
+  assert.equal(fairnessLine(meta), null);
+  assert.ok(!reviewGuidance(meta).some((s) => /District|district/.test(s)));
+  assert.equal(districtGuidance(meta).length, 2);
+});
+
+test("an export without evidence_above_even falls back to the districts its gate text names", () => {
+  const old = { review_status: STATUS, fairness: { by_district: { 4: { named: 30, precision: 0.29 }, 9: { named: 25 } } } };
+  assert.equal(evidenceDistricts(old), null);
+  assert.equal(evidenceDistricts({}), null);
+  assert.equal(fairnessLine(old), "A band is wrong more often in Districts 4 and 9 than elsewhere: do not compare districts by how many places are in a band.");
+  assert.equal(fairnessLine({ review_status: ["district 3: false-positive rate 1.6x the City's"] }),
+    "A band is wrong more often in District 3 than elsewhere: do not compare districts by how many places are in a band.");
+  assert.equal(fairnessLine({}), null);
+  assert.equal(evidenceDistricts({ fairness: { by_district: { 4: { evidence_above_even: "yes" } } } }), null, "only true or false counts");
 });
 
 test("a staff CSV download is logged to the site's own server; a public one is not; neither can throw", async () => {

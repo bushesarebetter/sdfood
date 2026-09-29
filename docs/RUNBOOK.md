@@ -120,16 +120,23 @@ only the rule version it was made for. Never edit `docs/rule.json` by hand.
 - The server refuses to start with a sign-in shorter than 16 characters. After 10 failed sign-ins in 15
   minutes for one name from one address, that name is locked out from that address for the rest of
   the window; other people at the same office are not.
-- A session ends after 30 idle minutes, after 10 hours, at "Sign out", and whenever the service
-  restarts (the free plan sleeps after 15 idle minutes, which also signs everyone out).
+- A session ends after 30 idle minutes, after 10 hours, at "Sign out" (a POST from the site's own
+  page: a link from anywhere else only asks), and whenever the service restarts (the free plan sleeps
+  after 15 idle minutes, which also signs everyone out). The cookie is `__Host-s`.
+- Before the City has recorded its request and TRUST answer, only `SITE_OPERATORS` (ids,
+  comma-separated; by default the shared `SITE_PASSWORD` sign-in's user) see the named list. When you
+  move yourself to `SITE_USERS`, add your id to `SITE_OPERATORS`.
+- The site's dates are San Diego's: it closes at midnight Pacific after its sunset date.
 
 ## The access log
 
-Every data request, every CSV download and every print is logged with the sign-in's id
-(`access user=...`, `audit user=... event=csv`) in the service's logs. On the free plan Render keeps
-those logs only briefly and loses them on restart: to keep them, add a log stream (Render dashboard,
-Workspace settings, Log Streams) to a store the City's owner controls. The log shows which files were
-fetched, not which places a person looked at: the list itself loads every name and band at once.
+Every sign-in and sign-out (with its address), every unsuccessful sign-in (with the name typed),
+every data file fetched (each place's record is its own file, so this shows which places a person
+opened), every address lookup, and every CSV download and print is logged with the sign-in's id
+(`sign-in user=...`, `access user=...`, `audit user=... event=csv`, `withheld user=...`) in the
+service's logs. On the free plan Render keeps those logs only briefly and loses them on restart: to
+keep them, add a log stream (Render dashboard, Workspace settings, Log Streams) to a store the City's
+owner controls.
 
 ## The machine is lost
 

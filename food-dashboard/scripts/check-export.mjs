@@ -23,10 +23,17 @@
  *    scores_used rows outside { date, score, closure, county_score } (a
  *    closure is read as 70; county_score is null or 0 to 100) or that do not
  *    give the worksheet's deficits, a tie in points straddling a band edge, a
- *    place under review that still shows a band or points, and, where they
- *    are given, meta.frozen, meta.drift, meta.card.band_1_by_route,
- *    meta.card.closure_score or a district's precision_interval of the wrong
- *    shape (an export from before they existed passes without them);
+ *    place under review that still shows a band or points, an estimate whose
+ *    `group` is not scores|closure or does not match whether scores_used holds
+ *    a closure, and, where they are given, meta.frozen, meta.drift (either
+ *    threshold shape; status, recent_quarters, latest_* and note),
+ *    meta.card.band_1_by_route, meta.card.closure_score, meta.card.interim,
+ *    meta.card.curve_closure and meta.card.outside.curve_closure, the outside
+ *    bands' baseline_rate, baseline_interval and vs_baseline,
+ *    meta.catch_run.eligible, or a district's precision_interval, labelled,
+ *    interval_family, interval_family_deff (interval_family_zip, from before
+ *    it) or evidence_above_even of the wrong shape (an export from before they
+ *    existed passes without them);
  *  - a non-sample export without `expires` or `provenance`, or with a place
  *    named "Sample ...", or (bands mode, named_bands non-empty) a band
  *    outside named_bands;
@@ -73,6 +80,8 @@ const FORBIDDEN = ["rank", "percentile", "oof_rank", "score", "shap_features", "
 const BAND_FIELDS = ["band", "points", "on_hold"];
 const ISO = /^\d{4}-\d{2}-\d{2}$/;
 const CLOSURE_SCORE = 70;   // a routine that ended in a health closure order is read as this score
+const ESTIMATE_GROUPS = ["scores", "closure"];   // which curve a place's estimate was read from
+const DRIFT_STATUS = ["ok", "refit", "not_yet_measurable"];
 
 let failed = false;
 const fail = (msg) => { console.error(`FAIL: ${msg}`); failed = true; };
@@ -280,6 +289,14 @@ for (const f of features) {
         && e.low >= 0 && e.high <= 1 && e.low <= e.rate + 1e-9 && e.rate <= e.high + 1e-9)) {
       note("an estimate outside 0 <= low <= rate <= high <= 1", `${id}: ${JSON.stringify(e)}`);
     }
+    // group: the curve the estimate was read from, "closure" exactly when the scores the rule reads
+    // include a routine inspection that ended in a health closure (optional: older exports lack it).
+    if (e != null && typeof e === "object" && "group" in e) {
+      if (!ESTIMATE_GROUPS.includes(e.group)) note(`an estimate group outside ${ESTIMATE_GROUPS.join("|")}`, `${id}: ${JSON.stringify(e.group)}`);
+      else if (Array.isArray(d.scores_used) && (e.group === "closure") !== d.scores_used.some((u) => u?.closure === true)) {
+        note("an estimate group that does not match whether scores_used holds a closure", `${id}: ${e.group}`);
+      }
+    }
   }
 }
 
@@ -316,6 +333,14 @@ function metaShapeProblems(m) {
   const count = (x) => Number.isInteger(x) && x >= 0;
   const interval = (iv) => Array.isArray(iv) && iv.length === 2
     && ((iv[0] === null && iv[1] === null) || (share(iv[0]) && share(iv[1]) && iv[0] <= iv[1]));
+  // A ratio's interval (1 is even) and a difference's (it may be negative): null or [lo, hi], lo <= hi.
+  const pairOf = (ok) => (iv) => iv === null || (Array.isArray(iv) && iv.length === 2 && iv.every(ok) && iv[0] <= iv[1]);
+  const ratioInterval = pairOf((x) => typeof x === "number" && Number.isFinite(x) && x >= 0);
+  const diffInterval = pairOf((x) => typeof x === "number" && Number.isFinite(x));
+  const quarter = (q) => typeof q === "string" && /^\d{4}Q[1-4]$/.test(q);
+  const curveShape = (c) => isObj(c) && Array.isArray(c.rate) && c.rate.length > 0 && Array.isArray(c.low) && Array.isArray(c.high)
+    && c.low.length === c.rate.length && c.high.length === c.rate.length
+    && c.rate.every((r, j) => share(r) && share(c.low[j]) && share(c.high[j]) && c.low[j] <= r + 1e-9 && r <= c.high[j] + 1e-9);
 
   if ("frozen" in m && m.frozen !== null) {
     const f = m.frozen;
@@ -327,10 +352,25 @@ function metaShapeProblems(m) {
   if ("drift" in m && m.drift !== null) {
     const d = m.drift;
     const nums = ["major_rate_backtest", "major_rate_recent", "band_1_share_backtest", "band_1_share_now"];
+    // Fixed thresholds until October 2026 ({ major_rate, band_share }); since then scaled to the counts.
+    const t = isObj(d) ? d.thresholds : null;
+    const thresholds = isObj(t) && ((typeof t.major_rate === "number" && typeof t.band_share === "number")
+      || (typeof t.min === "number" && typeof t.standard_errors === "number"));
     if (!isObj(d) || nums.some((k) => !(k in d) || !shareOrNull(d[k])) || typeof d.refit_needed !== "boolean"
-        || !Array.isArray(d.reasons) || d.reasons.some((r) => typeof r !== "string")
-        || !isObj(d.thresholds) || typeof d.thresholds.major_rate !== "number" || typeof d.thresholds.band_share !== "number") {
-      out.push(`meta.drift is not { ${nums.join(", ")} (0 to 1 or null), refit_needed, reasons: string[], thresholds: { major_rate, band_share } }`);
+        || !Array.isArray(d.reasons) || d.reasons.some((r) => typeof r !== "string") || !thresholds) {
+      out.push(`meta.drift is not { ${nums.join(", ")} (0 to 1 or null), refit_needed, reasons: string[], thresholds: { min, standard_errors } or { major_rate, band_share } }`);
+    } else {
+      // The quarter-by-quarter fields; an export from before them has none.
+      if ("status" in d && (!DRIFT_STATUS.includes(d.status) || (d.status === "refit") !== d.refit_needed)) {
+        out.push(`meta.drift.status is not ${DRIFT_STATUS.join("|")}, "refit" exactly when refit_needed (${JSON.stringify(d.status)})`);
+      }
+      if ("recent_quarters" in d && (!Array.isArray(d.recent_quarters) || !d.recent_quarters.every(quarter))) {
+        out.push('meta.drift.recent_quarters is not a list of quarters ("YYYYQn")');
+      }
+      if ("latest_quarter" in d && d.latest_quarter !== null && !quarter(d.latest_quarter)) out.push('meta.drift.latest_quarter is not null or "YYYYQn"');
+      if ("latest_rate" in d && !shareOrNull(d.latest_rate)) out.push("meta.drift.latest_rate is not null or 0 to 1");
+      if ("latest_n" in d && d.latest_n !== null && !count(d.latest_n)) out.push("meta.drift.latest_n is not null or a count");
+      if ("note" in d && d.note !== null && (typeof d.note !== "string" || !d.note.trim())) out.push("meta.drift.note is not null or a sentence");
     }
   }
   const card = m.card ?? {};
@@ -343,9 +383,49 @@ function metaShapeProblems(m) {
       out.push("meta.card.band_1_by_route is not null or { closure, scores }, each { labelled, positives, rate, interval: [lo, hi] }");
     }
   }
+  // The estimate curve for places whose two scored years include a health closure, beside `curve`.
+  for (const [where, c] of [["meta.card", card], ["meta.card.outside", card.outside]]) {
+    if (isObj(c) && "curve_closure" in c && c.curve_closure !== null && !curveShape(c.curve_closure)) {
+      out.push(`${where}.curve_closure is not null or a curve { rate, low, high } (lists of one length, 0 to 1, low <= rate <= high)`);
+    }
+  }
+  // Rates with the label cut off after N days, for the monitor: { "90": { "1": {...}, "all": {...} }, ... }.
+  if ("interim" in card && card.interim !== null) {
+    const group = (g) => isObj(g) && count(g.labelled) && count(g.positives) && g.positives <= g.labelled && shareOrNull(g.rate);
+    if (!isObj(card.interim) || !Object.entries(card.interim).every(([days, gs]) => /^\d+$/.test(days) && isObj(gs) && Object.values(gs).every(group))) {
+      out.push("meta.card.interim is not null or { days: { group: { labelled, positives, rate } } }");
+    }
+  }
+  for (const b of Array.isArray(card.outside?.bands) ? card.outside.bands : []) {
+    if (!isObj(b)) continue;
+    const bad = [];
+    if ("baseline_rate" in b && !shareOrNull(b.baseline_rate)) bad.push("baseline_rate (0 to 1 or null)");
+    if ("baseline_interval" in b && b.baseline_interval !== null && !interval(b.baseline_interval)) bad.push("baseline_interval (null or [lo, hi] within 0 to 1)");
+    if ("vs_baseline" in b && !diffInterval(b.vs_baseline)) bad.push("vs_baseline (null or [lo, hi])");
+    if (bad.length) out.push(`meta.card.outside.bands band ${b.band}: ${bad.join(", ")} of the wrong shape`);
+  }
+  if (isObj(m.catch_run) && "eligible" in m.catch_run && !count(m.catch_run.eligible)) out.push("meta.catch_run.eligible is not a count");
   for (const [dist, f] of Object.entries(m.fairness?.by_district ?? {})) {
-    if (isObj(f) && "precision_interval" in f && f.precision_interval !== null && !interval(f.precision_interval)) {
-      out.push(`meta.fairness.by_district[${dist}].precision_interval is not null or [lo, hi] within 0 to 1`);
+    if (!isObj(f)) continue;
+    const at = `meta.fairness.by_district[${dist}]`;
+    if ("precision_interval" in f && f.precision_interval !== null && !interval(f.precision_interval)) {
+      out.push(`${at}.precision_interval is not null or [lo, hi] within 0 to 1`);
+    }
+    if ("labelled" in f && !count(f.labelled)) out.push(`${at}.labelled is not a count`);
+    // interval_family_zip came from a ZIP-code bootstrap that was dropped (too few ZIP codes per
+    // district); an export may still carry it. interval_family_deff is the family-wise interval
+    // widened by an assumed design effect, so its low end may fall below 0.
+    for (const k of ["interval_family", "interval_family_zip"]) {
+      if (k in f && !ratioInterval(f[k])) out.push(`${at}.${k} is not null or [lo, hi], 0 <= lo <= hi`);
+    }
+    if ("interval_family_deff" in f && !diffInterval(f.interval_family_deff)) out.push(`${at}.interval_family_deff is not null or [lo, hi], lo <= hi`);
+    if ("evidence_above_even" in f) {
+      // True only when every family-wise interval the export gives, and at least interval_family, starts above 1 (even).
+      const lows = ["interval_family", "interval_family_deff"].map((k) => f[k]).filter(Array.isArray).map((iv) => iv[0]);
+      if (typeof f.evidence_above_even !== "boolean") out.push(`${at}.evidence_above_even is not true or false`);
+      else if (f.evidence_above_even && !(Array.isArray(f.interval_family) && lows.every((x) => typeof x === "number" && x > 1))) {
+        out.push(`${at}.evidence_above_even is true, but interval_family, or interval_family_deff, does not start above 1`);
+      }
     }
   }
   return out;

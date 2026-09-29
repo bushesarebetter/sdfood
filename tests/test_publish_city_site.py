@@ -90,8 +90,8 @@ def test_no_staff_release_without_a_responsible_adult_a_contact_and_a_sunset():
                         ({**GOOD, "sunset": "2026-01-01"}, "has passed"), ({**GOOD, "sunset": ""}, "sunset needs"),
                         ({**GOOD, "sunset": "2028-01-01"}, "more than a year away")]:
         assert any(why in p for p in pcs.approval_problems(broken, TODAY)), why
-    assert len(pcs.approval_warnings(GOOD)) == 2 and pcs.approval_warnings({**GOOD, "city_requestor": {"name": "x"},
-                                                                           "trust_determination": {"date": "2026-10-01"}}) == []
+    assert len(pcs.approval_warnings(GOOD)) == 2 and pcs.approval_warnings({**GOOD, "city_requestor": {"name": "x", "date": "2026-10-01"},
+                                                                           "trust_determination": {"result": "does not apply"}}) == []
 
 
 def test_the_export_must_be_complete_fresh_committed_and_not_quietly_smaller():
@@ -111,8 +111,8 @@ def test_a_hold_takes_effect_at_publish_without_a_rebuild():
                        {"properties": {"facility_id": "B", "points": 3}}]}
     details = {"A": {"facility_id": "A", "band": "1", "points": 12, "score_card": [], "estimate": {}, "inspections": [1]}}
     changed = pcs.apply_holds(fc, details, {"A"})
-    a = fc["features"][0]["properties"]
-    assert a == {"facility_id": "A", "on_hold": True} and fc["features"][1]["properties"]["points"] == 3
+    assert fc["features"][-1]["properties"] == {"facility_id": "A", "on_hold": True}, "and moved to the end"
+    assert fc["features"][0]["properties"]["points"] == 3
     assert changed["A"] == {"facility_id": "A", "inspections": [1], "on_hold": True}
 
 
@@ -139,6 +139,12 @@ def test_what_has_not_been_done_is_said_in_plain_words():
     assert pcs.open_items(done) == []
     assert pcs.access_approved(done) and not pcs.access_approved(GOOD)
     assert not pcs.access_approved({**GOOD, "city_requestor": {"name": "R", "date": "2026-10-01"}}), "the TRUST answer too"
+    assert not pcs.access_approved({**done, "city_requestor": {"name": "R"}}), "a request needs its date"
+    applies = {**done, "trust_determination": {"result": "applies"}}
+    assert not pcs.access_approved(applies), "if TRUST applies, the Council approves first"
+    assert "the Council has not approved this use" in pcs.open_items(applies)[0]
+    assert pcs.access_approved({**applies, "council_approval": {"date": "2027-01-10"}})
+    assert not pcs.access_approved({**done, "trust_determination": {"result": "pending"}}), "only a real answer counts"
     m = pcs.staff_meta(REAL, done, [], "tester")
     assert m["access_approved"] is True and pcs.staff_meta(REAL, GOOD, [], "t")["access_approved"] is False
 
@@ -183,7 +189,7 @@ def test_holds_only_changes_nothing_but_the_held_places(tmp_path, monkeypatch):
     commit, meta, held = pcs.holds_only(out, GOOD, TODAY, "o/r")
     assert held == {"A"} and pushed and "holds only (1 held)" in pushed[0]
     shipped = json.loads((data / "facilities.geojson").read_text(encoding="utf-8"))["features"]
-    assert shipped[0]["properties"] == {"facility_id": "A", "on_hold": True} and shipped[1]["properties"]["band"] == "1"
+    assert shipped[-1]["properties"] == {"facility_id": "A", "on_hold": True} and shipped[0]["properties"]["band"] == "1"
     assert json.loads((data / "place" / "A.json").read_text())["on_hold"] is True
     assert "band" in json.loads((data / "place" / "B.json").read_text())
     log = [json.loads(line) for line in (out / "DEPLOYS.jsonl").read_text(encoding="utf-8").splitlines()]

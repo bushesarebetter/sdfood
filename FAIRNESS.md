@@ -188,18 +188,21 @@ Coverage by group is still monitored in use.
   (`export_site.district_fairness`, the About page's district table), not only on a named top band.
   For each district: the band's precision with a Wilson interval, its false-positive rate against the
   City's, and its share of the places in a band that then had no major over its share of the
-  *labelled* places (only a labelled place can be wrongly named; an earlier version divided by all
-  candidates), with an address-cluster bootstrap interval at 95% and a family-wise one over the nine
-  districts compared (Bonferroni), since one of nine can look high by chance. Districts 4, 9 and 6
-  stay above even on the family-wise interval (MODEL_CARD.md); the site shows the table, and a place
+  *labelled, scored* places (only such a place can be wrongly named; earlier versions divided by all
+  candidates, then by all labelled places), with an address-cluster bootstrap interval at 95%, a
+  family-wise one over the nine districts compared (Bonferroni), and the family-wise one widened by an
+  assumed design effect of 2 for inspector clustering. Only District 9 stays above even on both wider
+  intervals; Districts 4 and 6 do at 95% only (MODEL_CARD.md). The site shows the table, and a place
   page in a City district says how often band 1 places there had a major. Part of a district's gap
   may be how its inspectors cite: the record does not say which inspector made a visit.
 - **Area proxies cannot see who inside an area bears the errors.** A coarse screen by restaurant name
   (keywords suggesting a cuisine; not the owner's ethnicity, and not a validated measure) found that,
-  among restaurants whose next routine inspection was clean, places with East or Southeast Asian
-  names were put in a band about 2 to 3 times as often as places with unclassified names, and places
-  with Latin or Mexican names about 1.6 times as often. The average-score rule shows the same gap
-  (about 2.2 times), so it comes from the County's own scores, not from how the rule weighs them. It
+  among City restaurants whose next routine inspection was clean, places with East or Southeast Asian
+  names were put in band 1 about 1.9 times as often as places with unclassified names (95% 1.5 to
+  2.5), and places with Latin or Mexican names about 1.3 times as often (1.0 to 1.7). (An earlier,
+  unscripted screen with other keyword lists found 2 to 3 times and 1.6 times.) The rule is the
+  County's own average score, so it passes any gap in those scores
+  through unchanged (`tools/name_screen.py` reproduces the screen; [docs/NAME_SCREEN.md](docs/NAME_SCREEN.md)). It
   may be real differences in risk, or differences in how inspectors cite (the temperature item "time
   as a public health control" is cited far more often at the first group); without inspector ids the
   two cannot be separated. The next step is a proper audit: hand-code a stratified sample of places,

@@ -17,12 +17,17 @@ What it writes, like the real export (``--out``, default food-dashboard/public/d
     ``reopened_on``), the items cited in the 36 months before the last visit, each under the
     section of the County's report its item number falls in, and in ``bands`` mode the worksheet
     (``scores_used`` with a health closure read as 70 and the County's own score beside it);
-  * ``meta.json``: what the export is. In ``bands`` mode, a sample published rule of two counts
-    with whole-number weights (``meta.card``), bands cut at tie boundaries so equal points are
-    never split, and a backtest: the same rule as of an earlier date, checked against each
-    place's next routine inspection, with each band's rate, the rate below the bands, band 1
-    split by how its places got there (``band_1_by_route``), the "average score" comparison,
-    each district's precision, and the frozen-rule and drift fields the real export carries.
+  * ``meta.json``: what the export is. In ``bands`` mode, a sample of the students' point rule,
+    two counts with whole-number weights (``meta.card``), bands cut at tie boundaries so equal
+    points are never split, and a backtest: the same rule as of an earlier date, checked against
+    each place's next routine inspection, with each band's rate, the rate below the bands, band 1
+    split by how its places got there (``band_1_by_route``), the "average score" comparison, two
+    estimate curves (``curve`` for places whose scored year includes no health closure,
+    ``curve_closure`` for those whose year does, each place's ``estimate.group`` naming the one it
+    reads), the rates with the label cut off after 90, 180 and 270 days (``interim``), each
+    district's precision and share of the wrongly named with bootstrap intervals (95%, family-wise,
+    and family-wise widened for an assumed design effect of 2), and the frozen-rule and drift fields
+    the real export carries (drift quarter by quarter, as export_site.drift_check).
 
 Only restaurants with a scored routine inspection in the year before the list date are scored;
 markets, limited-preparation places and other restaurants carry neither points nor a band. One
@@ -158,7 +163,7 @@ THEMES_BY_SEVERITY = {
 VISIT_TYPES = ("routine", "reinspection", "followup", "complaint")
 SEVERITIES = ("major", "minor", "grp")
 CLOSURES = ("health", "permit", "other")
-ESCALATION_FLAGS = ("closures2", "repeat_item", "lt90_2")
+ESCALATION_FLAGS = ("major_2", "closures2", "repeat_item", "lt90_2")
 RECORD_FLAGS = ("major", "closed", "bc", "repeat", *ESCALATION_FLAGS)
 CLOSURE_SCORE = 70   # a routine inspection that ended in a health closure order is read as this score
 
@@ -169,8 +174,12 @@ BACKTEST_AS_OF = date(2025, 9, 1)
 YEAR = timedelta(days=365)
 TWO_YEARS = timedelta(days=730)   # the escalation facts' window, as export_site.ELIGIBLE_DAYS
 SHARES = ((0.025, "1"), (0.075, "2"), (0.175, "3"))
+INTERIM_DAYS = (90, 180, 270)      # the monitor's interim label windows, as export_site.INTERIM_DAYS
+DRIFT_MIN, DRIFT_SE = 0.02, 3.0    # a rate moves when it moves by more than this or 3 standard errors
+QUARTER_MIN = 200                  # quarters with fewer routine inspections are left out, as export_site
+FAIR_DEFF = 2.0                    # an assumed design effect for inspector clustering, as export_site.FAIR_DEFF
 
-# The sample's published rule: two counts from the record, each with a whole-number weight.
+# The sample's version of the students' point rule: two counts from the record, each with a whole-number weight.
 RULE = [
     {"item": "avg_deficit", "label": "Points below 100, average routine score in the last year", "weight": 1,
      "unit": "per point below 100", "feature": "avg_deficit"},
@@ -331,6 +340,8 @@ def record_flags(inspections, violations, as_of: date = LIST_DATE):
         flags.append("bc")
     if sum(1 for i in year if i["type"] == "reinspection") >= 2:
         flags.append("repeat")
+    if len({i["date"] for i in two if i["type"] == "routine" and i["major"]}) >= 2:
+        flags.append("major_2")
     if sum(1 for i in two if i["closed"] and i["closure"] == "health") >= 2:
         flags.append("closures2")
     item_dates = {}
@@ -417,9 +428,9 @@ def wilson(k: int, n: int):
     return [round(max(0.0, mid - half), 4), round(min(1.0, mid + half), 4)]
 
 
-def next_routine(place, as_of: date):
-    """The first routine inspection in the year from `as_of`: the backtest's label."""
-    lo, hi = as_of.isoformat(), (as_of + YEAR).isoformat()
+def next_routine(place, as_of: date, days: int = 365):
+    """The first routine inspection in the year (or `days`) from `as_of`: the backtest's label."""
+    lo, hi = as_of.isoformat(), (as_of + timedelta(days=days)).isoformat()
     for i in place["inspections"]:
         if i["type"] == "routine" and lo <= i["date"] < hi:
             return i
@@ -490,12 +501,35 @@ def backtest(places):
     rest_row = {"band": "rest", "places": n, "labelled": n_lab, "positives": k, "rate": rate, "interval": iv}
     positives = sum(1 for r in rows if r["positive"])
     lab = [r for r in rows if r["labelled"]]
+    # Two estimate curves, as export_site: places whose scored year includes a routine inspection that
+    # ended in a health closure (counted as 70) read their own, and every other place reads `curve`.
+    closure = [(r["points"], int(r["positive"])) for r in lab if any(u["closure"] for u in r["used"])]
+    scores = [(r["points"], int(r["positive"])) for r in lab if not any(u["closure"] for u in r["used"])]
     extra = {"base_rate": round(sum(r["positive"] for r in lab) / len(lab), 4) if lab else None,
-             "curve": risk_curve([(r["points"], int(r["positive"])) for r in lab]),
+             "curve": risk_curve(scores) if scores else None,
+             "curve_closure": risk_curve(closure) if closure else None,
+             "interim": interim_rates(places, rows, stops[0]),
              "band_1_share": round(stops[0] / len(rows), 4) if rows else None,
              "by_route": band_1_by_route(places, rows[:stops[0]]),
              "by_district": district_precision(places, rows, stops[-1])}
-    return bands, rest_row, {"candidates": len(rows), "positives": positives, "labelled": len(lab), **extra}
+    return bands, rest_row, {"candidates": len(rows), "eligible": len(rows), "positives": positives, "labelled": len(lab), **extra}
+
+
+def interim_rates(places, rows, band_1_stop):
+    """Band 1's rate and the rate for all scored places with the label cut off after 90, 180 and 270
+    days, as export_site.interim_rates: what a later list can be set against before its year is over."""
+    out = {}
+    for days in INTERIM_DAYS:
+        c = {"1": [0, 0], "all": [0, 0]}
+        for pos, r in enumerate(rows):
+            nxt = next_routine(places[r["j"]], BACKTEST_AS_OF, days)
+            if nxt is None:
+                continue
+            for k in (["1"] if pos < band_1_stop else []) + ["all"]:
+                c[k][0] += int(nxt["major"] > 0)
+                c[k][1] += 1
+        out[str(days)] = {k: {"labelled": n, "positives": k_, "rate": round(k_ / n, 4) if n else None} for k, (k_, n) in c.items()}
+    return out
 
 
 def route_stats(members):
@@ -519,56 +553,155 @@ def band_1_by_route(places, band_1):
     return {"closure": route_stats(closure), "scores": route_stats(scores)}
 
 
-def district_precision(places, rows, named_stop):
+def percentile(values, q):
+    """The q-th percentile (0 to 100) of `values`, interpolated linearly as numpy's default."""
+    v = sorted(values)
+    pos = (len(v) - 1) * q / 100
+    lo = math.floor(pos)
+    return v[lo] + (v[min(lo + 1, len(v) - 1)] - v[lo]) * (pos - lo)
+
+
+def share_draws(units, districts, n_boot, seed):
+    """Bootstrap draws of each district's share of the wrongly named over its share of the labelled
+    places, resampling `units` (each {district: [wrongly named, labelled]}: one per place, as the
+    sample has one place per address) with replacement."""
+    rng = random.Random(seed)
+    draws = {d: [] for d in districts}
+    for _ in range(n_boot):
+        fp, lab = dict.fromkeys(districts, 0), dict.fromkeys(districts, 0)
+        for u in (rng.choice(units) for _ in units):
+            for d, (f, n) in u.items():
+                fp[d] += f
+                lab[d] += n
+        tot_fp, tot_lab = sum(fp.values()), sum(lab.values())
+        if not tot_fp or not tot_lab:
+            continue
+        for d in districts:
+            if lab[d]:
+                draws[d].append((fp[d] / tot_fp) / (lab[d] / tot_lab))
+    return draws
+
+
+def district_precision(places, rows, named_stop, n_boot=300, seed=21):
     """By council district, as export_site.district_fairness: the backtest's places in a band, how
-    many had a major, precision with its interval, and the district's share of the places in a band
-    without one against its share of scored places (the sample draws no bootstrap: `interval` None)."""
+    many had a major, precision with its interval, the false-positive rate against the City's, and
+    the district's share of the wrongly named (a place in a band with no major next time) over its
+    share of the labelled scored places, with a bootstrap 95% interval, a family-wise one (Bonferroni
+    over the districts), and the family-wise one widened for an assumed design effect (FAIR_DEFF:
+    the draws' spread around their median scaled by its square root), since places one inspector
+    visits may be cited alike and the record has no inspector ids. `evidence_above_even` only when
+    both family-wise intervals start above 1."""
     named = {id(r) for r in rows[:named_stop]}
-    fp_all = sum(1 for r in rows if id(r) in named and r["labelled"] and not r["positive"])
+    is_fp = lambda r: id(r) in named and r["labelled"] and not r["positive"]
+    fp_all = sum(1 for r in rows if is_fp(r))
     neg_all = sum(1 for r in rows if r["labelled"] and not r["positive"])
+    lab_all = sum(1 for r in rows if r["labelled"])
     fpr_all = fp_all / max(1, neg_all)
+    district = lambda r: str(places[r["j"]]["district"])
+    districts = sorted({district(r) for r in rows}, key=int)
+    by_place = [{district(r): [int(is_fp(r)), int(r["labelled"])]} for r in rows]
+    alpha = 0.05 / max(1, len(districts))
+    draws = share_draws(by_place, districts, n_boot, seed)
+    band = lambda v, lo, hi: [round(percentile(v, lo), 2), round(percentile(v, hi), 2)] if v else None
+    widen = lambda v: [percentile(v, 50) + (x - percentile(v, 50)) * math.sqrt(FAIR_DEFF) for x in v]
     out = {}
-    for d in sorted({places[r["j"]]["district"] for r in rows}):
-        m = [r for r in rows if places[r["j"]]["district"] == d]
+    for d in districts:
+        m = [r for r in rows if district(r) == d]
         nm = [r for r in m if id(r) in named]
         nm_lab = [r for r in nm if r["labelled"]]
         k = sum(1 for r in nm_lab if r["positive"])
         fp = sum(1 for r in nm_lab if not r["positive"])
         neg = sum(1 for r in m if r["labelled"] and not r["positive"])
-        out[str(d)] = {"candidates": len(m), "named": len(nm), "named_positive": k, "false_named": fp,
-                       "precision": round(k / len(nm_lab), 3) if nm_lab else None,
-                       "precision_interval": wilson(k, len(nm_lab)) if nm_lab else None,
-                       "fpr_ratio": round((fp / max(1, neg)) / fpr_all, 2) if fpr_all else None,
-                       "false_share_ratio": round((fp / fp_all) / (len(m) / len(rows)), 2) if fp_all else None,
-                       "interval": None}
+        lab = sum(1 for r in m if r["labelled"])
+        family = band(draws[d], 100 * alpha / 2, 100 * (1 - alpha / 2))
+        family_deff = band(widen(draws[d]), 100 * alpha / 2, 100 * (1 - alpha / 2)) if draws[d] else None
+        lows = [iv[0] for iv in (family, family_deff) if iv]
+        out[d] = {"candidates": len(m), "labelled": lab, "named": len(nm), "named_positive": k, "false_named": fp,
+                  "precision": round(k / len(nm_lab), 3) if nm_lab else None,
+                  "precision_interval": wilson(k, len(nm_lab)) if nm_lab else None,
+                  "fpr_ratio": round((fp / max(1, neg)) / fpr_all, 2) if fpr_all else None,
+                  "false_share_ratio": round((fp / fp_all) / (lab / lab_all), 2) if fp_all and lab else None,
+                  "interval": band(draws[d], 2.5, 97.5), "interval_family": family, "interval_family_deff": family_deff,
+                  "evidence_above_even": len(lows) == 2 and min(lows) > 1}
     return out
 
 
-def quarter_start(d: date) -> date:
-    return date(d.year, 3 * ((d.month - 1) // 3) + 1, 1)
+def quarter_of(d: date) -> str:
+    return f"{d.year}Q{(d.month - 1) // 3 + 1}"
 
 
-def routine_major_rate(places, lo: date, hi: date):
-    """The share of routine inspections in [lo, hi) with a major violation."""
-    rs = [i for p in places for i in p["inspections"] if i["type"] == "routine" and lo.isoformat() <= i["date"] < hi.isoformat()]
-    return round(sum(1 for i in rs if i["major"] > 0) / len(rs), 4) if rs else None
+def quarter_bounds(q: str):
+    """The first and last day of a quarter such as "2026Q3"."""
+    y, n = int(q[:4]), int(q[-1])
+    return date(y, 3 * (n - 1) + 1, 1), date(y + (n == 4), (3 * n) % 12 + 1, 1) - timedelta(days=1)
 
 
-def drift(places, share_then, share_now, major_rate=0.05, band_share=0.05):
-    """As export_site.drift_check: the routine major rate in the last two full quarters against the
-    backtest's label year, and band 1's share of scored restaurants now against its share then."""
-    end = quarter_start(THROUGH + timedelta(days=1))
-    start = quarter_start(quarter_start(end - timedelta(days=1)) - timedelta(days=1))
-    then = routine_major_rate(places, BACKTEST_AS_OF, BACKTEST_AS_OF + YEAR)
-    now = routine_major_rate(places, start, end)
+def quarters_between(a: date, b: date):
+    """The quarters from the one holding `a` to the one holding `b`: ["2025Q3", ..., "2026Q3"]."""
+    out, d = [], date(a.year, 3 * ((a.month - 1) // 3) + 1, 1)
+    while d <= b:
+        out.append(quarter_of(d))
+        d = quarter_bounds(out[-1])[1] + timedelta(days=1)
+    return out
+
+
+def major_rate_by_quarter(places):
+    """({quarter: share of routine inspections with a major}, {quarter: routine inspections}) through
+    THROUGH, leaving out a quarter with fewer than QUARTER_MIN, as export_site.measurement."""
+    by = {}
+    for p in places:
+        for i in p["inspections"]:
+            if i["type"] == "routine" and i["date"] <= THROUGH.isoformat():
+                c = by.setdefault(quarter_of(date.fromisoformat(i["date"])), [0, 0])
+                c[0] += 1
+                c[1] += int(i["major"] > 0)
+    keep = {q: v for q, v in sorted(by.items()) if v[0] >= QUARTER_MIN}
+    return {q: round(k / n, 4) for q, (n, k) in keep.items()}, {q: n for q, (n, _) in keep.items()}
+
+
+def pooled(qs, by_q, n_q):
+    n = sum(n_q.get(q, 0) for q in qs)
+    return (sum(by_q[q] * n_q.get(q, 0) for q in qs) / n, n) if n else (None, 0)
+
+
+def drift(places, share_then, share_now, n_then, n_now):
+    """As export_site.drift_check: the routine major rate in complete quarters that start after the
+    backtest's label year, against the rate over the label year's quarters ("not_yet_measurable"
+    until such a quarter exists), and band 1's share of scored restaurants now against its share
+    then, each against max(DRIFT_MIN, 3 standard errors). The latest quarter's rate is also set
+    against the backtest's; a clear difference gets a note the site shows beside every estimate."""
+    by_q, n_q = major_rate_by_quarter(places)
+    label_end = BACKTEST_AS_OF + YEAR - timedelta(days=1)
+    label_q = quarters_between(BACKTEST_AS_OF, label_end)
+    base_then, n_label = pooled([q for q in label_q if q in by_q], by_q, n_q)
+    after = [q for q in by_q if quarter_bounds(q)[0] > label_end and quarter_bounds(q)[1] <= THROUGH][-2:]
+    base_now, n_recent = pooled(after, by_q, n_q)
+    thr = lambda p1, n1, p0, n0: max(DRIFT_MIN, DRIFT_SE * math.sqrt(p1 * (1 - p1) / n1 + p0 * (1 - p0) / n0))
     reasons = []
-    if then is not None and now is not None and abs(now - then) > major_rate:
-        reasons.append(f"routine major rate {now:.1%} in the last full quarters against {then:.1%} in the backtest")
-    if share_then is not None and share_now is not None and abs(share_now - share_then) > band_share:
+    measurable = base_now is not None and base_then is not None
+    if measurable and abs(base_now - base_then) > thr(base_now, n_recent, base_then, n_label):
+        reasons.append(f"routine major rate {base_now:.1%} in {', '.join(after)} against {base_then:.1%} over the backtest year")
+    if share_then is not None and share_now is not None and n_now and n_then and \
+            abs(share_now - share_then) > thr(share_now, n_now, share_then, n_then):
         reasons.append(f"band 1 holds {share_now:.1%} of scored City restaurants against {share_then:.1%} in the backtest")
-    return {"major_rate_backtest": then, "major_rate_recent": now, "band_1_share_backtest": share_then,
-            "band_1_share_now": share_now, "refit_needed": bool(reasons), "reasons": reasons,
-            "thresholds": {"major_rate": major_rate, "band_share": band_share}}
+    latest = list(by_q)[-1] if by_q else None
+    note = None
+    if latest and base_then is not None:
+        lr, ln = by_q[latest], n_q[latest]
+        if abs(lr - base_then) > thr(lr, ln, base_then, n_label):
+            end = quarter_bounds(latest)[1]
+            upto = "" if THROUGH >= end else f", through {THROUGH.strftime('%B')} {THROUGH.day}"
+            note = (f"In the latest quarter ({latest[:4]} Q{latest[-1]}{upto}) {lr:.1%} of routine inspections found a major "
+                    f"violation, against {base_then:.1%} over the backtest year, so the rates here may be "
+                    f"{'low' if lr > base_then else 'high'}.")
+    return {"major_rate_backtest": round(base_then, 4) if base_then is not None else None,
+            "major_rate_recent": round(base_now, 4) if base_now is not None else None, "recent_quarters": after,
+            "band_1_share_backtest": share_then, "band_1_share_now": share_now,
+            "latest_quarter": latest, "latest_rate": by_q.get(latest) if latest else None,
+            "latest_n": n_q.get(latest) if latest else None,
+            "status": "refit" if reasons else ("ok" if measurable else "not_yet_measurable"),
+            "refit_needed": bool(reasons), "reasons": reasons, "note": note,
+            "thresholds": {"min": DRIFT_MIN, "standard_errors": DRIFT_SE}}
 
 
 def isotonic(rates, weights):
@@ -626,13 +759,34 @@ def risk_curve(pairs, n_boot=60, seed=5, min_n=30):
     hi_ = [max(col(j)[int(round(0.975 * (n_boot - 1)))], fit[j]) for j in range(top + 1)]
     r4 = lambda v: [round(x, 4) for x in v]
     return {"model": "sample: isotonic rate by points on the invented backtest", "rate": r4(fit), "low": r4(lo),
-            "high": r4(hi_), "groups": [list(g) for g in groups], "bins": [], "labelled": len(pairs),
+            "high": r4(hi_), "groups": [list(g) for g in groups], "bins": curve_bins(pairs), "labelled": len(pairs),
             "positives": sum(y for _, y in pairs)}
 
 
-def estimate(curve, pts):
+def curve_bins(pairs, bins=8):
+    """The raw rates in `bins` groups of about equal size (quantile edges of the points), to check the
+    fit against the counts, as export_site.risk_curve's `bins`."""
+    pts = sorted(p for p, _ in pairs)
+    edges = sorted({int(percentile(pts, 100 * i / bins)) for i in range(bins + 1)})
+    if len(edges) == 1:
+        edges = edges * 2
+    table = []
+    for i in range(len(edges) - 1):              # [edge, next edge), the last one closed
+        last = i == len(edges) - 2
+        inb = [(p, y) for p, y in pairs if edges[i] <= p and (p <= edges[i + 1] if last else p < edges[i + 1])]
+        if inb:
+            k = sum(y for _, y in inb)
+            table.append({"min_points": min(p for p, _ in inb), "max_points": max(p for p, _ in inb), "labelled": len(inb),
+                          "positives": k, "rate": round(k / len(inb), 4), "interval": wilson(k, len(inb))})
+    return table
+
+
+def estimate(curve, pts, group):
+    """The curve read at a place's points, with the group whose curve it is; None without a curve."""
+    if not curve or not curve.get("rate"):
+        return None
     j = min(max(int(pts), 0), len(curve["rate"]) - 1)
-    return {"rate": curve["rate"][j], "low": curve["low"][j], "high": curve["high"][j]}
+    return {"rate": curve["rate"][j], "low": curve["low"][j], "high": curve["high"][j], "group": group}
 
 
 def rule_tag(meta_bands) -> str:
@@ -705,7 +859,8 @@ def build(n_places: int = 1400, seed: int = 9, mode: str = "bands"):
             detail["score_card"] = sheet_of[p["id"]]
             detail["band_stability"] = stability_of[p["id"]]
             detail["scores_used"] = used_of[p["id"]]
-            detail["estimate"] = estimate(cr["curve"], points_of[p["id"]])
+            group = "closure" if any(u["closure"] for u in used_of[p["id"]]) else "scores"
+            detail["estimate"] = estimate(cr["curve_closure"] if group == "closure" else cr["curve"], points_of[p["id"]], group)
         features.append({"type": "Feature", "geometry": {"type": "Point", "coordinates": p["coords"]}, "properties": props})
         place_files[p["id"]] = {**props, **detail}
 
@@ -735,7 +890,7 @@ def build(n_places: int = 1400, seed: int = 9, mode: str = "bands"):
     }
     if mode == "bands":
         meta.update({
-            "model": f"sample published rule ({len(RULE)} counts, whole-number weights), invented",
+            "model": f"sample of the students' point rule ({len(RULE)} counts, whole-number weights), invented",
             "label": "at least one major violation at the next routine inspection",
             "label_window": f"{LIST_DATE.isoformat()} to {(LIST_DATE + YEAR - timedelta(days=1)).isoformat()}",
             "candidates": len(points_of),
@@ -750,6 +905,8 @@ def build(n_places: int = 1400, seed: int = 9, mode: str = "bands"):
                 "rest": rest_row,
                 "base_rate": cr["base_rate"],
                 "curve": cr["curve"],
+                "curve_closure": cr["curve_closure"],
+                "interim": cr["interim"],
                 "closure_score": CLOSURE_SCORE,
                 "band_1_by_route": cr["by_route"],
             },
@@ -757,6 +914,7 @@ def build(n_places: int = 1400, seed: int = 9, mode: str = "bands"):
             "catch_run": {
                 "as_of": BACKTEST_AS_OF.isoformat(),
                 "candidates": cr["candidates"],
+                "eligible": cr["eligible"],
                 "positives": cr["positives"],
                 "labelled": cr["labelled"],
                 "unlabelled": cr["candidates"] - cr["labelled"],
@@ -772,7 +930,7 @@ def build(n_places: int = 1400, seed: int = 9, mode: str = "bands"):
             "measurement": dict(grade_context),
             # The rule as frozen (docs/rule.json in the real pipeline); its version names its content.
             "frozen": {"version": f"{LIST_DATE.isoformat()}-{rule_tag(meta_bands)}", "frozen_on": LIST_DATE.isoformat(), "from_run": "sample"},
-            "drift": drift(places, cr["band_1_share"], share_now),
+            "drift": drift(places, cr["band_1_share"], share_now, cr["eligible"], len(points_of)),
         })
     return {"type": "FeatureCollection", "features": features}, place_files, meta
 

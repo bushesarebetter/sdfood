@@ -14,7 +14,9 @@
  * likely range, beside the rate for all scored restaurants
  * (`meta.card.base_rate`), and with the share that had none. Every scored place
  * also gets an estimate read from a monotone (isotonic) fit of rate by points
- * (`meta.card.curve`), dated to the backtest it comes from. Places outside the
+ * (`meta.card.curve`; for a place whose two years include a routine inspection
+ * that ended in a closure, `meta.card.curve_closure`, and the estimate says
+ * so), dated to the backtest it comes from. Places outside the
  * City are described by rates measured outside the City (`meta.card.outside`).
  * None of it is a statement about any one place (GROUP_NOTE).
  */
@@ -132,6 +134,12 @@ export const SAME_AS_PERSISTENCE = "Sorting by recent major violations alone pic
 /** Added to an estimate when the export's drift check says the rates should be measured again. */
 export const DRIFT_NOTE = "The County's record has changed since these rates were measured.";
 
+/** On the About page when the export's drift check has no complete quarter after the backtest year to compare. */
+export const DRIFT_NOT_YET = "Drift: the County's record since the backtest year cannot be compared yet (no complete quarter after it).";
+
+/** Who an estimate describes when it is read from the curve for places with a closure in their two years. */
+export const CLOSURE_GROUP = "whose last two years include a routine inspection that ended in a closure";
+
 /** A place outside the City is described by the rates measured outside it, when the export has them. */
 export const isOutside = (p, meta) => p?.council_district == null && Boolean(meta?.card?.outside);
 
@@ -141,12 +149,37 @@ function auditedBands(meta) {
   return Array.isArray(b) && b.length ? b.map(String).sort((x, y) => Number(x) - Number(y)) : ["1"];
 }
 
+/** "1", "1 and 2", "1 to 3". */
+function bandList(list) {
+  if (list.length === 1) return list[0];
+  const run = list.every((b, i) => i === 0 || Number(b) === Number(list[i - 1]) + 1);
+  if (run && list.length > 2) return `${list[0]} to ${list.at(-1)}`;
+  return `${list.slice(0, -1).join(", ")} and ${list.at(-1)}`;
+}
+
 /** "band 1 places", "places in bands 1 and 2", "places in bands 1 to 3". */
 function bandGroup(list) {
-  if (list.length === 1) return `band ${list[0]} places`;
-  const run = list.every((b, i) => i === 0 || Number(b) === Number(list[i - 1]) + 1);
-  if (run && list.length > 2) return `places in bands ${list[0]} to ${list.at(-1)}`;
-  return `places in bands ${list.slice(0, -1).join(", ")} and ${list.at(-1)}`;
+  return list.length === 1 ? `band ${list[0]} places` : `places in bands ${bandList(list)}`;
+}
+
+/** The places the district figures cover, as in bandGroup: "band 1 places" unless the export says otherwise. */
+export const auditedGroup = (meta) => bandGroup(auditedBands(meta));
+
+/** The bands the district figures cover, as a name: "Band 1", "Bands 1 to 3". */
+export function auditedBandsName(meta) {
+  const used = auditedBands(meta);
+  return `Band${used.length > 1 ? "s" : ""} ${bandList(used)}`;
+}
+
+/**
+ * What a district's places in the audited bands did in the backtest: "about 29 in 100 (likely 20 to
+ * 39)", from `meta.fairness.by_district[d].precision` and `precision_interval`; null without one.
+ */
+export function districtPrecision(meta, district) {
+  if (district == null) return null;
+  const f = meta?.fairness?.by_district?.[String(district)];
+  if (typeof f?.precision !== "number") return null;
+  return `about ${inHundred(f.precision)} in 100${likely(f.precision_interval)}`;
 }
 
 /**
@@ -169,7 +202,8 @@ export function districtSentence(meta, band, district) {
  * 100 had none." Then, when the same-size group picked by recent major violations did as well
  * (its `vs_baseline` interval spans zero), SAME_AS_PERSISTENCE; and for a City place with a council
  * district, what the band's places there did. For a place outside the City, the rates measured
- * outside the City.
+ * outside the City, with SAME_AS_PERSISTENCE on the same test of the outside band's own
+ * `vs_baseline` (an older export's outside bands have none, and say nothing about it).
  */
 export function bandSummary(meta, band, { outside = false, district = null } = {}) {
   const d = bandRow(meta, band, outside);
@@ -211,13 +245,21 @@ export function estimatePeriod(meta) {
     ? `the backtest of the list drawn up on ${fmtDate(asOf)}` : backtestPeriod(meta);
 }
 
+/** The export's drift note (`meta.drift.note`), a neutral sentence on the latest quarter, or null. */
+export function driftNote(meta) {
+  const n = meta?.drift?.note;
+  return typeof n === "string" && n.trim() ? n.trim() : null;
+}
+
 /**
  * What a place's points say as a rate, from its place file's `estimate` or read from the export's
  * curve, dated to the backtest list it comes from: "Scored restaurants with about 12 points: about
  * 39 in 100 had a major violation at their next routine inspection in the backtest of the list drawn
  * up on September 1, 2025 (likely 35 to 41). The likely range reflects sampling only, not changes
- * since then." Then DRIFT_NOTE when the export's drift check asks for a refit. Null without points
- * or a curve.
+ * since then." An estimate the export read from the curve for places with a closure in their two
+ * years (`estimate.group` "closure", `meta.card.curve_closure`) says so (CLOSURE_GROUP). Then
+ * DRIFT_NOTE when the export's drift check asks for a refit, and the export's drift note when it has
+ * one. Without a place estimate the site reads `curve`. Null without points or a curve.
  */
 export function estimateSentence(meta, points, { estimate = null, outside = false } = {}) {
   if (typeof points !== "number") return null;
@@ -230,22 +272,26 @@ export function estimateSentence(meta, points, { estimate = null, outside = fals
   }
   if (typeof e?.rate !== "number") return null;
   const where = outside ? " outside the City" : "";
+  const who = e.group === "closure" ? ` ${CLOSURE_GROUP}` : "";
   const range = likely([e.low, e.high]);
-  const out = [`Scored restaurants${where} with about ${points} points: about ${inHundred(e.rate)} in 100 had a major violation at their next routine inspection in ${estimatePeriod(meta)}${range}.`];
+  const out = [`Scored restaurants${where} with about ${points} points${who}: about ${inHundred(e.rate)} in 100 had a major violation at their next routine inspection in ${estimatePeriod(meta)}${range}.`];
   if (range) out.push("The likely range reflects sampling only, not changes since then.");
   if (meta?.drift?.refit_needed === true) out.push(DRIFT_NOTE);
+  const note = driftNote(meta);
+  if (note) out.push(note);
   return out.join(" ");
 }
 
 /**
  * The comparison that keeps the rule honest: ranking by recent major violations, which the County's
- * record already shows, does about as well. Null when the export has no same-size comparison.
+ * record already shows, does about as well. For a place outside the City, the outside band's own
+ * comparison. Null when the export has no same-size comparison.
  */
-export function persistenceSentence(meta, band = "1") {
-  const d = bandDef(meta, band);
+export function persistenceSentence(meta, band = "1", { outside = false } = {}) {
+  const d = bandRow(meta, band, outside);
   if (typeof d?.baseline_rate !== "number") return null;
   const vs = d.vs_baseline;                      // 95% interval for (band's majors) - (the same-size group's)
-  const group = `Sorting the same restaurants by their recent major violations, which the County's record already shows, picks out a group of the same size`;
+  const group = `Sorting the same restaurants${outside ? " outside the City" : ""} by their recent major violations, which the County's record already shows, picks out a group of the same size`;
   if (Array.isArray(vs) && typeof vs[0] === "number" && vs[0] > 0) {
     return `${group} whose rate was lower (about ${inHundred(d.baseline_rate)} in 100): band ${d.band} found more of the places that went on to have a major.`;
   }
@@ -311,6 +357,28 @@ export function utilityRows(meta) {
   return rows.length ? rows : null;
 }
 
+/**
+ * The largest cost ratio C/B at which the first band's low end clears the bar C/(B+C): with C/B = r
+ * the bar is r/(1+r), so the low end clears it exactly when r < low/(1-low). `{band, low, ratio}`,
+ * the ratio to two decimals; null without a low end between 0 and 1.
+ */
+export function costLimit(meta) {
+  const d = bandDefs(meta)[0];
+  const low = d?.interval?.[0];
+  if (typeof low !== "number" || !(low > 0 && low < 1)) return null;
+  return { band: d.band, low, ratio: Math.round((low / (1 - low)) * 100) / 100 };
+}
+
+/**
+ * "Band 1's interval starts at 33%, so its low end clears C/(B+C) only when a wrong flag costs less
+ * than 0.49 times what a right one is worth (a cost ratio C/B below 0.49)." Or null.
+ */
+export function costLimitSentence(meta) {
+  const c = costLimit(meta);
+  if (!c) return null;
+  return `Band ${c.band}'s interval starts at ${pct(c.low)}, so its low end clears C/(B+C) only when a wrong flag costs less than ${c.ratio} times what a right one is worth (a cost ratio C/B below ${c.ratio}).`;
+}
+
 /** "Rule version 2026-09-20-abcd, frozen September 20, 2026.", or null. */
 export function frozenLine(meta) {
   const f = meta?.frozen;
@@ -324,6 +392,21 @@ export function driftLine(meta) {
   if (!d || d.refit_needed !== true) return null;
   const reasons = (Array.isArray(d.reasons) ? d.reasons : []).filter((r) => typeof r === "string" && r.trim());
   return reasons.length ? `${DRIFT_NOTE.replace(/\.$/, "")}: ${reasons.join("; ")}.` : DRIFT_NOTE;
+}
+
+/**
+ * What the About page says about drift, in order: DRIFT_NOT_YET when the drift check has no
+ * complete quarter after the backtest year (`status` "not_yet_measurable"), driftLine when it asks
+ * for a refit, and the export's drift note when it has one. Empty when there is nothing to say.
+ */
+export function driftLines(meta) {
+  const out = [];
+  if (meta?.drift?.status === "not_yet_measurable") out.push(DRIFT_NOT_YET);
+  const refit = driftLine(meta);
+  if (refit) out.push(refit);
+  const note = driftNote(meta);
+  if (note) out.push(note);
+  return out;
 }
 
 /**

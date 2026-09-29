@@ -110,3 +110,16 @@ test("with an estimate, the place lines lead with it; a City place's band line c
   assert.match(unbanded[0], /^Scored restaurants with about 3 points/);
   assert.equal(unbanded[1], "In no band: 3 points on the students' point rule (band 1 starts at 8 points).");
 });
+
+test("a place read from the closure curve says so under its name, and the export's drift note follows the estimate", () => {
+  const note = "In the latest quarter (2026 Q3, through September 19) 20.5% of routine inspections found a major violation, against 17.5% over the backtest year, so the rates here may be low.";
+  const meta = { ...staffMeta, drift: { status: "not_yet_measurable", refit_needed: false, reasons: [], note } };
+  const p = { band: "1", points: 30, council_district: 4 };
+  const lines = placeLines(p, meta, { withGrade: false, estimate: { rate: 0.28, low: 0.22, high: 0.34, group: "closure" } });
+  assert.equal(lines[0],
+    "Scored restaurants with about 30 points whose last two years include a routine inspection that ended in a closure: about 28 in 100 had a major violation at their next routine inspection in the backtest of the list drawn up on September 1, 2025 (likely 22 to 34). " +
+      `The likely range reflects sampling only, not changes since then. ${note}`);
+  assert.equal(lines[1], "Band 1 on the students' point rule: 30 points (band 1 is 8 points or more).");
+  const scores = placeLines({ points: 3, council_district: 4 }, meta, { withGrade: false, estimate: { rate: 0.12, low: 0.1, high: 0.14, group: "scores" } });
+  assert.match(scores[0], /^Scored restaurants with about 3 points: about 12 in 100 .* may be low\.$/);
+});

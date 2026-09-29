@@ -46,7 +46,7 @@ New, Web Service, from the private repository (Render's GitHub App needs access 
 | Build command | `npm ci && npx vite build` |
 | Start command | `node server.mjs` |
 | Health check path | `/healthz` (a new deploy that does not answer never replaces the live one) |
-| Environment | `NODE_VERSION` = `24`; `SITE_USERS` = `id:token,...` (one per person, pseudonymous ids such as `u01`, tokens 16+ characters); `SITE_CONTACT` = who to ask for access (a role address, shown on the sign-in page); `VITE_GOOGLE_MAPS_API_KEY` and `VITE_GOOGLE_MAPS_MAP_ID` (section 4; add `https://sdfood-city.onrender.com/*` to the key's allowed websites). Never set `SESSION_IDLE_MS`, `SESSION_MAX_MS`, `GEOCODE_UPSTREAM` or `GEOCODE_FAIL_MS` on Render: they exist for the tests |
+| Environment | `NODE_VERSION` = `24`; `SITE_USERS` = `id:token,...` (one per person, pseudonymous ids such as `u01`, tokens 16+ characters); `SITE_CONTACT` = who to ask for access (a role address, shown on the sign-in page); `VITE_GOOGLE_MAPS_API_KEY` and `VITE_GOOGLE_MAPS_MAP_ID` (section 4; add `https://sdfood-city.onrender.com/*` to the key's allowed websites). `SITE_OPERATORS` = the ids that see the named list before the City's request and TRUST answer are on record (default: the `SITE_PASSWORD` user). Never set `SESSION_IDLE_MS`, `SESSION_MAX_MS`, `GEOCODE_UPSTREAM` or `GEOCODE_FAIL_MS` on Render: they exist for the tests |
 
 The build checks the export it ships (`scripts/exportGate.mjs`, in review mode because of the staff
 marker file; a staff export past its sunset fails the build) and turns off the offline cache
@@ -197,12 +197,9 @@ build. `--dry-run` prints every step without running any.
 environment variable, say) goes back to the Image URL in the service's settings, which is
 `latest`. And `latest` only ever moves to an image that passed the checks.
 
-**Rolling back.** The service's **Events** page can roll back to an earlier deploy, as long as its
-image version is still in the registry, so don't delete recent versions. Roll back to a deploy
-`deploy_api.py` made: those name the image by its digest, so they bring back exactly that image. A
-deploy that named `latest` (a key change, say) would pull whatever `latest` is now. And `latest`
-still points to the newer image, so the next key change brings it back: fix the export and run
-`deploy_api.py` again.
+**Never roll back.** A rollback serves an image that no gate checked today, and it undoes every hold
+since. Fix the export (or add the hold) and run `deploy_api.py` again; to take the API down at once,
+suspend the service.
 
 ## 2. The public site
 

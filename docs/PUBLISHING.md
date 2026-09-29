@@ -42,12 +42,15 @@ real export is ever published, deploy the built site from a private build.
 Some things are shipped rather than gated, and the site shows them on every page as instructions
 (`review_status`): **what has not been done**, in plain words (no City request for access, no TRUST
 Ordinance determination, no lawyer's review, no County comment, no owner told; until the first two are
-on record the site calls itself a demonstration), **whether the rule needs a refit** (`meta.drift`),
+on record the site calls itself a demonstration, and the server shows the named list only to the
+site's operators; a TRUST answer of "applies" also needs the Council's approval), **whether the rule
+needs a refit** (`meta.drift`),
 and **every public-release gate the list does not pass** (the table below, run on this export). An
 adult of record who is a student author is shown, not refused: that was the operator's decision, and
 the site says so. **Holds** (`docs/holds.json`) take effect with `publish_city_site.py --holds-only`,
 which changes nothing else and goes out even when a full export could not; the worklists apply them
-too. Every publish is appended to `DEPLOYS.jsonl` in the private repository and to
+too, and a held place moves to the end of every list, so its position does not give its points away.
+Every publish is appended to `DEPLOYS.jsonl` in the private repository and to
 `data/staff_deploys.jsonl`, and writes `ops/` there (the source, the frozen rule, the pull's meta, the
 approval, the holds). The server logs every data file fetched and every CSV download and print with
 the sign-in's id, so it can always be said which list someone saw.

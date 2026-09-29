@@ -1,7 +1,7 @@
 {
- "version": "2026-09-29-63c8fc7f",
+ "version": "2026-09-29-065efe53",
  "frozen_on": "2026-09-29",
- "from_run": "forward_2026-09-29-91e1bb95",
+ "from_run": "forward_2026-09-29-9a49dda0",
  "chosen": "average score",
  "rule": {
   "name": "average score",
@@ -103,15 +103,11 @@
     ],
     [
      7,
-     8
+     7
     ],
     [
-     9,
-     12
-    ],
-    [
-     13,
-     25
+     8,
+     16
     ]
    ],
    "rate": [
@@ -122,81 +118,54 @@
     0.2107,
     0.2107,
     0.3037,
-    0.3291,
-    0.3291,
-    0.375,
-    0.375,
-    0.375,
-    0.375,
-    0.375,
-    0.375,
-    0.375,
-    0.375,
-    0.375,
-    0.375,
-    0.375,
-    0.375,
-    0.375,
-    0.375,
-    0.375,
-    0.375,
-    0.375
+    0.3194,
+    0.4044,
+    0.4044,
+    0.4044,
+    0.4044,
+    0.4044,
+    0.4044,
+    0.4044,
+    0.4044,
+    0.4044
    ],
    "low": [
-    0.0397,
-    0.056,
-    0.0972,
-    0.1244,
-    0.1729,
-    0.1871,
-    0.2517,
-    0.2922,
-    0.2922,
-    0.3341,
-    0.3341,
-    0.3341,
-    0.3341,
-    0.3372,
-    0.3372,
-    0.3372,
-    0.3372,
-    0.3372,
-    0.3372,
-    0.3372,
-    0.3372,
-    0.3372,
-    0.3372,
-    0.3372,
-    0.3372,
-    0.3372
+    0.0424,
+    0.0542,
+    0.0934,
+    0.1279,
+    0.1752,
+    0.1854,
+    0.2508,
+    0.2705,
+    0.3603,
+    0.3603,
+    0.3603,
+    0.3603,
+    0.3603,
+    0.3603,
+    0.3603,
+    0.3603,
+    0.3603
    ],
    "high": [
-    0.0896,
-    0.0997,
-    0.1542,
-    0.1953,
-    0.2395,
-    0.2534,
-    0.341,
-    0.3781,
-    0.3781,
-    0.4104,
-    0.4104,
-    0.4104,
-    0.4104,
-    0.4349,
-    0.4349,
-    0.4349,
-    0.4349,
-    0.4349,
-    0.4349,
-    0.4349,
-    0.4349,
-    0.4349,
-    0.4349,
-    0.4349,
-    0.4349,
-    0.4349
+    0.0875,
+    0.0957,
+    0.1548,
+    0.1934,
+    0.2378,
+    0.2524,
+    0.3451,
+    0.3856,
+    0.4501,
+    0.4501,
+    0.4501,
+    0.4501,
+    0.4501,
+    0.4501,
+    0.4501,
+    0.4501,
+    0.4501
    ],
    "bins": [
     {
@@ -256,40 +225,225 @@
     },
     {
      "min_points": 5,
-     "max_points": 6,
-     "labelled": 614,
-     "positives": 154,
-     "rate": 0.2508,
+     "max_points": 5,
+     "labelled": 344,
+     "positives": 72,
+     "rate": 0.2093,
      "interval": [
-      0.2181,
-      0.2866
+      0.1696,
+      0.2554
+     ]
+    },
+    {
+     "min_points": 6,
+     "max_points": 6,
+     "labelled": 270,
+     "positives": 82,
+     "rate": 0.3037,
+     "interval": [
+      0.2519,
+      0.361
      ]
     },
     {
      "min_points": 7,
-     "max_points": 8,
-     "labelled": 398,
-     "positives": 131,
-     "rate": 0.3291,
+     "max_points": 16,
+     "labelled": 582,
+     "positives": 217,
+     "rate": 0.3729,
      "interval": [
-      0.2848,
-      0.3768
-     ]
-    },
-    {
-     "min_points": 9,
-     "max_points": 25,
-     "labelled": 472,
-     "positives": 177,
-     "rate": 0.375,
-     "interval": [
-      0.3325,
-      0.4195
+      0.3345,
+      0.4129
      ]
     }
    ],
-   "labelled": 3312,
-   "positives": 702
+   "labelled": 3024,
+   "positives": 611
+  },
+  "curve_closure": {
+   "model": "isotonic (monotone) rate by points at the backtest origin, point values pooled into groups of at least 200 places; 95% interval by address-cluster bootstrap",
+   "groups": [
+    [
+     7,
+     25
+    ]
+   ],
+   "rate": [
+    0.316,
+    0.316,
+    0.316,
+    0.316,
+    0.316,
+    0.316,
+    0.316,
+    0.316,
+    0.316,
+    0.316,
+    0.316,
+    0.316,
+    0.316,
+    0.316,
+    0.316,
+    0.316,
+    0.316,
+    0.316,
+    0.316,
+    0.316,
+    0.316,
+    0.316,
+    0.316,
+    0.316,
+    0.316,
+    0.316
+   ],
+   "low": [
+    0.263,
+    0.263,
+    0.263,
+    0.263,
+    0.263,
+    0.263,
+    0.263,
+    0.263,
+    0.263,
+    0.263,
+    0.263,
+    0.263,
+    0.263,
+    0.263,
+    0.263,
+    0.263,
+    0.263,
+    0.263,
+    0.263,
+    0.263,
+    0.263,
+    0.263,
+    0.263,
+    0.263,
+    0.263,
+    0.263
+   ],
+   "high": [
+    0.3723,
+    0.3723,
+    0.3723,
+    0.3723,
+    0.3723,
+    0.3723,
+    0.3723,
+    0.3723,
+    0.3723,
+    0.3723,
+    0.3723,
+    0.3723,
+    0.3723,
+    0.3723,
+    0.3723,
+    0.3723,
+    0.3723,
+    0.3723,
+    0.3723,
+    0.3723,
+    0.3723,
+    0.3723,
+    0.3723,
+    0.3723,
+    0.3723,
+    0.3723
+   ],
+   "bins": [
+    {
+     "min_points": 7,
+     "max_points": 10,
+     "labelled": 22,
+     "positives": 3,
+     "rate": 0.1364,
+     "interval": [
+      0.0475,
+      0.3334
+     ]
+    },
+    {
+     "min_points": 11,
+     "max_points": 11,
+     "labelled": 21,
+     "positives": 4,
+     "rate": 0.1905,
+     "interval": [
+      0.0767,
+      0.4
+     ]
+    },
+    {
+     "min_points": 12,
+     "max_points": 13,
+     "labelled": 64,
+     "positives": 16,
+     "rate": 0.25,
+     "interval": [
+      0.1601,
+      0.3682
+     ]
+    },
+    {
+     "min_points": 14,
+     "max_points": 14,
+     "labelled": 32,
+     "positives": 12,
+     "rate": 0.375,
+     "interval": [
+      0.2293,
+      0.5475
+     ]
+    },
+    {
+     "min_points": 15,
+     "max_points": 15,
+     "labelled": 26,
+     "positives": 6,
+     "rate": 0.2308,
+     "interval": [
+      0.1103,
+      0.4205
+     ]
+    },
+    {
+     "min_points": 16,
+     "max_points": 16,
+     "labelled": 37,
+     "positives": 16,
+     "rate": 0.4324,
+     "interval": [
+      0.2867,
+      0.5909
+     ]
+    },
+    {
+     "min_points": 17,
+     "max_points": 18,
+     "labelled": 44,
+     "positives": 13,
+     "rate": 0.2955,
+     "interval": [
+      0.1816,
+      0.4422
+     ]
+    },
+    {
+     "min_points": 19,
+     "max_points": 25,
+     "labelled": 42,
+     "positives": 21,
+     "rate": 0.5,
+     "interval": [
+      0.3553,
+      0.6447
+     ]
+    }
+   ],
+   "labelled": 288,
+   "positives": 91
   },
   "proposed_cuts": [
    17,
@@ -356,9 +510,15 @@
       0.284,
       0.362
      ],
-     "baseline_rate": null,
-     "baseline_interval": null,
-     "vs_baseline": null
+     "baseline_rate": 0.3009,
+     "baseline_interval": [
+      0.2636,
+      0.3411
+     ],
+     "vs_baseline": [
+      -10.0,
+      41.02
+     ]
     }
    ],
    "rest": {
@@ -409,11 +569,7 @@
      ],
      [
       8,
-      10
-     ],
-     [
-      11,
-      30
+      16
      ]
     ],
     "rate": [
@@ -425,95 +581,53 @@
      0.1766,
      0.2932,
      0.3214,
-     0.3218,
-     0.3218,
-     0.3218,
-     0.3218,
-     0.3218,
-     0.3218,
-     0.3218,
-     0.3218,
-     0.3218,
-     0.3218,
-     0.3218,
-     0.3218,
-     0.3218,
-     0.3218,
-     0.3218,
-     0.3218,
-     0.3218,
-     0.3218,
-     0.3218,
-     0.3218,
-     0.3218,
-     0.3218,
-     0.3218
+     0.3565,
+     0.3565,
+     0.3565,
+     0.3565,
+     0.3565,
+     0.3565,
+     0.3565,
+     0.3565,
+     0.3565
     ],
     "low": [
-     0.0202,
-     0.0331,
-     0.0611,
-     0.0766,
-     0.138,
-     0.1531,
-     0.2459,
-     0.2749,
-     0.2909,
-     0.2909,
-     0.2909,
-     0.294,
-     0.294,
-     0.294,
-     0.294,
-     0.294,
-     0.294,
-     0.294,
-     0.294,
-     0.294,
-     0.294,
-     0.294,
-     0.294,
-     0.294,
-     0.294,
-     0.294,
-     0.294,
-     0.294,
-     0.294,
-     0.294,
-     0.294
+     0.0183,
+     0.0312,
+     0.0632,
+     0.0801,
+     0.1318,
+     0.1505,
+     0.2452,
+     0.2723,
+     0.3153,
+     0.3153,
+     0.3153,
+     0.3153,
+     0.3153,
+     0.3153,
+     0.3153,
+     0.3153,
+     0.3153
     ],
     "high": [
-     0.0592,
-     0.0688,
-     0.1044,
-     0.1279,
-     0.1958,
-     0.2226,
-     0.3339,
-     0.3525,
-     0.3642,
-     0.3642,
-     0.3642,
-     0.366,
-     0.366,
-     0.366,
-     0.366,
-     0.366,
-     0.366,
-     0.366,
-     0.366,
-     0.366,
-     0.366,
-     0.366,
-     0.366,
-     0.366,
-     0.366,
-     0.366,
-     0.366,
-     0.366,
-     0.366,
-     0.366,
-     0.366
+     0.0627,
+     0.0673,
+     0.1062,
+     0.1282,
+     0.1877,
+     0.2123,
+     0.3322,
+     0.3635,
+     0.4054,
+     0.4054,
+     0.4054,
+     0.4054,
+     0.4054,
+     0.4054,
+     0.4054,
+     0.4054,
+     0.4054
     ],
     "bins": [
      {
@@ -584,35 +698,273 @@
      },
      {
       "min_points": 6,
-      "max_points": 7,
-      "labelled": 531,
-      "positives": 162,
-      "rate": 0.3051,
+      "max_points": 6,
+      "labelled": 307,
+      "positives": 90,
+      "rate": 0.2932,
       "interval": [
-       0.2674,
-       0.3455
+       0.245,
+       0.3464
       ]
      },
      {
-      "min_points": 8,
-      "max_points": 30,
-      "labelled": 547,
-      "positives": 176,
-      "rate": 0.3218,
+      "min_points": 7,
+      "max_points": 16,
+      "labelled": 569,
+      "positives": 195,
+      "rate": 0.3427,
       "interval": [
-       0.284,
-       0.362
+       0.3049,
+       0.3826
       ]
      }
     ],
-    "labelled": 3315,
-    "positives": 570
+    "labelled": 3113,
+    "positives": 517
+   },
+   "curve_closure": {
+    "model": "isotonic (monotone) rate by points at the backtest origin, point values pooled into groups of at least 200 places; 95% interval by address-cluster bootstrap",
+    "groups": [
+     [
+      8,
+      30
+     ]
+    ],
+    "rate": [
+     0.2624,
+     0.2624,
+     0.2624,
+     0.2624,
+     0.2624,
+     0.2624,
+     0.2624,
+     0.2624,
+     0.2624,
+     0.2624,
+     0.2624,
+     0.2624,
+     0.2624,
+     0.2624,
+     0.2624,
+     0.2624,
+     0.2624,
+     0.2624,
+     0.2624,
+     0.2624,
+     0.2624,
+     0.2624,
+     0.2624,
+     0.2624,
+     0.2624,
+     0.2624,
+     0.2624,
+     0.2624,
+     0.2624,
+     0.2624,
+     0.2624
+    ],
+    "low": [
+     0.2097,
+     0.2097,
+     0.2097,
+     0.2097,
+     0.2097,
+     0.2097,
+     0.2097,
+     0.2097,
+     0.2097,
+     0.2097,
+     0.2097,
+     0.2097,
+     0.2097,
+     0.2097,
+     0.2097,
+     0.2097,
+     0.2097,
+     0.2097,
+     0.2097,
+     0.2097,
+     0.2097,
+     0.2097,
+     0.2097,
+     0.2097,
+     0.2097,
+     0.2097,
+     0.2097,
+     0.2097,
+     0.2097,
+     0.2097,
+     0.2097
+    ],
+    "high": [
+     0.3234,
+     0.3234,
+     0.3234,
+     0.3234,
+     0.3234,
+     0.3234,
+     0.3234,
+     0.3234,
+     0.3234,
+     0.3234,
+     0.3234,
+     0.3234,
+     0.3234,
+     0.3234,
+     0.3234,
+     0.3234,
+     0.3234,
+     0.3234,
+     0.3234,
+     0.3234,
+     0.3234,
+     0.3234,
+     0.3234,
+     0.3234,
+     0.3234,
+     0.3234,
+     0.3234,
+     0.3234,
+     0.3234,
+     0.3234,
+     0.3234
+    ],
+    "bins": [
+     {
+      "min_points": 8,
+      "max_points": 10,
+      "labelled": 16,
+      "positives": 3,
+      "rate": 0.1875,
+      "interval": [
+       0.0659,
+       0.4301
+      ]
+     },
+     {
+      "min_points": 11,
+      "max_points": 11,
+      "labelled": 15,
+      "positives": 2,
+      "rate": 0.1333,
+      "interval": [
+       0.0374,
+       0.3788
+      ]
+     },
+     {
+      "min_points": 12,
+      "max_points": 12,
+      "labelled": 22,
+      "positives": 1,
+      "rate": 0.0455,
+      "interval": [
+       0.0081,
+       0.218
+      ]
+     },
+     {
+      "min_points": 13,
+      "max_points": 13,
+      "labelled": 30,
+      "positives": 10,
+      "rate": 0.3333,
+      "interval": [
+       0.1923,
+       0.5122
+      ]
+     },
+     {
+      "min_points": 14,
+      "max_points": 15,
+      "labelled": 41,
+      "positives": 14,
+      "rate": 0.3415,
+      "interval": [
+       0.2156,
+       0.4945
+      ]
+     },
+     {
+      "min_points": 16,
+      "max_points": 16,
+      "labelled": 16,
+      "positives": 5,
+      "rate": 0.3125,
+      "interval": [
+       0.1416,
+       0.556
+      ]
+     },
+     {
+      "min_points": 17,
+      "max_points": 18,
+      "labelled": 33,
+      "positives": 6,
+      "rate": 0.1818,
+      "interval": [
+       0.0861,
+       0.3439
+      ]
+     },
+     {
+      "min_points": 19,
+      "max_points": 30,
+      "labelled": 29,
+      "positives": 12,
+      "rate": 0.4138,
+      "interval": [
+       0.2551,
+       0.5926
+      ]
+     }
+    ],
+    "labelled": 202,
+    "positives": 53
    },
    "auc": {
     "rule": 0.7088975170165853
    }
   },
   "closure_score": 70,
+  "interim": {
+   "90": {
+    "1": {
+     "labelled": 194,
+     "positives": 69,
+     "rate": 0.3557
+    },
+    "all": {
+     "labelled": 966,
+     "positives": 186,
+     "rate": 0.1925
+    }
+   },
+   "180": {
+    "1": {
+     "labelled": 395,
+     "positives": 132,
+     "rate": 0.3342
+    },
+    "all": {
+     "labelled": 1818,
+     "positives": 352,
+     "rate": 0.1936
+    }
+   },
+   "270": {
+    "1": {
+     "labelled": 550,
+     "positives": 204,
+     "rate": 0.3709
+    },
+    "all": {
+     "labelled": 2777,
+     "positives": 583,
+     "rate": 0.2099
+    }
+   }
+  },
   "band_1_by_route": {
    "closure": {
     "labelled": 215,
@@ -850,7 +1202,7 @@
   "by_district": {
    "1": {
     "candidates": 509,
-    "labelled": 486,
+    "labelled": 450,
     "named": 96,
     "named_positive": 37,
     "false_named": 55,
@@ -860,19 +1212,24 @@
      0.5043
     ],
     "fpr_ratio": 1.02,
-    "false_share_ratio": 0.97,
+    "false_share_ratio": 0.98,
     "interval": [
-     0.75,
+     0.76,
      1.21
     ],
     "interval_family": [
-     0.65,
-     1.34
-    ]
+     0.66,
+     1.33
+    ],
+    "interval_family_deff": [
+     0.53,
+     1.47
+    ],
+    "evidence_above_even": false
    },
    "2": {
     "candidates": 555,
-    "labelled": 537,
+    "labelled": 506,
     "named": 96,
     "named_positive": 34,
     "false_named": 58,
@@ -881,20 +1238,25 @@
      0.278,
      0.4716
     ],
-    "fpr_ratio": 0.96,
-    "false_share_ratio": 0.93,
+    "fpr_ratio": 0.95,
+    "false_share_ratio": 0.92,
     "interval": [
-     0.73,
-     1.15
+     0.71,
+     1.13
     ],
     "interval_family": [
-     0.65,
-     1.25
-    ]
+     0.63,
+     1.23
+    ],
+    "interval_family_deff": [
+     0.51,
+     1.36
+    ],
+    "evidence_above_even": false
    },
    "3": {
     "candidates": 956,
-    "labelled": 913,
+    "labelled": 837,
     "named": 110,
     "named_positive": 49,
     "false_named": 55,
@@ -903,20 +1265,25 @@
      0.378,
      0.5664
     ],
-    "fpr_ratio": 0.53,
-    "false_share_ratio": 0.52,
+    "fpr_ratio": 0.54,
+    "false_share_ratio": 0.53,
     "interval": [
      0.4,
-     0.64
+     0.66
     ],
     "interval_family": [
      0.35,
-     0.7
-    ]
+     0.71
+    ],
+    "interval_family_deff": [
+     0.28,
+     0.79
+    ],
+    "evidence_above_even": false
    },
    "4": {
     "candidates": 87,
-    "labelled": 82,
+    "labelled": 74,
     "named": 27,
     "named_positive": 7,
     "false_named": 19,
@@ -925,20 +1292,25 @@
      0.137,
      0.4608
     ],
-    "fpr_ratio": 1.89,
-    "false_share_ratio": 1.99,
+    "fpr_ratio": 1.96,
+    "false_share_ratio": 2.05,
     "interval": [
-     1.25,
-     2.76
+     1.28,
+     2.86
     ],
     "interval_family": [
-     1.01,
-     3.24
-    ]
+     1.0,
+     3.26
+    ],
+    "interval_family_deff": [
+     0.57,
+     3.76
+    ],
+    "evidence_above_even": false
    },
    "5": {
     "candidates": 238,
-    "labelled": 224,
+    "labelled": 212,
     "named": 52,
     "named_positive": 15,
     "false_named": 33,
@@ -947,20 +1319,25 @@
      0.1995,
      0.4533
     ],
-    "fpr_ratio": 1.19,
-    "false_share_ratio": 1.27,
+    "fpr_ratio": 1.16,
+    "false_share_ratio": 1.25,
     "interval": [
-     0.87,
-     1.69
+     0.86,
+     1.68
     ],
     "interval_family": [
      0.71,
-     1.84
-    ]
+     1.87
+    ],
+    "interval_family_deff": [
+     0.49,
+     2.13
+    ],
+    "evidence_above_even": false
    },
    "6": {
     "candidates": 630,
-    "labelled": 593,
+    "labelled": 564,
     "named": 147,
     "named_positive": 48,
     "false_named": 93,
@@ -969,20 +1346,25 @@
      0.2674,
      0.4219
     ],
-    "fpr_ratio": 1.33,
-    "false_share_ratio": 1.35,
+    "fpr_ratio": 1.31,
+    "false_share_ratio": 1.32,
     "interval": [
-     1.13,
-     1.57
+     1.1,
+     1.54
     ],
     "interval_family": [
-     1.05,
-     1.67
-    ]
+     1.01,
+     1.63
+    ],
+    "interval_family_deff": [
+     0.88,
+     1.77
+    ],
+    "evidence_above_even": false
    },
    "7": {
     "candidates": 229,
-    "labelled": 226,
+    "labelled": 217,
     "named": 20,
     "named_positive": 6,
     "false_named": 13,
@@ -991,20 +1373,25 @@
      0.1536,
      0.5399
     ],
-    "fpr_ratio": 0.44,
-    "false_share_ratio": 0.5,
+    "fpr_ratio": 0.43,
+    "false_share_ratio": 0.48,
     "interval": [
-     0.26,
-     0.77
+     0.25,
+     0.74
     ],
     "interval_family": [
-     0.18,
-     0.89
-    ]
+     0.16,
+     0.87
+    ],
+    "interval_family_deff": [
+     0.03,
+     1.04
+    ],
+    "evidence_above_even": false
    },
    "8": {
     "candidates": 246,
-    "labelled": 222,
+    "labelled": 197,
     "named": 54,
     "named_positive": 22,
     "false_named": 28,
@@ -1013,20 +1400,25 @@
      0.3116,
      0.5769
     ],
-    "fpr_ratio": 1.14,
-    "false_share_ratio": 1.09,
+    "fpr_ratio": 1.19,
+    "false_share_ratio": 1.14,
     "interval": [
-     0.76,
-     1.47
+     0.78,
+     1.52
     ],
     "interval_family": [
-     0.61,
-     1.67
-    ]
+     0.64,
+     1.71
+    ],
+    "interval_family_deff": [
+     0.44,
+     1.94
+    ],
+    "evidence_above_even": false
    },
    "9": {
     "candidates": 289,
-    "labelled": 280,
+    "labelled": 255,
     "named": 82,
     "named_positive": 21,
     "false_named": 60,
@@ -1035,30 +1427,34 @@
      0.1763,
      0.364
     ],
-    "fpr_ratio": 1.77,
-    "false_share_ratio": 1.84,
+    "fpr_ratio": 1.8,
+    "false_share_ratio": 1.88,
     "interval": [
-     1.43,
-     2.24
+     1.5,
+     2.29
     ],
     "interval_family": [
-     1.32,
-     2.43
-    ]
+     1.34,
+     2.47
+    ],
+    "interval_family_deff": [
+     1.11,
+     2.71
+    ],
+    "evidence_above_even": true
    }
   },
   "bands_used": [
    "1"
   ],
   "problems": [
-   "district 4: 1.99x its share of wrongly named places (27 named)",
-   "district 4: false-positive rate 1.89x the City's",
-   "district 4: the share of wrongly named places could be up to 2.76x even",
-   "district 5: 1.27x its share of wrongly named places (52 named)",
-   "district 6: 1.35x its share of wrongly named places (147 named)",
-   "district 9: 1.84x its share of wrongly named places (82 named)",
-   "district 9: false-positive rate 1.77x the City's",
-   "district 9: the share of wrongly named places could be up to 2.24x even"
+   "district 4: 2.05x its share of wrongly named places (27 named)",
+   "district 4: false-positive rate 1.96x the City's",
+   "district 4: the share of wrongly named places could be up to 2.86x even",
+   "district 6: 1.32x its share of wrongly named places (147 named)",
+   "district 9: 1.88x its share of wrongly named places (82 named)",
+   "district 9: false-positive rate 1.8x the City's",
+   "district 9: the share of wrongly named places could be up to 2.29x even"
   ]
  },
  "survivorship_bound": {
@@ -1733,5 +2129,110 @@
     }
    }
   }
- ]
+ ],
+ "feature_spec": {
+  "constants": {
+   "CLOSURE_SCORE": 70,
+   "SCORE_WINDOW_DAYS": 730,
+   "WINDOW_DAYS": 365,
+   "ELIGIBLE_DAYS": 730,
+   "FOLLOWUP_DAYS": 30,
+   "EPISODE_GAP_DAYS": 30,
+   "COMPLAINT_DAYS": 60,
+   "LABEL_DAYS": 365,
+   "ACTIVE_DAYS": 550
+  },
+  "status": [
+   "Approved to Reopen",
+   "Complete",
+   "Ordered Closed"
+  ],
+  "themes": [
+   [
+    "knowledge",
+    "food safety certification|food handler|processor course"
+   ],
+   [
+    "health",
+    "communicable disease|discharge from eyes|eating, tasting"
+   ],
+   [
+    "hands",
+    "^hands clean"
+   ],
+   [
+    "handsink",
+    "handwashing facilit|hand washing station|toilet and handwashing sink"
+   ],
+   [
+    "temperature",
+    "hot (&|and) cold holding|time as a public health control|cooling method|cooking time|reheating"
+   ],
+   [
+    "condition",
+    "returned and reservice|good condition, safe"
+   ],
+   [
+    "sanitizing",
+    "^food contact surfaces"
+   ],
+   [
+    "supplier",
+    "approved source|shell ?stock|gulf oyster"
+   ],
+   [
+    "process",
+    "^compliance with:?$"
+   ],
+   [
+    "advisory",
+    "consumer advisory"
+   ],
+   [
+    "hsp",
+    "licensed health care facilit|highly susceptible"
+   ],
+   [
+    "grp_facility",
+    "backflow|water tank|garbage|toilet facilities|vermin-proofing|floors?,? walls|private homes|commissary"
+   ],
+   [
+    "water",
+    "hot (&|and) cold water|potable"
+   ],
+   [
+    "sewage",
+    "sewage|waste ?water"
+   ],
+   [
+    "vermin",
+    "rodents, insects"
+   ],
+   [
+    "grp_staff",
+    "person in charge|personal cleanliness"
+   ],
+   [
+    "grp_food",
+    "thawing|food separated|vegetables washed|toxic substances"
+   ],
+   [
+    "grp_storage",
+    "food storage|consumer self-service|labeled (&|and) honestly"
+   ],
+   [
+    "grp_equipment",
+    "non-?food contact|warewashing|equipment ?/ ?utensils|equipment and utensils|vending machines|ventilation|thermometers|wiping cloth"
+   ],
+   [
+    "grp_signs",
+    "grade card|identification on vehicle"
+   ],
+   [
+    "grp_other",
+    "fire safety"
+   ]
+  ],
+  "code_sha256": "d53a4edcf0bea4a6ef6000487c5a37cb6e5fdcc494c8d27a63a29deb36305760"
+ }
 }

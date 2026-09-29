@@ -4,6 +4,7 @@ import {
   bandDefs, bandShare, bandPoints, bandSummary, bandRatePhrase, bandInterval, rateRatio, restRatio, ruleSentence, backtestList, stabilitySentence,
   estimateSentence, persistenceSentence, backtestPeriod, districtSentence, GROUP_NOTE, SAME_AS_PERSISTENCE, DRIFT_NOTE,
   scoreUsedText, scoresRead, utilityRows, frozenLine, driftLine, band1ByRoute, routeSentence, isOutside,
+  CLOSURE_GROUP, DRIFT_NOT_YET, driftNote, driftLines, costLimit, costLimitSentence, districtPrecision, auditedBandsName, auditedGroup,
 } from "../src/lib/bands.js";
 import { bandsMeta, staffMeta } from "./fixtures/bandsMeta.mjs";
 
@@ -146,4 +147,93 @@ test("the cost-ratio table, the frozen rule, drift and band 1 by route read from
   assert.equal(band1ByRoute(list).scores.rate, 0.3);
   assert.match(routeSentence({ card: { band_1_by_route: { closure: { rate: 0.5 } } } }), /^In the backtest, about 50 in 100 band 1 places that were in it because of a closure/);
   assert.equal(routeSentence(bandsMeta), null);
+});
+
+const NOTE = "In the latest quarter (2026 Q3) 20.5% of routine inspections found a major violation, against 17.5% over the backtest year, so the rates here may be low.";
+const calmMeta = { ...staffMeta, drift: { refit_needed: false, reasons: [] } };
+
+test("an estimate read from the closure curve says whose rate it is; one from the scores curve reads as before", () => {
+  assert.equal(CLOSURE_GROUP, "whose last two years include a routine inspection that ended in a closure");
+  assert.equal(
+    estimateSentence(calmMeta, 30, { estimate: { rate: 0.28, low: 0.22, high: 0.34, group: "closure" } }),
+    "Scored restaurants with about 30 points whose last two years include a routine inspection that ended in a closure: about 28 in 100 had a major violation at their next routine inspection in the backtest of the list drawn up on September 1, 2025 (likely 22 to 34). " +
+      "The likely range reflects sampling only, not changes since then.",
+  );
+  assert.equal(
+    estimateSentence(calmMeta, 30, { estimate: { rate: 0.28, low: 0.22, high: 0.34, group: "scores" } }),
+    estimateSentence(calmMeta, 30, { estimate: { rate: 0.28, low: 0.22, high: 0.34 } }),
+    "the scores group, and an older export's estimate without a group, read the same",
+  );
+  assert.match(estimateSentence(calmMeta, 30, { outside: true, estimate: { rate: 0.2, low: 0.1, high: 0.3, group: "closure" } }),
+    /^Scored restaurants outside the City with about 30 points whose last two years include a routine inspection that ended in a closure: about 20 in 100/);
+  // without a place estimate the site reads `curve`, and says nothing about a group
+  assert.doesNotMatch(estimateSentence({ ...calmMeta, card: { ...calmMeta.card, curve_closure: { rate: [0.9], low: [0.8], high: [0.95] } } }, 3), /closure/);
+});
+
+test("the export's drift note follows the estimate, after the sampling and refit sentences", () => {
+  const noted = { ...staffMeta, drift: { ...staffMeta.drift, note: NOTE } };
+  assert.equal(driftNote(noted), NOTE);
+  assert.equal(driftNote({ drift: { note: "  " } }), null);
+  assert.equal(driftNote({ drift: { note: null } }), null);
+  assert.equal(driftNote({}), null);
+  const s = estimateSentence(noted, 12);
+  assert.ok(s.endsWith(`The likely range reflects sampling only, not changes since then. ${DRIFT_NOTE} ${NOTE}`), s);
+  const calmNoted = { ...calmMeta, drift: { refit_needed: false, reasons: [], status: "not_yet_measurable", note: NOTE } };
+  assert.ok(estimateSentence(calmNoted, 12).endsWith(`not changes since then. ${NOTE}`), "a note without a refit");
+  assert.ok(estimateSentence(calmNoted, 3, { estimate: { rate: 0.3, group: "closure" } }).endsWith(NOTE), "a note even without a range");
+});
+
+test("the About page's drift lines: not yet comparable, the refit with its reasons, and the note", () => {
+  assert.equal(DRIFT_NOT_YET, "Drift: the County's record since the backtest year cannot be compared yet (no complete quarter after it).");
+  assert.deepEqual(driftLines({ drift: { status: "not_yet_measurable", refit_needed: false, reasons: [], note: NOTE } }), [DRIFT_NOT_YET, NOTE]);
+  assert.deepEqual(driftLines({ drift: { status: "not_yet_measurable", refit_needed: false, reasons: [], note: null } }), [DRIFT_NOT_YET]);
+  assert.deepEqual(
+    driftLines({ drift: { status: "refit", refit_needed: true, reasons: ["routine major rate 26.5% in 2026Q1, 2026Q2 against 20.0% over the backtest year"], note: NOTE } }),
+    ["The County's record has changed since these rates were measured: routine major rate 26.5% in 2026Q1, 2026Q2 against 20.0% over the backtest year.", NOTE],
+  );
+  assert.deepEqual(driftLines({ drift: { status: "ok", refit_needed: false, reasons: [], note: null } }), []);
+  assert.deepEqual(driftLines(staffMeta), [driftLine(staffMeta)], "an older export without status or note");
+  assert.deepEqual(driftLines({}), []);
+});
+
+test("band 1 clears C/(B+C) only below the cost ratio low/(1 - low), computed from its interval", () => {
+  assert.deepEqual(costLimit(staffMeta), { band: "1", low: 0.33, ratio: 0.49 }, "0.33 / 0.67 = 0.4925");
+  assert.equal(costLimitSentence(staffMeta),
+    "Band 1's interval starts at 33%, so its low end clears C/(B+C) only when a wrong flag costs less than 0.49 times what a right one is worth (a cost ratio C/B below 0.49).");
+  assert.equal(costLimit(bandsMeta).ratio, 0.84, "0.4567 / 0.5433, to two decimals");
+  const { low, ratio } = costLimit(bandsMeta);
+  for (const r of [ratio - 0.02, ratio + 0.02]) assert.equal(low > r / (1 + r), r < ratio, `the bar at C/B = ${r}`);
+  assert.equal(costLimit({}), null);
+  assert.equal(costLimit({ card: { bands: [{ band: "1", interval: [null, null] }] } }), null);
+  assert.equal(costLimit({ card: { bands: [{ band: "1", interval: [0, 0.1] }] } }), null, "a low end of 0 clears no positive ratio");
+  assert.equal(costLimitSentence({}), null);
+});
+
+test("a district's backtest figure for the district view, and the bands it covers", () => {
+  assert.equal(districtPrecision(staffMeta, 4), "about 29 in 100 (likely 20 to 39)");
+  assert.equal(districtPrecision(staffMeta, "2"), "about 41 in 100");
+  assert.equal(districtPrecision(staffMeta, 7), null);
+  assert.equal(districtPrecision(staffMeta, null), null, "outside the City");
+  assert.equal(districtPrecision({}, 4), null);
+  assert.equal(auditedBandsName(staffMeta), "Band 1");
+  assert.equal(auditedBandsName({}), "Band 1", "band 1 unless the export says otherwise");
+  assert.equal(auditedBandsName({ fairness: { bands_used: ["3", "1", "2"] } }), "Bands 1 to 3");
+  assert.equal(auditedBandsName({ fairness: { bands_used: ["1", "3"] } }), "Bands 1 and 3");
+  assert.equal(auditedGroup(staffMeta), "band 1 places");
+  assert.equal(auditedGroup({ fairness: { bands_used: ["1", "2", "3"] } }), "places in bands 1 to 3");
+});
+
+test("outside the City, the band line says when recent major violations alone pick out a group with the same rate", () => {
+  const outside = (vs) => ({ ...bandsMeta, card: { ...bandsMeta.card, base_rate: 0.2,
+    outside: { base_rate: 0.17, bands: [{ band: "1", rate: 0.33, interval: [0.29, 0.37],
+      ...(vs === undefined ? {} : { baseline_rate: 0.31, baseline_interval: [0.27, 0.35], vs_baseline: vs }) }] } } });
+  assert.ok(bandSummary(outside([-2.5, 3.1]), "1", { outside: true }).endsWith(`had none. ${SAME_AS_PERSISTENCE}`), "the outside interval spans zero");
+  assert.ok(!bandSummary(outside([0.5, 6]), "1", { outside: true }).includes(SAME_AS_PERSISTENCE), "above zero: not the same rate");
+  assert.ok(!bandSummary(outside(null), "1", { outside: true }).includes(SAME_AS_PERSISTENCE), "no interval, no claim");
+  assert.ok(!bandSummary(outside(undefined), "1", { outside: true }).includes(SAME_AS_PERSISTENCE), "an older export's outside band has no baseline");
+  // and the comparison under the band is the outside band's own
+  assert.match(persistenceSentence(outside([-2.5, 3.1]), "1", { outside: true }),
+    /^Sorting the same restaurants outside the City by their recent major violations, .* with a similar rate \(about 31 in 100\)\./);
+  assert.equal(persistenceSentence(outside(undefined), "1", { outside: true }), null);
+  assert.match(persistenceSentence(staffMeta, "1", { outside: false }), /^Sorting the same restaurants by their recent major violations/);
 });

@@ -28,7 +28,7 @@
   "operator": null,
   "corrections": [],
   "publication": null,
-  "model": "sample published rule (2 counts, whole-number weights), invented",
+  "model": "sample of the students' point rule (2 counts, whole-number weights), invented",
   "label": "at least one major violation at the next routine inspection",
   "label_window": "2026-09-01 to 2027-08-31",
   "candidates": 958,
@@ -145,110 +145,92 @@
         0.229,
         0.3158,
         0.3158,
-        0.4,
-        0.4,
-        0.4,
-        0.4,
-        0.4,
-        0.4,
-        0.4,
-        0.4,
-        0.4,
-        0.4,
-        0.4333,
-        0.4333,
-        0.4333,
-        0.4333,
-        0.4333,
-        0.4333,
-        0.4333,
-        0.4333,
-        0.4333,
-        0.4333,
-        0.4333,
-        0.4333,
-        0.4333,
-        0.4333,
-        0.4333,
-        0.4333
+        0.4286,
+        0.4286,
+        0.4286,
+        0.4286,
+        0.4286,
+        0.4286,
+        0.4286,
+        0.4286,
+        0.4286,
+        0.4286,
+        0.4286,
+        0.4286,
+        0.4286,
+        0.4286,
+        0.4286,
+        0.4286,
+        0.4286,
+        0.4286,
+        0.4286,
+        0.4286
       ],
       "low": [
-        0.0543,
-        0.0723,
-        0.1304,
-        0.1429,
-        0.1773,
-        0.1773,
-        0.1773,
-        0.1773,
-        0.1773,
-        0.2182,
-        0.2182,
-        0.2778,
-        0.2778,
-        0.2778,
-        0.2778,
-        0.2778,
-        0.2778,
-        0.2778,
-        0.2778,
-        0.2778,
-        0.2778,
-        0.3545,
-        0.3545,
-        0.3545,
-        0.3545,
-        0.3545,
-        0.3545,
-        0.3545,
-        0.3545,
-        0.3545,
-        0.3545,
-        0.3545,
-        0.3545,
-        0.3545,
-        0.3545,
-        0.3545,
-        0.3545
+        0.0682,
+        0.0755,
+        0.1276,
+        0.1477,
+        0.1847,
+        0.1919,
+        0.1919,
+        0.1919,
+        0.1919,
+        0.2177,
+        0.2177,
+        0.274,
+        0.274,
+        0.274,
+        0.274,
+        0.274,
+        0.274,
+        0.274,
+        0.274,
+        0.274,
+        0.274,
+        0.274,
+        0.274,
+        0.274,
+        0.274,
+        0.274,
+        0.274,
+        0.274,
+        0.274,
+        0.274,
+        0.274
       ],
       "high": [
-        0.1501,
-        0.157,
-        0.2174,
-        0.2632,
-        0.2818,
-        0.2893,
-        0.2893,
-        0.2893,
-        0.2893,
-        0.4333,
-        0.4333,
-        0.5439,
-        0.5439,
-        0.5439,
-        0.5439,
-        0.5439,
-        0.5439,
-        0.5439,
-        0.5439,
-        0.5439,
-        0.5439,
-        0.5833,
-        0.5833,
-        0.5833,
-        0.5833,
-        0.5833,
-        0.5833,
-        0.5833,
-        0.5833,
-        0.5833,
-        0.5833,
-        0.5833,
-        0.5833,
-        0.5833,
-        0.5833,
-        0.5833,
-        0.5833
+        0.1706,
+        0.1706,
+        0.2248,
+        0.2593,
+        0.2857,
+        0.2857,
+        0.2857,
+        0.3023,
+        0.3023,
+        0.4595,
+        0.4595,
+        0.5556,
+        0.5556,
+        0.5556,
+        0.5556,
+        0.5556,
+        0.5556,
+        0.5556,
+        0.5556,
+        0.5556,
+        0.5556,
+        0.5556,
+        0.5556,
+        0.5556,
+        0.5556,
+        0.5556,
+        0.5556,
+        0.5556,
+        0.5556,
+        0.5556,
+        0.5556
       ],
       "groups": [
         [
@@ -289,16 +271,324 @@
         ],
         [
           11,
-          20
-        ],
+          30
+        ]
+      ],
+      "bins": [
+        {
+          "min_points": 0,
+          "max_points": 0,
+          "labelled": 88,
+          "positives": 11,
+          "rate": 0.125,
+          "interval": [
+            0.0713,
+            0.2101
+          ]
+        },
+        {
+          "min_points": 1,
+          "max_points": 1,
+          "labelled": 86,
+          "positives": 9,
+          "rate": 0.1047,
+          "interval": [
+            0.056,
+            0.1871
+          ]
+        },
+        {
+          "min_points": 2,
+          "max_points": 2,
+          "labelled": 212,
+          "positives": 37,
+          "rate": 0.1745,
+          "interval": [
+            0.1294,
+            0.2313
+          ]
+        },
+        {
+          "min_points": 3,
+          "max_points": 3,
+          "labelled": 83,
+          "positives": 19,
+          "rate": 0.2289,
+          "interval": [
+            0.1517,
+            0.3301
+          ]
+        },
+        {
+          "min_points": 4,
+          "max_points": 4,
+          "labelled": 127,
+          "positives": 31,
+          "rate": 0.2441,
+          "interval": [
+            0.1776,
+            0.3256
+          ]
+        },
+        {
+          "min_points": 5,
+          "max_points": 6,
+          "labelled": 114,
+          "positives": 27,
+          "rate": 0.2368,
+          "interval": [
+            0.1682,
+            0.3227
+          ]
+        },
+        {
+          "min_points": 7,
+          "max_points": 30,
+          "labelled": 129,
+          "positives": 37,
+          "rate": 0.2868,
+          "interval": [
+            0.2158,
+            0.3701
+          ]
+        }
+      ],
+      "labelled": 839,
+      "positives": 171
+    },
+    "curve_closure": {
+      "model": "sample: isotonic rate by points on the invented backtest",
+      "rate": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.4,
+        0.4,
+        0.4,
+        0.4,
+        0.4,
+        0.4,
+        0.4,
+        0.4,
+        0.4,
+        0.4,
+        0.4,
+        0.4,
+        0.4,
+        0.4,
+        0.4,
+        0.4,
+        0.4,
+        0.4,
+        0.4,
+        0.4,
+        0.4,
+        0.4,
+        0.4
+      ],
+      "low": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.2333,
+        0.2333,
+        0.2333,
+        0.2333,
+        0.2333,
+        0.2333,
+        0.2333,
+        0.2333,
+        0.2333,
+        0.2333,
+        0.2333,
+        0.2333,
+        0.2333,
+        0.2333,
+        0.2333,
+        0.2333,
+        0.2333,
+        0.2333,
+        0.2333,
+        0.2333,
+        0.2333,
+        0.2333,
+        0.2333
+      ],
+      "high": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.5333,
+        0.5333,
+        0.5333,
+        0.5333,
+        0.5333,
+        0.5333,
+        0.5333,
+        0.5333,
+        0.5333,
+        0.5333,
+        0.5333,
+        0.5333,
+        0.5333,
+        0.5333,
+        0.5333,
+        0.5333,
+        0.5333,
+        0.5333,
+        0.5333,
+        0.5333,
+        0.5333,
+        0.5333,
+        0.5333
+      ],
+      "groups": [
         [
-          21,
+          14,
           36
         ]
       ],
-      "bins": [],
-      "labelled": 869,
-      "positives": 183
+      "bins": [
+        {
+          "min_points": 14,
+          "max_points": 16,
+          "labelled": 2,
+          "positives": 0,
+          "rate": 0.0,
+          "interval": [
+            0.0,
+            0.6576
+          ]
+        },
+        {
+          "min_points": 17,
+          "max_points": 20,
+          "labelled": 5,
+          "positives": 1,
+          "rate": 0.2,
+          "interval": [
+            0.0362,
+            0.6245
+          ]
+        },
+        {
+          "min_points": 21,
+          "max_points": 22,
+          "labelled": 4,
+          "positives": 4,
+          "rate": 1.0,
+          "interval": [
+            0.5101,
+            1.0
+          ]
+        },
+        {
+          "min_points": 24,
+          "max_points": 24,
+          "labelled": 1,
+          "positives": 1,
+          "rate": 1.0,
+          "interval": [
+            0.2065,
+            1.0
+          ]
+        },
+        {
+          "min_points": 30,
+          "max_points": 30,
+          "labelled": 6,
+          "positives": 1,
+          "rate": 0.1667,
+          "interval": [
+            0.0301,
+            0.5635
+          ]
+        },
+        {
+          "min_points": 32,
+          "max_points": 36,
+          "labelled": 12,
+          "positives": 5,
+          "rate": 0.4167,
+          "interval": [
+            0.1933,
+            0.6805
+          ]
+        }
+      ],
+      "labelled": 30,
+      "positives": 12
+    },
+    "interim": {
+      "90": {
+        "1": {
+          "labelled": 5,
+          "positives": 2,
+          "rate": 0.4
+        },
+        "all": {
+          "labelled": 231,
+          "positives": 56,
+          "rate": 0.2424
+        }
+      },
+      "180": {
+        "1": {
+          "labelled": 12,
+          "positives": 5,
+          "rate": 0.4167
+        },
+        "all": {
+          "labelled": 487,
+          "positives": 116,
+          "rate": 0.2382
+        }
+      },
+      "270": {
+        "1": {
+          "labelled": 15,
+          "positives": 5,
+          "rate": 0.3333
+        },
+        "all": {
+          "labelled": 684,
+          "positives": 150,
+          "rate": 0.2193
+        }
+      }
     },
     "closure_score": 70,
     "band_1_by_route": {
@@ -326,6 +616,7 @@
   "catch_run": {
     "as_of": "2025-09-01",
     "candidates": 948,
+    "eligible": 948,
     "positives": 183,
     "labelled": 869,
     "unlabelled": 79,
@@ -348,6 +639,7 @@
     "by_district": {
       "1": {
         "candidates": 83,
+        "labelled": 73,
         "named": 14,
         "named_positive": 2,
         "false_named": 10,
@@ -357,11 +649,24 @@
           0.448
         ],
         "fpr_ratio": 1.06,
-        "false_share_ratio": 1.04,
-        "interval": null
+        "false_share_ratio": 1.08,
+        "interval": [
+          0.55,
+          1.66
+        ],
+        "interval_family": [
+          0.47,
+          1.9
+        ],
+        "interval_family_deff": [
+          0.23,
+          2.25
+        ],
+        "evidence_above_even": false
       },
       "2": {
         "candidates": 137,
+        "labelled": 127,
         "named": 32,
         "named_positive": 9,
         "false_named": 20,
@@ -371,11 +676,24 @@
           0.4923
         ],
         "fpr_ratio": 1.21,
-        "false_share_ratio": 1.26,
-        "interval": null
+        "false_share_ratio": 1.24,
+        "interval": [
+          0.77,
+          1.72
+        ],
+        "interval_family": [
+          0.65,
+          1.8
+        ],
+        "interval_family_deff": [
+          0.42,
+          2.03
+        ],
+        "evidence_above_even": false
       },
       "3": {
         "candidates": 192,
+        "labelled": 176,
         "named": 34,
         "named_positive": 7,
         "false_named": 25,
@@ -386,10 +704,23 @@
         ],
         "fpr_ratio": 1.11,
         "false_share_ratio": 1.12,
-        "interval": null
+        "interval": [
+          0.73,
+          1.46
+        ],
+        "interval_family": [
+          0.69,
+          1.62
+        ],
+        "interval_family_deff": [
+          0.51,
+          1.82
+        ],
+        "evidence_above_even": false
       },
       "4": {
         "candidates": 62,
+        "labelled": 57,
         "named": 11,
         "named_positive": 4,
         "false_named": 7,
@@ -400,10 +731,23 @@
         ],
         "fpr_ratio": 0.97,
         "false_share_ratio": 0.97,
-        "interval": null
+        "interval": [
+          0.31,
+          1.64
+        ],
+        "interval_family": [
+          0.13,
+          2.0
+        ],
+        "interval_family_deff": [
+          -0.21,
+          2.42
+        ],
+        "evidence_above_even": false
       },
       "5": {
         "candidates": 64,
+        "labelled": 59,
         "named": 17,
         "named_positive": 4,
         "false_named": 12,
@@ -413,11 +757,24 @@
           0.495
         ],
         "fpr_ratio": 1.44,
-        "false_share_ratio": 1.62,
-        "interval": null
+        "false_share_ratio": 1.61,
+        "interval": [
+          0.96,
+          2.46
+        ],
+        "interval_family": [
+          0.64,
+          2.87
+        ],
+        "interval_family_deff": [
+          0.25,
+          3.39
+        ],
+        "evidence_above_even": false
       },
       "6": {
         "candidates": 136,
+        "labelled": 123,
         "named": 21,
         "named_positive": 5,
         "false_named": 12,
@@ -427,11 +784,24 @@
           0.5313
         ],
         "fpr_ratio": 0.76,
-        "false_share_ratio": 0.76,
-        "interval": null
+        "false_share_ratio": 0.77,
+        "interval": [
+          0.39,
+          1.22
+        ],
+        "interval_family": [
+          0.26,
+          1.26
+        ],
+        "interval_family_deff": [
+          0.06,
+          1.47
+        ],
+        "evidence_above_even": false
       },
       "7": {
         "candidates": 76,
+        "labelled": 69,
         "named": 10,
         "named_positive": 3,
         "false_named": 6,
@@ -441,11 +811,24 @@
           0.6458
         ],
         "fpr_ratio": 0.72,
-        "false_share_ratio": 0.68,
-        "interval": null
+        "false_share_ratio": 0.69,
+        "interval": [
+          0.26,
+          1.27
+        ],
+        "interval_family": [
+          0.15,
+          1.45
+        ],
+        "interval_family_deff": [
+          -0.06,
+          1.78
+        ],
+        "evidence_above_even": false
       },
       "8": {
         "candidates": 94,
+        "labelled": 89,
         "named": 18,
         "named_positive": 8,
         "false_named": 9,
@@ -455,11 +838,24 @@
           0.6904
         ],
         "fpr_ratio": 0.79,
-        "false_share_ratio": 0.83,
-        "interval": null
+        "false_share_ratio": 0.8,
+        "interval": [
+          0.38,
+          1.32
+        ],
+        "interval_family": [
+          0.22,
+          1.54
+        ],
+        "interval_family_deff": [
+          -0.02,
+          1.85
+        ],
+        "evidence_above_even": false
       },
       "9": {
         "candidates": 104,
+        "labelled": 96,
         "named": 17,
         "named_positive": 7,
         "false_named": 9,
@@ -469,8 +865,20 @@
           0.6682
         ],
         "fpr_ratio": 0.86,
-        "false_share_ratio": 0.75,
-        "interval": null
+        "false_share_ratio": 0.74,
+        "interval": [
+          0.34,
+          1.2
+        ],
+        "interval_family": [
+          0.19,
+          1.34
+        ],
+        "interval_family_deff": [
+          -0.04,
+          1.58
+        ],
+        "evidence_above_even": false
       }
     },
     "bands_used": [
@@ -490,15 +898,21 @@
     "from_run": "sample"
   },
   "drift": {
-    "major_rate_backtest": 0.1917,
-    "major_rate_recent": 0.1689,
+    "major_rate_backtest": 0.1839,
+    "major_rate_recent": null,
+    "recent_quarters": [],
     "band_1_share_backtest": 0.0264,
     "band_1_share_now": 0.0261,
+    "latest_quarter": "2026Q3",
+    "latest_rate": 0.2064,
+    "latest_n": 281,
+    "status": "not_yet_measurable",
     "refit_needed": false,
     "reasons": [],
+    "note": null,
     "thresholds": {
-      "major_rate": 0.05,
-      "band_share": 0.05
+      "min": 0.02,
+      "standard_errors": 3.0
     }
   }
 }

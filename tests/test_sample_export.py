@@ -1,9 +1,11 @@
 """The invented export for the food-inspection site keeps the contract's shape: a small index, one
 place file per place that matches its index entry, County records with the County's status text
 (a closure with the date the County reopened it), items under the sections of the County's report,
-flags counted back from the list date, a published rule whose worksheet rows add up (a health
-closure read as 70), bands cut so equal points are never split, the frozen-rule, drift, route and
-district fields the real meta carries, and nothing that reads as a real address."""
+flags counted back from the list date, the students' point rule with worksheet rows that add up (a
+health closure read as 70), bands cut so equal points are never split, the frozen-rule, drift, route
+and district fields the real meta carries (drift quarter by quarter; family-wise district intervals,
+also widened for an assumed design effect), two estimate curves with each place reading its own
+group's, interim rates, and nothing that reads as a real address."""
 import importlib.util
 import json
 import re
@@ -25,7 +27,7 @@ REAL_STREETS = ("Convoy", "Garnet", "University Ave", "5th Ave", "India St", "El
 THEMES = ("knowledge", "health", "hands", "handsink", "temperature", "condition", "sanitizing", "supplier", "process",
           "advisory", "hsp", "water", "sewage", "vermin", "grp_staff", "grp_food", "grp_storage", "grp_equipment",
           "grp_facility", "grp_signs", "grp_other", "other")
-RECORD_FLAGS = {"major", "closed", "bc", "repeat", "closures2", "repeat_item", "lt90_2"}
+RECORD_FLAGS = {"major", "closed", "bc", "repeat", "major_2", "closures2", "repeat_item", "lt90_2"}
 
 
 def load():
@@ -138,6 +140,7 @@ def test_flags_count_back_from_the_list_date():
         assert ("major" in p["flags"]) == any(i["major"] for i in year)
         assert ("closed" in p["flags"]) == any(i["closed"] and i["closure"] == "health" for i in year)
         assert ("closures2" in p["flags"]) == (sum(i["closed"] and i["closure"] == "health" for i in two) >= 2)
+        assert ("major_2" in p["flags"]) == (len({i["date"] for i in two if i["type"] == "routine" and i["major"]}) >= 2)
         assert ("lt90_2" in p["flags"]) == (sum(i["type"] == "routine" and i["score"] is not None and i["score"] < 90 for i in two) >= 2)
         for t in set(p["flags"]) - RECORD_FLAGS:
             assert any(v["theme"] == t and v["severity"] == "major" and v["date"] >= lo1 for v in d["violations"]), (p["facility_id"], t)
@@ -147,7 +150,7 @@ def test_flags_count_back_from_the_list_date():
                 if v["severity"] == "major" and v["visit"] == "routine" and v["date"] >= lo2:
                     dates.setdefault(v["code"], set()).add(v["date"])
             assert max(len(s) for s in dates.values()) >= 2
-    assert {"closures2", "repeat_item", "lt90_2"} <= seen, "the sample shows every escalation fact"
+    assert {"major_2", "closures2", "repeat_item", "lt90_2"} <= seen, "the sample shows every escalation fact"
     # A place whose last visit is more than a year before the list date has none of the 12-month facts.
     stale = [f["properties"] for f in fc["features"] if f["properties"]["last_visit"]["date"] < lo1]
     assert stale and not any({"major", "closed", "bc", "repeat"} & set(p["flags"]) for p in stale)
@@ -177,9 +180,15 @@ def test_meta_carries_the_frozen_rule_drift_routes_and_district_precision():
     f = meta["frozen"]
     assert re.fullmatch(r"\d{4}-\d{2}-\d{2}-[0-9a-f]{8}", f["version"]) and f["version"].startswith(f["frozen_on"]) and f["from_run"]
     dr = meta["drift"]
-    for k in ("major_rate_backtest", "major_rate_recent", "band_1_share_backtest", "band_1_share_now"):
+    for k in ("major_rate_backtest", "major_rate_recent", "band_1_share_backtest", "band_1_share_now", "latest_rate"):
         assert dr[k] is None or 0 <= dr[k] <= 1, k
-    assert dr["refit_needed"] == bool(dr["reasons"]) and dr["thresholds"] == {"major_rate": 0.05, "band_share": 0.05}
+    assert dr["refit_needed"] == bool(dr["reasons"]) and dr["thresholds"] == {"min": 0.02, "standard_errors": 3.0}
+    assert dr["status"] in ("ok", "refit", "not_yet_measurable") and (dr["status"] == "refit") == dr["refit_needed"]
+    # The sample's record ends with the backtest's label year (August 31, 2026): no complete quarter after it.
+    assert dr["status"] == "not_yet_measurable" and dr["recent_quarters"] == [] and dr["major_rate_recent"] is None
+    assert dr["latest_quarter"] == "2026Q3" and isinstance(dr["latest_n"], int) and dr["latest_n"] >= 200
+    assert dr["note"] is None or re.fullmatch(r"In the latest quarter \(2026 Q3, through August 31\) \d+\.\d% of routine .* may be (low|high)\.", dr["note"])
+    assert meta["catch_run"]["eligible"] == meta["catch_run"]["candidates"], "the sample's backtest rows are its scored places"
     route = meta["card"]["band_1_by_route"]
     band_1 = next(b for b in meta["card"]["bands"] if b["band"] == "1")
     assert route["closure"]["labelled"] + route["scores"]["labelled"] == band_1["labelled"]
@@ -194,6 +203,64 @@ def test_meta_carries_the_frozen_rule_drift_routes_and_district_precision():
         assert iv is None or (0 <= iv[0] <= row["precision"] <= iv[1] <= 1)
     _, _, record = mod.build(200, seed=5, mode="record")
     assert not {"frozen", "drift", "fairness"} & set(record)
+
+
+def test_district_shares_of_the_wrongly_named_are_over_labelled_scored_places_with_family_wise_intervals():
+    mod = load()
+    _, _, meta = mod.build(1400, seed=9)
+    by = meta["fairness"]["by_district"]
+    lab_all = sum(r["labelled"] for r in by.values())
+    fp_all = sum(r["false_named"] for r in by.values())
+    assert lab_all == meta["catch_run"]["labelled"]
+    for d, r in by.items():
+        assert r["false_share_ratio"] == round((r["false_named"] / fp_all) / (r["labelled"] / lab_all), 2), d
+        for k in ("interval", "interval_family"):
+            assert r[k] is None or (len(r[k]) == 2 and 0 <= r[k][0] <= r[k][1]), (d, k)
+        assert "interval_family_zip" not in r, "the ZIP-code bootstrap is gone"
+        iv, fam, deff = r["interval"], r["interval_family"], r["interval_family_deff"]
+        assert fam[0] <= iv[0] and iv[1] <= fam[1], "family-wise is wider than 95%"
+        assert deff[0] < fam[0] and fam[1] < deff[1], "and widened again for the design effect (its low end may fall below 0)"
+        assert r["evidence_above_even"] is (fam[0] > 1 and deff[0] > 1), d
+    # District 5's share of the wrongly named is above even, but its intervals span 1: no evidence
+    assert by["5"]["false_share_ratio"] > 1.5 and by["5"]["interval"][0] < 1 and by["5"]["evidence_above_even"] is False
+
+
+def test_each_place_reads_the_estimate_curve_for_its_own_group():
+    mod = load()
+    _, places, meta = mod.build(1400, seed=9)
+    card = meta["card"]
+    for key in ("curve", "curve_closure"):
+        c = card[key]
+        assert len(c["rate"]) == len(c["low"]) == len(c["high"]) and c["bins"]
+        assert all(lo <= r <= hi for r, lo, hi in zip(c["rate"], c["low"], c["high"]))
+        assert all(a <= b for a, b in zip(c["rate"], c["rate"][1:])), "monotone"
+        assert sum(b["labelled"] for b in c["bins"]) == c["labelled"]
+    assert card["curve"]["labelled"] + card["curve_closure"]["labelled"] == meta["catch_run"]["labelled"]
+    seen = set()
+    for d in places.values():
+        e = d.get("estimate")
+        if "points" not in d:
+            assert e is None
+            continue
+        group = "closure" if any(u["closure"] for u in d["scores_used"]) else "scores"
+        assert e["group"] == group
+        c = card["curve_closure" if group == "closure" else "curve"]
+        j = min(d["points"], len(c["rate"]) - 1)
+        assert (e["rate"], e["low"], e["high"]) == (c["rate"][j], c["low"][j], c["high"][j])
+        seen.add(group)
+    assert seen == {"scores", "closure"}, "the sample shows both groups"
+
+
+def test_interim_rates_cut_the_label_off_after_90_180_and_270_days():
+    mod = load()
+    _, _, meta = mod.build(1400, seed=9)
+    interim = meta["card"]["interim"]
+    assert list(interim) == ["90", "180", "270"]
+    assert interim["90"]["all"]["labelled"] <= interim["180"]["all"]["labelled"] <= interim["270"]["all"]["labelled"] <= meta["catch_run"]["labelled"]
+    for window in interim.values():
+        assert set(window) == {"1", "all"}
+        for g in window.values():
+            assert g["positives"] <= g["labelled"] and (g["rate"] is None or g["rate"] == round(g["positives"] / g["labelled"], 4))
 
 
 def test_worksheets_add_up_and_bands_never_split_a_tie():

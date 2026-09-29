@@ -41,18 +41,23 @@ access yet, and no one will until:
    any staff use, even though the site is free; and
 3. our adult point of contact, [NAME, ROLE], has agreed a one-page data-use note with you.
 
-What it shows, checked on inspections it had never seen:
+What it shows, checked on the inspections that followed three earlier dates (the last was looked at
+while the rule was built, so a test on later inspections is under way):
 
 - **The rule is one line.** Points are how far a restaurant's average routine score over two years
   fell below 100. Restaurants with 8 or more points (an average of 92 or lower) had a major violation
   at their next routine inspection at about 1.7 times the rate of all scored restaurants: about 37 in
   100 against 21, and the pattern held at every backtest date. Sorting by recent major violations does
   about as well; the rule's value is that anyone can check why a place scores what it does.
-- **Ordering a month's routine inspections the same way** would have found major violations about
-  6 days sooner within a council district's month than the order actually worked (about 2% of the
-  time between a facility's routine inspections).
-- **No detectable coverage gap across neighborhood income** (FAIRNESS.md). Some council districts
-  get more than their share of marked places that then had no major; the site shows which.
+- **A related rule, lowest average score on record first,** used to order a month's routine
+  inspections would have found major violations about 6 days sooner within a council district's month
+  than the order actually worked (about 2% of the time between a facility's routine inspections).
+- **Fairness.** Our research model and an older rule showed no detectable coverage gap across
+  neighborhood income (FAIRNESS.md). This rule does show gaps: in the backtest, band 1 places in some
+  council districts went on to have no major more often than elsewhere, and a rough check by
+  restaurant name suggests clean restaurants serving some cuisines are put in band 1 about twice as
+  often. Both come through the County's own scores, which the rule passes on unchanged; the site
+  shows the district table.
 
 What we are asking for:
 

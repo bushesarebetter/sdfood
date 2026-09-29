@@ -5,6 +5,7 @@
  * that downloads are public records, whom to write to, and which checks the list has not passed.
  */
 /* global __STAFF__ */
+import { auditedGroup } from "./bands.js";
 
 /** True in the staff build itself (vite.config.js), whatever meta says. */
 export const staffBuild = () => typeof __STAFF__ !== "undefined" && __STAFF__ === true;
@@ -77,10 +78,44 @@ function flaggedDistricts(status) {
   return [...new Set(status.map((s) => /^district (\d+):/i.exec(s)?.[1]).filter(Boolean))].map(Number).sort((a, b) => a - b);
 }
 
+/** "District 4", "Districts 4 and 9", "Districts 4, 5 and 9". */
+function districtsPhrase(districts) {
+  const list = districts.length > 1 ? `${districts.slice(0, -1).join(", ")} and ${districts.at(-1)}` : `${districts[0]}`;
+  return `District${districts.length > 1 ? "s" : ""} ${list}`;
+}
+
+/** An older export's fairness line, from the gate text alone. */
 function districtLine(districts) {
   if (!districts.length) return null;
-  const list = districts.length > 1 ? `${districts.slice(0, -1).join(", ")} and ${districts.at(-1)}` : `${districts[0]}`;
-  return `A band is wrong more often in District${districts.length > 1 ? "s" : ""} ${list} than elsewhere: do not compare districts by how many places are in a band.`;
+  return `A band is wrong more often in ${districtsPhrase(districts)} than elsewhere: do not compare districts by how many places are in a band.`;
+}
+
+/**
+ * The council districts whose `meta.fairness.by_district[d].evidence_above_even` is true, in order:
+ * their share of the wrongly named is above even at the low end of both family-wise intervals (the
+ * address bootstrap's, and the same widened for an assumed design effect). Null for an export without
+ * the field (one from before it existed).
+ */
+export function evidenceDistricts(meta) {
+  const by = meta?.fairness?.by_district;
+  if (!by || typeof by !== "object") return null;
+  const rows = Object.entries(by).filter(([d, f]) => /^\d+$/.test(d) && typeof f?.evidence_above_even === "boolean");
+  if (!rows.length) return null;
+  return rows.filter(([, f]) => f.evidence_above_even).map(([d]) => Number(d)).sort((a, b) => a - b);
+}
+
+/**
+ * The fairness line for the banner and the district view. From `evidence_above_even` when the export
+ * has it: "In the backtest, band 1 places in Districts 4 and 9 went on to have no major violation
+ * more often than elsewhere, even allowing for chance; ...", and nothing when no district has that
+ * evidence. An older export without the field falls back to the districts its gate text names.
+ */
+export function fairnessLine(meta) {
+  const ev = evidenceDistricts(meta);
+  if (ev === null) return districtLine(flaggedDistricts(reviewStatus(meta)));
+  if (!ev.length) return null;
+  return `In the backtest, ${auditedGroup(meta)} in ${districtsPhrase(ev)} went on to have no major violation more often than elsewhere, ` +
+    "even allowing for chance; part of this may be how inspectors there cite. Do not compare districts by how many places are in a band.";
 }
 
 /**
@@ -97,7 +132,7 @@ export function reviewGuidance(meta) {
   if (has(LINES.lawyer) || has(LINES.county) || has(LINES.owners)) out.push(GUIDANCE.unreviewed);
   if (has(/does not beat|within 0\.01 AUC/)) out.push(GUIDANCE.persistence);
   if (has(/cost ratio|nothing to name/)) out.push(GUIDANCE.nothingToName);
-  const d = districtLine(flaggedDistricts(status));
+  const d = fairnessLine(meta);
   if (d) out.push(d);
   if (has(LINES.drift)) out.push(GUIDANCE.drift);
   if (has(/prospective test/)) out.push(GUIDANCE.prospective);
@@ -107,8 +142,8 @@ export function reviewGuidance(meta) {
 
 /**
  * "What to do" at the top of the district view on the staff site: how to use a district's list,
- * where a question about a place goes, and, when the fairness checks name districts, not to
- * compare districts by their bands.
+ * where a question about a place goes, and, when the fairness figures show districts above even
+ * (fairnessLine), not to compare districts by their bands.
  */
 export function districtGuidance(meta) {
   if (!isStaff(meta)) return [];
@@ -116,7 +151,7 @@ export function districtGuidance(meta) {
     "Open a district's list to see its places; each place's page shows its County record, which is the record of reference.",
     "A resident's report, an illness or a question about a place's record goes to the County: each place's page says where.",
   ];
-  const d = districtLine(flaggedDistricts(reviewStatus(meta)));
+  const d = fairnessLine(meta);
   if (d) out.push(d);
   return out;
 }

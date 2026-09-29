@@ -313,3 +313,107 @@ test("malformed meta.frozen, meta.drift, band_1_by_route, closure_score or preci
     assert.match(r.err, re);
   }
 });
+
+// The shapes export_site.py writes since the two estimate curves and the quarter-by-quarter drift check.
+const curve = { rate: [0.1, 0.2, 0.3], low: [0.05, 0.15, 0.2], high: [0.15, 0.25, 0.4], bins: [], labelled: 300, positives: 60 };
+const latestMeta = {
+  ...newMeta,
+  drift: {
+    status: "not_yet_measurable", major_rate_backtest: 0.175, major_rate_recent: null, recent_quarters: [],
+    band_1_share_backtest: 0.025, band_1_share_now: 0.026, latest_quarter: "2026Q3", latest_rate: 0.205, latest_n: 1800,
+    refit_needed: false, reasons: [], thresholds: { min: 0.02, standard_errors: 3.0 },
+    note: "In the latest quarter (2026 Q3, through September 19) 20.5% of routine inspections found a major violation, against 17.5% over the backtest year, so the rates here may be low.",
+  },
+  card: {
+    ...newMeta.card, curve, curve_closure: curve,
+    interim: { 90: { 1: { labelled: 20, positives: 8, rate: 0.4 }, all: { labelled: 900, positives: 180, rate: 0.2 } },
+               180: { 1: { labelled: 0, positives: 0, rate: null }, all: { labelled: 1500, positives: 290, rate: 0.1933 } } },
+    outside: { bands_shown: true, curve, curve_closure: null,
+               bands: [{ band: "1", rate: 0.3, interval: [0.25, 0.35], baseline_rate: 0.29, baseline_interval: [0.24, 0.34], vs_baseline: [-4.5, 6] }] },
+  },
+  catch_run: { as_of: "2025-09-01", candidates: 3739, eligible: 3100 },
+  fairness: { by_district: {
+    // a family-wise interval widened for an assumed design effect can start below 0
+    3: { named: 4, labelled: 300, precision: 0.5, precision_interval: [0.15, 0.85], interval_family: [0.1, 2.1], interval_family_deff: [-0.3, 2.6], evidence_above_even: false },
+    4: { named: 12, labelled: 200, precision: 0.2, precision_interval: [0.05, 0.5], interval_family: [1.3, 2.8], interval_family_deff: [1.05, 3.1], evidence_above_even: true },
+    5: { named: 0, precision: null, precision_interval: null, interval_family: null, interval_family_deff: null, evidence_above_even: false },
+    // an export from while the ZIP-code bootstrap was tried
+    6: { named: 5, labelled: 90, interval_family: [0.4, 1.9], interval_family_zip: [0, 3.7], evidence_above_even: false },
+  } },
+};
+const withEstimate = (group, closure = false) => {
+  const places = banded();
+  const p = places[0].file;
+  p.estimate = { rate: 0.3, low: 0.2, high: 0.4, ...(group === undefined ? {} : { group }) };
+  // place 1 has 21 points, 19 of them from avg_deficit: a 92 and a closure read as 70 average 81
+  if (closure) p.scores_used = [{ date: "2025-11-02", score: 92, closure: false, county_score: 92 }, { date: "2026-01-02", score: 70, closure: true, county_score: null }];
+  return places;
+};
+
+test("the two estimate curves, interim rates, outside baselines, drift by quarter and the district evidence pass when well formed", () => {
+  const r = check(withEstimate("scores"), { ...reviewMeta(2), ...latestMeta }, { args: ["--review"] });
+  assert.ok(r.ok, r.err);
+  const refit = { ...latestMeta.drift, status: "refit", refit_needed: true, reasons: ["routine major rate 26.5% in 2026Q1, 2026Q2 against 20.0% over the backtest year"],
+                  recent_quarters: ["2026Q1", "2026Q2"], major_rate_recent: 0.265, note: null };
+  assert.ok(check(banded(), { ...reviewMeta(2), ...latestMeta, drift: refit }, { args: ["--review"] }).ok, "a refit");
+  assert.ok(check(withEstimate(undefined), { ...reviewMeta(2), ...latestMeta }, { args: ["--review"] }).ok, "an estimate without a group (older export)");
+  assert.ok(check(banded(), { ...reviewMeta(2), ...latestMeta, card: { ...latestMeta.card, curve_closure: null, interim: null } }, { args: ["--review"] }).ok, "null curve_closure and interim");
+  assert.ok(check(banded(), { ...reviewMeta(2), ...newMeta }, { args: ["--review"] }).ok, "the older drift thresholds { major_rate, band_share } still pass");
+});
+
+test("an estimate's group must be scores or closure, and closure exactly when scores_used holds a closure", () => {
+  const meta = { ...reviewMeta(2), ...latestMeta };
+  assert.ok(check(withEstimate("closure", true), meta, { args: ["--review"] }).ok, "a closure read as 70, and the closure curve");
+  const cases = [
+    [withEstimate("other"), /an estimate group outside scores\|closure/],
+    [withEstimate("closure"), /an estimate group that does not match whether scores_used holds a closure/],
+    [withEstimate("scores", true), /an estimate group that does not match whether scores_used holds a closure/],
+  ];
+  for (const [places, re] of cases) {
+    const r = check(places, meta, { args: ["--review"] });
+    assert.equal(r.ok, false, String(re));
+    assert.match(r.err, re);
+  }
+});
+
+test("malformed drift fields, curve_closure, interim, outside baselines, eligible or district evidence fail", () => {
+  const d = latestMeta.drift;
+  const c = latestMeta.card;
+  const dist = latestMeta.fairness.by_district;
+  const cases = [
+    [{ drift: { ...d, thresholds: { min: 0.02 } } }, /meta\.drift is not/],
+    [{ drift: { ...d, status: "fine" } }, /meta\.drift\.status is not ok\|refit\|not_yet_measurable/],
+    [{ drift: { ...d, status: "refit" } }, /meta\.drift\.status is not/, "refit without refit_needed"],
+    [{ drift: { ...d, status: "ok", refit_needed: true, reasons: ["x"] } }, /meta\.drift\.status is not/],
+    [{ drift: { ...d, recent_quarters: ["Q3 2026"] } }, /meta\.drift\.recent_quarters/],
+    [{ drift: { ...d, latest_quarter: "2026-07" } }, /meta\.drift\.latest_quarter/],
+    [{ drift: { ...d, latest_rate: 20.5 } }, /meta\.drift\.latest_rate/],
+    [{ drift: { ...d, latest_n: -3 } }, /meta\.drift\.latest_n/],
+    [{ drift: { ...d, note: "" } }, /meta\.drift\.note/],
+    [{ card: { ...c, curve_closure: { ...curve, low: [0.15, 0.15, 0.2] } } }, /meta\.card\.curve_closure is not null or a curve/, "low above rate"],
+    [{ card: { ...c, curve_closure: { ...curve, high: [0.2] } } }, /meta\.card\.curve_closure is not/, "lists of different lengths"],
+    [{ card: { ...c, curve_closure: { rate: [] } } }, /meta\.card\.curve_closure is not/],
+    [{ card: { ...c, outside: { ...c.outside, curve_closure: { rate: [1.2], low: [1], high: [1.3] } } } }, /meta\.card\.outside\.curve_closure is not/],
+    [{ card: { ...c, interim: { 90: { 1: { labelled: 2, positives: 3, rate: 1 } } } } }, /meta\.card\.interim is not/],
+    [{ card: { ...c, interim: { ninety: {} } } }, /meta\.card\.interim is not/],
+    [{ card: { ...c, interim: [0.2] } }, /meta\.card\.interim is not/],
+    [{ card: { ...c, outside: { ...c.outside, bands: [{ ...c.outside.bands[0], vs_baseline: [6, -4.5] }] } } }, /meta\.card\.outside\.bands band 1: vs_baseline/],
+    [{ card: { ...c, outside: { ...c.outside, bands: [{ ...c.outside.bands[0], baseline_rate: 29 }] } } }, /outside\.bands band 1: baseline_rate/],
+    [{ card: { ...c, outside: { ...c.outside, bands: [{ ...c.outside.bands[0], baseline_interval: [0.4, 0.2] }] } } }, /outside\.bands band 1: baseline_interval/],
+    [{ catch_run: { eligible: "3,100" } }, /meta\.catch_run\.eligible is not a count/],
+    [{ fairness: { by_district: { ...dist, 3: { ...dist[3], interval_family_deff: [2.6, -0.3] } } } }, /by_district\[3\]\.interval_family_deff is not null or \[lo, hi\]/],
+    [{ fairness: { by_district: { ...dist, 3: { ...dist[3], interval_family_deff: "wide" } } } }, /by_district\[3\]\.interval_family_deff is not/],
+    [{ fairness: { by_district: { ...dist, 6: { ...dist[6], interval_family_zip: [3.7, 0] } } } }, /by_district\[6\]\.interval_family_zip is not null or \[lo, hi\]/],
+    [{ fairness: { by_district: { ...dist, 4: { ...dist[4], interval_family_deff: [0.9, 3.1] } } } }, /by_district\[4\]\.evidence_above_even is true, but/, "the widened interval starts below 1"],
+    [{ fairness: { by_district: { ...dist, 3: { ...dist[3], interval_family: [-0.1, 2] } } } }, /by_district\[3\]\.interval_family is not/],
+    [{ fairness: { by_district: { ...dist, 3: { ...dist[3], evidence_above_even: "no" } } } }, /by_district\[3\]\.evidence_above_even is not true or false/],
+    [{ fairness: { by_district: { ...dist, 3: { ...dist[3], evidence_above_even: true } } } }, /by_district\[3\]\.evidence_above_even is true, but/, "its intervals start below 1"],
+    [{ fairness: { by_district: { ...dist, 5: { ...dist[5], evidence_above_even: true } } } }, /by_district\[5\]\.evidence_above_even is true, but interval_family/],
+    [{ fairness: { by_district: { ...dist, 3: { ...dist[3], labelled: 2.5 } } } }, /by_district\[3\]\.labelled is not a count/],
+  ];
+  for (const [patch, re, why] of cases) {
+    const r = check(banded(), { ...reviewMeta(2), ...latestMeta, ...patch }, { args: ["--review"] });
+    assert.equal(r.ok, false, why ?? String(re));
+    assert.match(r.err, re, why);
+  }
+});

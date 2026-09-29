@@ -105,7 +105,11 @@ test("bands mode: every banded row says what its band means, and that the rule i
   assert.ok(get("what_band_means").includes("In council district 4, about 29 in 100 band 1 places had one"), "the band line the place's page shows");
   assert.ok(get("what_band_means").endsWith(" Students' point rule, not a County rating."));
   const none = { ...feature, properties: { ...feature.properties, band: undefined, points: 3 } };
-  assert.equal(parse(facilitiesToCsv([none], { meta: m, mode: "bands" }))("what_band_means"), "", "no band, no text");
+  const { POINTS_SOURCE } = await import("../src/lib/format.js");
+  assert.equal(parse(facilitiesToCsv([none], { meta: m, mode: "bands" }))("what_band_means"), POINTS_SOURCE,
+    "points with no band still say where the number comes from");
+  const unscored = { ...feature, properties: { ...feature.properties, band: undefined, points: undefined } };
+  assert.equal(parse(facilitiesToCsv([unscored], { meta: m, mode: "bands" }))("what_band_means"), "", "no points, no text");
   const held = { ...feature, properties: { ...feature.properties, band: "1", on_hold: true } };
   assert.equal(parse(facilitiesToCsv([held], { meta: m, mode: "bands" }))("what_band_means"), "", "a held place shows no band");
   assert.equal(bandMeaning({ band: "1" }, m, { mode: "record" }), "");
