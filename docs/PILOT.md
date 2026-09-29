@@ -1,6 +1,6 @@
 # A silent pilot: pre-registered design
 
-A proposal the City of San Diego can bring to the County's Food & Housing Division. In its
+A proposal the City of San Diego can bring to the County's Food, Water and Housing Division. In its
 first phase nothing about any inspection changes. Every number below comes from
 `sim_schedule.py` and `export_worklist.py` on the County's public results (SD Food Info),
 2023-01 to 2026-09 (the 2026-09-19 pull, rerun 2026-09-27); see the README.
@@ -23,7 +23,7 @@ forward, on the County's own schedule.
    (`data/worklists/<yyyy-mm>/frozen/<stamp>/`), including `scoring.csv`, which holds every
    active facility's position under each arm. The manifest's hashes are emailed to the County
    before the month starts; `python export_worklist.py --verify <frozen dir>` checks them later.
-2. **District supervisors, in all nine districts if possible and at least three,** receive their
+2. **The County's inspection supervisors, for all nine districts if possible and at least three,** receive their
    district's frozen list (the sizes come from the power section below). **Inspectors change
    nothing**: the list is not used to schedule, assign, reorder or skip any inspection.
 3. **After three months**, the County shares the routine inspections done in those districts
@@ -154,7 +154,7 @@ month, and driving time.
 ## Keeping the study clean
 
 - The pilot uses only **County-internal lists**; anything public is counts only (`dashboard.html`). District lists go only to the
-  participating supervisors. City staff who use the internal API should not pass district lists
+  participating inspection supervisors. City staff who use the internal API should not pass district lists
   to inspectors or businesses during the pilot.
 - **No public list of names exists during the study.** The public website in `food-dashboard/`
   shows only invented sample data, and no real names are published from the County's data without
@@ -165,6 +165,6 @@ month, and driving time.
 ## Contacts
 
 - **Project point of contact (an adult, not a student):** `[NAME, ROLE, EMAIL, PHONE: to be filled in before the County is contacted]`
-- **County contact:** `[Food & Housing Division contact, once agreed]`
+- **County contact:** `[Food, Water and Housing Division contact, once agreed]`
 - **Authors:** Chenhao Zhang and Ayan Pendharkar, students at Canyon Crest Academy. Independent
   research, not affiliated with or endorsed by the County of San Diego.

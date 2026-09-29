@@ -8,7 +8,7 @@ facility's routine inspections, found earlier within the month; never prevented 
 
 ## Three questions only the County can answer
 
-The County's Food & Housing Division does the inspecting. Before any pilot we need to know:
+The County's Food, Water and Housing Division does the inspecting. Before any pilot we need to know:
 
 1. **How are routine inspections assigned?** By inspector territory, by facility category, or both?
 2. **Who sets the order within the month?** The inspector, a supervisor, or a system?
@@ -43,7 +43,7 @@ What we found, tested on 2025-26 inspections our methods had never seen:
 - No detectable coverage gap across neighborhood income (details below).
 
 The next step we would suggest is a silent pilot the City could propose to the County
-(docs/PILOT.md): district supervisors (ideally in all nine districts) get a frozen list before
+(docs/PILOT.md): the County's inspection supervisors (ideally for all nine districts) get a frozen list before
 each month, inspectors change nothing, and after three months we check whether the list's order
 would have found major violations at least 2 days sooner than the order actually worked.
 
@@ -137,7 +137,7 @@ Chenhao Zhang and Ayan Pendharkar · Adult point of contact: [NAME, ROLE, EMAIL]
   overlapping intervals. The model uses no ZIP code, and coverage by group is monitored in any pilot.
 - **"What would it take?"** Someone has to produce and send each month's list. Our script builds
   the lists from refreshed data; someone at the County would still pass a district's list to its
-  supervisor. The estimate assumes a finding does not depend on the day of the month, and it
+  inspection supervisor. The estimate assumes a finding does not depend on the day of the month, and it
   ignores routing: a reordered month may cost more driving, which an active pilot would measure.
 - **"What can't public data show?"** SD Food Info lists only facilities that exist today, so every
   test here is on survivors; places that closed are missing. Even if a fifth more inspections came
@@ -150,8 +150,8 @@ Chenhao Zhang and Ayan Pendharkar · Adult point of contact: [NAME, ROLE, EMAIL]
 
 ## Records request template (California Public Records Act)
 
-Send to the County of San Diego, Department of Environmental Health and Quality, Food and Housing
-Division (use the County's public records request portal if it has one). Fill in the brackets.
+Send to the County of San Diego, Department of Environmental Health and Quality, Food, Water and
+Housing Division, through the County's public records portal (https://pra.sandiegocounty.gov). Fill in the brackets.
 
 > **Subject:** California Public Records Act request: food facility inspection data
 >
