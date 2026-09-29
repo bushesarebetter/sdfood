@@ -1,0 +1,26 @@
+{
+  "registrations": [
+    {
+      "run": "forward_2026-09-29-91e1bb95",
+      "generated": "2026-09-29",
+      "ranking_sha256": "8fd1651db17d069152999caccd9ab617aaa948ba1c9f7568413926643c795244",
+      "meta_sha256": "82ba102a109dcfecdd73f6a3003e3b9b991dd6ada3ba66edec4810ad98791e34",
+      "code_sha": "53b94226e2fbb977a89cc7cdcd5daf662f03816f",
+      "pull_sha256": "974f43e29db74f1af37c5ed761be61e700f513c07ba3554b524f2567bed664ec",
+      "version": "2026-09-29-63c8fc7f",
+      "registered": "2026-09-29",
+      "rule": "average score: 1 x avg_deficit",
+      "bands": [
+        {
+          "band": "1",
+          "min_points": 8,
+          "rate": 0.366,
+          "interval": [
+            0.3299,
+            0.4036
+          ]
+        }
+      ]
+    }
+  ]
+}
