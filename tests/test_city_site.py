@@ -1,6 +1,7 @@
 """city_site/server.mjs: malformed and ambiguous requests are answered, never crash the process and never
 slip past the access log; sign-in is a form and a server-side session per person that expires and ends at
-sign-out, asks for a site id and token (never a City account) and says what the site logs; guessing is
+sign-out, asks for a site id and token (never a City account), clears the last person's browser storage and
+says what the site logs; guessing is
 slowed per address and user name; the site closes itself past its sunset or without the staff export;
 nothing real is cached; the health check says which export is live, and yes or no to the drift note and
 the monitor; downloads are audited; CSP reports are collected; the address lookup merges, retries and
@@ -292,6 +293,21 @@ def test_every_person_signs_in_with_their_own_token_and_it_is_logged(site):
     # The name typed is logged only when it is one of the site's ids: a City account typed by mistake is not.
     assert 'sign-in failed user="city"' in log and "sign-in failed user=<not an id>" in log
     assert '"nobody"' not in log and "jane.doe" not in log
+
+
+def test_a_sign_in_clears_the_last_persons_browser_storage_but_keeps_its_own_cookie(site):
+    """The staff notice's "I have read this" mark lives in sessionStorage: every sign-in empties the site's
+    storage, so the notice opens again for the next person, even in a tab whose session timed out."""
+    port = site.port
+    ok = _login(port, "ana", ANA, nxt="/map")
+    assert ok.status == 303 and ok.header("location") == "/map"
+    assert ok.header("clear-site-data") == '"storage"', "storage only: not the cookie this response sets"
+    cookie = _cookie(ok)
+    assert cookie and _req(port, "/data/meta.json", cookie=cookie).status == 200, "the new session works"
+    bad = _login(port, "ana", "wrong-guess-wrong-guess")
+    assert bad.status == 401 and bad.header("clear-site-data") is None, "a wrong sign-in clears nothing"
+    again = _req(port, "/login?next=/map", cookie=cookie)
+    assert again.status == 303 and again.header("clear-site-data") is None, "already signed in: the same session, nothing cleared"
 
 
 def test_next_is_only_ever_a_path_on_this_site(site):

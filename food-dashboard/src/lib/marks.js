@@ -8,8 +8,9 @@
  * listed place in no band, is drawn in a light neutral with no label.
  */
 export const BAND_COLORS = { 1: "#7F1D1D", 2: "#C2410C", 3: "#D97706" };
-// The same bands as text on paper: amber is darkened to keep 4.5:1 contrast.
-export const BAND_TEXT = { 1: "#7F1D1D", 2: "#C2410C", 3: "#9A4A07" };
+// The same bands as text: orange and amber are darkened to keep 4.5:1 contrast on paper, on a
+// hovered row (paper.sunk) and on a selected row or the sample banner (paper.edge).
+export const BAND_TEXT = { 1: "#7F1D1D", 2: "#A63A0A", 3: "#9A4A07" };
 const BAND_RADIUS = { 1: 26, 2: 22, 3: 19 };
 
 export const RECORD_DOT = "#55503F";

@@ -48,7 +48,9 @@ const fillFor = (d) => {
  * record with no score is a short stub, and the record that starts a closure
  * (our reading: an "Ordered Closed", a "Self Closed" with a major, or a
  * closure only a later "Approved to Reopen" shows) is drawn in the closure
- * colour. The same records are in a table for screen readers.
+ * colour. The same records are in a table for screen readers. The score
+ * axis keeps its labels inside the chart, every one of them (90 is the A
+ * line), and the first date is not cut at the left edge.
  */
 export default function InspectionChart({ inspections }) {
   const { advanced } = useAdvanced();
@@ -61,9 +63,9 @@ export default function InspectionChart({ inspections }) {
     <figure>
       <div aria-hidden="true">
         <ResponsiveContainer width="100%" height={140}>
-          <BarChart data={data} margin={{ top: 4, right: 2, left: -22, bottom: 0 }}>
+          <BarChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
             <XAxis dataKey="date" tickFormatter={fmtShort} tick={AXIS} tickLine={false} axisLine={{ stroke: "#DCD5C7" }} interval="preserveStartEnd" minTickGap={24} />
-            <YAxis domain={[FLOOR, 100]} ticks={[FLOOR, 80, 90, 100]} tick={AXIS} tickLine={false} axisLine={false} width={26} allowDataOverflow />
+            <YAxis domain={[FLOOR, 100]} ticks={[FLOOR, 80, 90, 100]} interval={0} tick={AXIS} tickLine={false} axisLine={false} width={28} allowDataOverflow />
             <ReferenceLine y={90} stroke="#DCD5C7" strokeDasharray="2 3" />
             <Tooltip content={<PaperTooltip />} cursor={{ fill: "rgba(23,21,15,0.05)" }} />
             <Bar dataKey="plotted" isAnimationActive={false}>

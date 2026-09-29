@@ -115,23 +115,29 @@ export function escalationFacts(flags) {
   return ESCALATION_FLAGS.filter((k) => have.has(k)).map((k) => ({ key: k, label: FLAG_LABELS[k] }));
 }
 
-/** The index's record flags, as filter labels. Every one is our reading of the record. */
+/**
+ * The index's record flags, as filter labels. Every one is our reading of the record. A closure is
+ * any closure episode read as a health hazard: the County's "Ordered Closed", a "Self Closed" read as
+ * the operator's own closure, or one only a later "Approved to Reopen" shows; so the label says
+ * "closed", never "ordered closed".
+ */
 export const FLAG_LABELS = {
   major: "A major violation",
-  closed: "Ordered closed, health hazard",
+  closed: "Closed for a health hazard",
   bc: "A B or C grade",
   repeat: "Two or more reinspections",
   major_2: "Major violations at two or more routine inspections in two years",
-  closures2: "Ordered closed, health hazard, two or more times in two years",
+  closures2: "Closed for a health hazard two or more times in two years",
   repeat_item: "Same major item at two or more routine inspections in two years",
   lt90_2: "Scored below 90 at two or more routine inspections in two years",
   ...Object.fromEntries(Object.entries(THEMES).filter(([k]) => k !== "other").map(([k, v]) => [k, `Major: ${lowerFirst(v)}`])),
 };
 
 /**
- * The facts in a few words each, for the list's facts column, where FLAG_LABELS would make every row
- * ten lines tall. Each short tag stands for its FLAG_LABELS wording, which the list gives to screen
- * readers and on hover, and the place's own view gives in full.
+ * The facts in a few words each, for the list and the staff site's filter rail, where FLAG_LABELS
+ * would make every row ten lines tall. Each short tag keeps every qualifier of its FLAG_LABELS
+ * wording (the reason, the routine inspections, the window) and stands for it: the list gives the
+ * full wording to screen readers and as a tooltip, and the place's own view gives it in full.
  */
 export const FLAG_SHORT = {
   major: "Major violation",
@@ -139,8 +145,8 @@ export const FLAG_SHORT = {
   bc: "B or C grade",
   repeat: "2+ reinspections",
   major_2: "Majors at 2+ routines, 2 years",
-  closures2: "Closed 2+ times, 2 years",
-  repeat_item: "Same major item 2+ times, 2 years",
+  closures2: "Closed for a health hazard 2+ times, 2 years",
+  repeat_item: "Same major item at 2+ routines, 2 years",
   lt90_2: "Below 90 at 2+ routines, 2 years",
 };
 
@@ -179,6 +185,12 @@ export const VISIT_LABELS = {
 
 /** The visit types that are our reading of the County's type, not its own words. */
 export const READ_VISIT_TYPES = ["followup", "complaint"];
+
+/** The read visit types in the list's few words: each still names what the full label does. */
+export const VISIT_SHORT = {
+  followup: "re-grade or reopening",
+  complaint: "field visit",
+};
 
 /** The County's own inspection type for each visit type, as `county_type` carries it. */
 export const COUNTY_TYPES = {
@@ -231,6 +243,17 @@ export function visitPhrase(i) {
   const ct = countyType(i);
   if (!READ_VISIT_TYPES.includes(type)) return visitLabel(type);
   return `${visitLabel(type)} (our reading${ct ? `; County type: ${ct}` : ""})`;
+}
+
+/**
+ * A visit in the list's narrow column, our reading still marked: "re-grade or reopening (our
+ * reading)", "field visit (our reading)"; the County's own types as visitLabel gives them. The list
+ * gives visitPhrase beside it, to screen readers and as a tooltip.
+ */
+export function visitShort(i) {
+  const type = typeOf(i);
+  if (!READ_VISIT_TYPES.includes(type)) return visitLabel(type);
+  return `${VISIT_SHORT[type] ?? visitLabel(type)} (our reading)`;
 }
 
 const REOPEN = /approved to reopen/i;

@@ -1,9 +1,11 @@
 import { useSample } from "./useMeta";
+import { BAND_TEXT } from "./lib/marks";
 
 /**
  * Shown on every page while the export is the invented sample. It cannot be
  * dismissed: a reader who lands on a place page from a link must never take
- * a sample record for a real one.
+ * a sample record for a real one. Its lead is band 2's text colour, which
+ * keeps 4.5:1 on the banner's paper.edge (band 2's swatch colour does not).
  */
 export default function SampleBanner({ fixed = false, compact = false }) {
   const sample = useSample();
@@ -11,14 +13,14 @@ export default function SampleBanner({ fixed = false, compact = false }) {
   if (compact) {
     return (
       <div role="note" className="print-hide border border-band-2 bg-paper-edge px-3 py-2 text-[13px] leading-[1.45] text-ink">
-        <span className="font-semibold text-band-2">Sample data.</span> Every place here is invented.
+        <span className="font-semibold" style={{ color: BAND_TEXT[2] }}>Sample data.</span> Every place here is invented.
       </div>
     );
   }
   return (
     <div role="note" className={`print-hide border-b border-band-2 bg-paper-edge px-4 py-2 text-[13px] leading-[1.5] text-ink ${fixed ? "shrink-0" : ""}`}>
       <div className="mx-auto max-w-[76rem] md:px-4">
-        <span className="font-semibold text-band-2">Sample data.</span> Every place on this site is invented so the site could be
+        <span className="font-semibold" style={{ color: BAND_TEXT[2] }}>Sample data.</span> Every place on this site is invented so the site could be
         built and reviewed. No real business, address or inspection is shown.
       </div>
     </div>

@@ -21,7 +21,8 @@
 //
 // Sign-in is a form at /login. It starts a session kept in this process's memory, named by a random id
 // in an HttpOnly, Secure, SameSite=Strict cookie; it ends after 30 idle minutes, after 10 hours, or at
-// /logout, which also clears the site's cache and storage from the browser.
+// /logout, which also clears the site's cache and storage from the browser. A sign-in clears the site's
+// storage too, so the staff notice opens again for the next person on a shared computer.
 //
 // What it does besides serving files: refuses to start with a weak password; slows password guessing
 // (10 failures per address and user name per 15 minutes, then 429; past 300 failures in all, every
@@ -638,7 +639,15 @@ async function login(req, res) {
   if (old) SESSIONS.delete(old);                  // a new id at every sign-in: none can be planted beforehand
   const id = startSession(user, Date.now());
   console.log(`sign-in user=${user} from ${clean(ip, 64)}`);
-  return send(req, res, 303, { "Cache-Control": "no-store", "Set-Cookie": `${COOKIE_NAME}=${id}; ${COOKIE}`, Location: next }, "");
+  // Each sign-in starts the site afresh in this browser: the last person's settings and the staff notice's
+  // "I have read this" mark (sessionStorage) go, so the notice opens again for whoever signs in, even in a
+  // tab whose session timed out. "storage" only: the new session cookie is set by this same response.
+  return send(req, res, 303, {
+    "Cache-Control": "no-store",
+    "Clear-Site-Data": '"storage"',
+    "Set-Cookie": `${COOKIE_NAME}=${id}; ${COOKIE}`,
+    Location: next,
+  }, "");
 }
 
 function logoutPage(req, res) {

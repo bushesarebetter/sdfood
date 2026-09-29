@@ -23,6 +23,9 @@ function mark() {
 /**
  * One line, shown once. The public site sets no cookies itself; the staff site sets one, the
  * sign-in session. Google Maps, which draws the basemap and Street View, may set its own.
+ * `placement`: "inline" (a row under what is above it), "fixed" (over the foot of the screen), or
+ * "footer" (the last row of a full-screen column, in flow, so what is above it shrinks instead of
+ * sitting under it).
  */
 export default function Notice({ placement = "inline", onNavigate }) {
   const [hidden, setHidden] = useState(seen);
@@ -34,7 +37,7 @@ export default function Notice({ placement = "inline", onNavigate }) {
     setHidden(true);
   };
 
-  const frame = placement === "fixed" ? "fixed inset-x-0 bottom-0 z-50 border-t" : "border-b";
+  const frame = placement === "fixed" ? "fixed inset-x-0 bottom-0 z-50 border-t" : placement === "footer" ? "shrink-0 border-t" : "border-b";
 
   return (
     <div

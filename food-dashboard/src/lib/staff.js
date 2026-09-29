@@ -53,10 +53,8 @@ export const USE_NOTE =
   "Do not forward names or bands outside the City, and do not contact a business about its band or use a band for any permit, " +
   "license, enforcement, grant, procurement or public-statement decision. That is a use rule, not a promise of confidentiality.";
 
-/** USE_NOTE in one sentence, for the phone banner, which shows USE_NOTE itself one tap away. */
-export const USE_NOTE_SHORT =
-  "A student analysis, not a City or County finding: do not forward names or bands outside the City, contact a business " +
-  "about its band, or use a band for any decision about a business.";
+/** USE_NOTE in a few words, for the staff bar's always-visible line; the notice gives USE_NOTE in full. */
+export const USE_POINT = "Do not share names or bands outside the City or use a band for any decision about a business";
 
 /** The guidance sentences, so the banner, the district view and the tests share one wording. */
 export const GUIDANCE = {
@@ -235,48 +233,46 @@ export function openChecksSentence(meta) {
   return n > 0 ? `This list has not passed ${n} of the checks a public release would need.` : null;
 }
 
-/**
- * The phone banner (and a desktop window under 768px): short enough to sit over the map, yet never
- * without the rules. Always shown: the demonstration line while it applies, USE_NOTE_SHORT,
- * PUBLIC_RECORD_NOTE and whom to write to. One tap away (`summary`, a <details> in the banner): USE_NOTE
- * in full, the open checks, and every instruction the full banner lists, in the same words.
- */
-export function compactBanner(meta) {
-  const guidance = reviewGuidance(meta);
-  const contact = contactLine(meta);
-  const n = guidance.length;
-  return {
-    lead: [guidance[0] === GUIDANCE.demonstration ? guidance[0] : null, USE_NOTE_SHORT, PUBLIC_RECORD_NOTE].filter(Boolean),
-    contact: contact ? `Questions and corrections: ${contact}.` : null,
-    summary: n ? `The full use rule and all ${n} ${n === 1 ? "instruction" : "instructions"}` : "The full use rule",
-    use: USE_NOTE,
-    open: openChecksSentence(meta),
-    guidance,
-  };
+/** "Questions: Jane Doe", a mailto link to meta.contact's email (the email itself without a name), or null. */
+export function mailContact(meta) {
+  const c = meta?.contact;
+  const email = c && typeof c === "object" && typeof c.email === "string" ? c.email.trim() : "";
+  if (!/^[^\s@<>"?&#]+@[^\s@<>"?&#]+$/.test(email)) return null;
+  const name = typeof c.name === "string" && c.name.trim() ? c.name.trim() : email;
+  return { href: `mailto:${email}`, label: `Questions: ${name}` };
 }
 
 /**
- * The one-line staff bar at the top of every page (StaffBanner): each rule in a few words, always in view,
- * and the whole notice one click away in the same words as compactBanner (the full use rule, the
- * public-record note, whom to write to, the open checks and every instruction). The panel opens by itself
- * on the first page of each browser session until it is acknowledged. `points` stand for sentences the
- * panel gives in full: the demonstration point while the City has recorded no request or TRUST answer,
- * and the count of open checks while there are any.
+ * The staff notice (StaffBanner), on every page and both layouts. `points` are the one line that is
+ * always in view, each rule in a few words: for whom, a student analysis, the use rule, that downloads,
+ * prints and messages are likely public records, the demonstration point while the City has recorded
+ * no request or TRUST answer, and the open checks while there are any. `mail` (whom to write to) sits
+ * beside them. The rest is the whole notice one click away: the public-record note, the full use rule
+ * (`use`), whom to write to (`contact`), the open checks (`open`, and the checks themselves) and every
+ * instruction (`guidance`). It opens by itself at each sign-in until it is acknowledged.
  */
 export function staffBar(meta) {
-  const b = compactBanner(meta);
-  const n = reviewStatus(meta).length;
-  const k = b.guidance.length;
+  const guidance = reviewGuidance(meta);
+  const contact = contactLine(meta);
+  const checks = reviewStatus(meta);
+  const n = checks.length;
+  const k = guidance.length;
   return {
-    ...b,
     points: [
       "For City of San Diego staff",
-      "Downloads are likely public records",
       "A student analysis, not a City or County finding",
-      ...(b.guidance[0] === GUIDANCE.demonstration ? ["A demonstration, not a City tool"] : []),
-      ...(n ? [`${n} open ${n === 1 ? "check" : "checks"}`] : []),
+      USE_POINT,
+      "Downloads, prints and messages are likely public records",
+      ...(guidance[0] === GUIDANCE.demonstration ? ["A demonstration, not a City tool"] : []),
+      ...(n ? [`Not cleared for public release: ${n} ${n === 1 ? "check" : "checks"} open`] : []),
     ],
+    mail: mailContact(meta),
     toggle: k ? `The notice and ${k} ${k === 1 ? "instruction" : "instructions"}` : "The notice",
+    contact: contact ? `Questions and corrections: ${contact}.` : null,
+    use: USE_NOTE,
+    open: openChecksSentence(meta),
+    checks,
+    guidance,
   };
 }
 
@@ -288,15 +284,15 @@ export const DISTRICT_CITING_NOTE =
 /**
  * For the one district selected in the district view, and only for it (a rate on every row would rank
  * districts): each fact as a share of its listed places. `r` is the view's row, `{n, major, closed, bc}`.
- * "District 3, out of its 1,336 listed places: a major violation at 21 in 100, ordered closed at 2 in
- * 100, a B or C grade at 3 in 100." Null without places.
+ * "District 3, out of its 1,336 listed places: a major violation at 21 in 100, closed for a health
+ * hazard at 2 in 100, a B or C grade at 3 in 100." Null without places.
  */
 export function districtShareLine(name, r) {
   const n = r?.n;
   if (!Number.isInteger(n) || n <= 0) return null;
   const share = (k) => `${Math.round((100 * (Number(r[k]) || 0)) / n)} in 100`;
   return `${name}, out of its ${n.toLocaleString("en-US")} listed ${n === 1 ? "place" : "places"}: a major violation at ${share("major")}, ` +
-    `ordered closed at ${share("closed")}, a B or C grade at ${share("bc")}.`;
+    `closed for a health hazard at ${share("closed")}, a B or C grade at ${share("bc")}.`;
 }
 
 /**

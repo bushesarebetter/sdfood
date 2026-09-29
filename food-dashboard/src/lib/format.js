@@ -11,7 +11,7 @@
  * shows the same places in the list's own order, as plain text.
  */
 import { gradeView } from "./grades.js";
-import { FLAG_LABELS, typeLabel, typePlural, visitLabel } from "./inspections.js";
+import { FLAG_LABELS, typeLabel, typePlural, visitPhrase } from "./inspections.js";
 import { markFor, shownBand } from "./marks.js";
 import { bandSummary, isOutside } from "./bands.js";
 import { auditCsv } from "./staff.js";
@@ -126,14 +126,15 @@ export function listPrintColumns({ mode = "record" } = {}) {
 /**
  * The list's printout, one row per place in the order given (the list's filters, search and sort,
  * every page, not the 50 on screen): the cells the list shows, as text. The place's cell is its name
- * and, on a second line, its address.
+ * and, on a second line, its address. A visit type that is our reading says so, as on screen
+ * (visitPhrase).
  */
 export function listPrintRows(features, { meta = null, mode = "record" } = {}) {
   return (features ?? []).map((f) => {
     const p = f.properties ?? {};
     const g = gradeView(p.grade);
     const v = p.last_visit;
-    const last = v ? `${fmtShort(v.date)}, ${visitLabel(v.type)}${lastVisitStale(p, meta) ? ` (${STALE_LABEL})` : ""}` : "";
+    const last = v ? `${fmtShort(v.date)}, ${visitPhrase(v)}${lastVisitStale(p, meta) ? ` (${STALE_LABEL})` : ""}` : "";
     return [
       ...(mode === "bands" ? [markFor(p, { mode }).label ?? "", !p.on_hold && typeof p.points === "number" ? String(p.points) : ""] : []),
       [p.name, p.address].filter((x) => typeof x === "string" && x).join("\n"),
@@ -144,6 +145,31 @@ export function listPrintRows(features, { meta = null, mode = "record" } = {}) {
       (p.flags ?? []).map((k) => FLAG_LABELS[k] ?? k).join("; "),
     ];
   });
+}
+
+/** What each sortable column of the list orders by, and its two directions, in plain words. */
+const SORT_WORDS = {
+  band: ["band and points", "band 1 first", "places in no band first"],
+  name: ["name", "A to Z", "Z to A"],
+  district: ["council district", "lowest first", "highest first"],
+  grade: ["the date of the latest grade", "oldest first", "newest first"],
+  last: ["the date of the last visit", "oldest first", "newest first"],
+};
+
+/**
+ * The list's order in words, one phrase for its caption on screen and its printout: the columns
+ * chosen on screen ("by name, A to Z", several joined by "then"), else a search's ("closest match
+ * first, then by name"), else the site's own ("by band, then points, then name"; "by name").
+ */
+export function orderPhrase({ sorting = [], search = "", mode = "record" } = {}) {
+  if (Array.isArray(sorting) && sorting.length) {
+    return sorting.map((s) => {
+      const [what, up, down] = SORT_WORDS[s.id] ?? [String(s.id), "ascending", "descending"];
+      return `by ${what}, ${s.desc ? down : up}`;
+    }).join(", then ");
+  }
+  if (String(search ?? "").trim()) return "closest match first, then by name";
+  return mode === "bands" ? "by band, then points, then name" : "by name";
 }
 
 const lowerFirst = (s) => (s ? `${s.charAt(0).toLowerCase()}${s.slice(1)}` : s);
