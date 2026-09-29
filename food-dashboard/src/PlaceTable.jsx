@@ -1,9 +1,10 @@
 import { useState, useMemo, useEffect } from "react";
 import { useReactTable, getCoreRowModel, getSortedRowModel, getPaginationRowModel, flexRender } from "@tanstack/react-table";
-import { facilitiesToCsv, csvFilename } from "./lib/format";
+import { saveCsv } from "./lib/format";
 import { useAdvanced } from "./useAdvanced";
 import { useMeta, useMode } from "./useMeta";
-import { passesFilters, sortPlaces, shownPoints } from "./lib/filters";
+import { passesFilters, sortPlaces, shownPoints, lastVisitStale, flagWindowNote } from "./lib/filters";
+import { StaleBadge } from "./PlaceParts";
 import { FLAG_LABELS, typeLabel, visitLabel } from "./lib/inspections";
 import { gradeView } from "./lib/grades";
 import { markFor, shownBand } from "./lib/marks";
@@ -19,8 +20,9 @@ const TOGGLE_HEIGHT = 40;
  * The columns, all from the index. `bands` mode leads with the band and the
  * points (where the export gives them); `record` mode has neither. There is
  * no position column in any mode. The grade is gradeView's, as everywhere.
+ * A last visit more than a year before the record's end carries a badge.
  */
-const makeColumns = ({ mode, onSelect }) => [
+const makeColumns = ({ mode, meta, onSelect }) => [
   ...(mode === "bands"
     ? [
         {
@@ -73,30 +75,38 @@ const makeColumns = ({ mode, onSelect }) => [
     accessorFn: (f) => f.properties.last_visit?.date ?? "",
     cell: ({ row }) => {
       const v = row.original.properties.last_visit;
-      return v ? <span className="tnum">{fmtShort(v.date)}, {visitLabel(v.type)}</span> : "";
+      if (!v) return "";
+      return (
+        <span className="tnum">
+          {fmtShort(v.date)}, {visitLabel(v.type)}
+          {lastVisitStale(row.original.properties, meta) && <StaleBadge className="ml-1.5" />}
+        </span>
+      );
     },
   },
   {
     id: "flags",
-    header: "Last 12 months (our reading)",
+    header: "12 months before the list date (our reading)",
     accessorFn: (f) => (f.properties.flags ?? []).length,
     enableSorting: false,
     cell: ({ row }) => <span className="text-[12px] text-ink-2">{(row.original.properties.flags ?? []).map((k) => FLAG_LABELS[k] ?? k).join("; ")}</span>,
   },
 ];
 
-export default function PlaceTable({ facilities, filters, onSelect, initialOpen = false, openWhen = false }) {
+export default function PlaceTable({ facilities, filters, onSelect, openKey = null, openWhen = false }) {
   const { advanced } = useAdvanced();
   const meta = useMeta();
   const mode = useMode();
-  const [open, setOpen] = useState(initialOpen);
+  const [open, setOpen] = useState(Boolean(openKey));
+  // Each time the address asks for the list (?list, a new key each time), it opens.
+  useEffect(() => { if (openKey) setOpen(true); }, [openKey]);
   // When the map cannot load, the list opens in its place.
   useEffect(() => { if (openWhen) setOpen(true); }, [openWhen]);
   const [pageIndex, setPageIndex] = useState(0);
   const [sorting, setSorting] = useState([]);
   const [globalFilter, setGlobalFilter] = useState("");
   const select = (f) => { onSelect(f); setOpen(false); };
-  const columns = useMemo(() => makeColumns({ mode, onSelect: select }), [mode, onSelect]);
+  const columns = useMemo(() => makeColumns({ mode, meta, onSelect: select }), [mode, meta, onSelect]);
 
   // The site's order (band, then points, then name; or name) until a header is chosen.
   const rowsIn = useMemo(() => {
@@ -120,17 +130,10 @@ export default function PlaceTable({ facilities, filters, onSelect, initialOpen 
     },
   });
 
-  // Exactly what the list shows: its filters, its search and its order, every page.
+  // Exactly what the list shows: its filters, its search and its order, every page. Logged on the staff site.
   function downloadCsv() {
     if (!facilities) return;
-    const shown = table.getSortedRowModel().rows.map((r) => r.original);
-    const blob = new Blob([facilitiesToCsv(shown, { meta, mode })], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = csvFilename(meta, filters);
-    a.click();
-    URL.revokeObjectURL(url);
+    saveCsv(table.getSortedRowModel().rows.map((r) => r.original), { meta, mode, filters });
   }
 
   const rows = table.getRowModel().rows;
@@ -220,7 +223,12 @@ export default function PlaceTable({ facilities, filters, onSelect, initialOpen 
               No listed place matches these filters. {mode === "bands" ? "Include more bands, or " : ""}Pick a different kind of place or finding.
             </p>
           )}
-          {total > 0 && <p className="px-5 py-3 text-[13px] leading-[1.5] text-ink-2">Grades are the County&rsquo;s latest on record for each place. {gradeContextSentence(meta)}</p>}
+          {total > 0 && (
+            <p className="px-5 py-3 text-[13px] leading-[1.5] text-ink-2">
+              Grades are the County&rsquo;s latest on record for each place. {gradeContextSentence(meta)} The last column is{" "}
+              {flagWindowNote(rowsIn.flatMap((f) => f.properties.flags ?? [])).replace(/^Our/, "our")}
+            </p>
+          )}
         </div>
 
         <div className="flex shrink-0 items-center justify-between border-t border-rule px-5 py-2 text-[13px] text-ink-2">

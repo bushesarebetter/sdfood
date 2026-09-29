@@ -8,7 +8,7 @@ import { recordFacts } from "../src/lib/recordFacts.js";
 import { citation, recordText } from "../src/lib/ask.js";
 import { facilitiesToCsv, csvColumns } from "../src/lib/format.js";
 import { markFor } from "../src/lib/marks.js";
-import { bandsMeta } from "./fixtures/bandsMeta.mjs";
+import { bandsMeta, staffMeta } from "./fixtures/bandsMeta.mjs";
 
 const fixture = join(dirname(fileURLToPath(import.meta.url)), "fixtures", "record");
 const recordMeta = JSON.parse(readFileSync(join(fixture, "meta.json"), "utf8"));
@@ -57,7 +57,7 @@ test("bands mode: the headline is about the rule, never a prediction about a pla
   ];
   assert.equal(headline(bandsMeta, features), "The 2 San Diego restaurants whose County record scores highest on the students' point rule");
   assert.match(subhead(bandsMeta), /^Places are ordered by how far .* Band 1 is about the 2\.5% of scored places with the most points, band 2 about the next 5% by points, band 3 about the next 10% by points\./);
-  assert.match(legendNote(bandsMeta), /^Darker = more points on the students' point rule\. In the backtest, band 1 places .* about 3\.4 times the rate/);
+  assert.match(legendNote(bandsMeta), /^Darker = more points on the students' point rule\. In the backtest, about 55 in 100 band 1 places had a major violation .*; about 45 in 100 had none\./);
 });
 
 test("the place lines give the grade, then the band, its points and its backtest rate", () => {
@@ -66,8 +66,8 @@ test("the place lines give the grade, then the band, its points and its backtest
   assert.deepEqual(lines, [
     "Latest County grade on record: A (93), June 1, 2026.",
     "Band 1 on the students' point rule: 21 points (band 1 is 20 points or more).",
-    "In the backtest, band 1 places had a major violation at their next routine inspection at about 3.4 times the rate of scored places below the bands: about 55 in 100 (likely 46 to 63), against 16 in 100.",
-    "A band is a statistic about a group of places, not a finding about any one of them.",
+    "In the backtest, about 55 in 100 band 1 places had a major violation at their next routine inspection (likely 46 to 63), against 16 in 100 of scored places below the bands; about 45 in 100 had none. Sorting by recent major violations alone picks out a group with the same rate.",
+    "A band describes what happened to a group of places; it is not a finding that this place has, or will have, a violation.",
   ]);
   assert.equal(placeLines({ ...base, points: 9 }, bandsMeta)[1], "In no band: 9 points on the students' point rule (band 3 starts at 12 points).");
   assert.equal(
@@ -96,4 +96,17 @@ test("the CSV has band and points columns only in bands mode, and always the lis
   assert.ok(!csvColumns().includes("points") && !csvColumns().includes("band"));
   assert.ok(csvColumns({ mode: "bands" }).includes("points"));
   for (const c of ["list_date", "inspections_through", "expires"]) assert.ok(csvColumns().includes(c));
+});
+
+test("with an estimate, the place lines lead with it; a City place's band line carries its district", () => {
+  const p = { grade: { grade: "A", score: 93, date: "2026-06-01", replaced: null }, band: "1", points: 9, council_district: 4 };
+  const lines = placeLines(p, staffMeta, { withGrade: false });
+  assert.match(lines[0], /^Scored restaurants with about 9 points: about 39 in 100 .* in the backtest of the list drawn up on September 1, 2025/, "the curve is the confirmation origin's");
+  assert.match(lines[0], /The County's record has changed since these rates were measured\.$/, "the export's drift check asks for a refit");
+  assert.equal(lines[1], "Band 1 on the students' point rule: 9 points (band 1 is 8 points or more).");
+  assert.match(lines[2], /^In the backtest, about 37 in 100 band 1 places .* against 21 in 100 of all scored restaurants; about 63 in 100 had none\. Sorting by recent major violations alone picks out a group with the same rate\. In council district 4, about 29 in 100 band 1 places had one \(likely 20 to 39\)\.$/);
+  assert.equal(lines.at(-1), "A band describes what happened to a group of places; it is not a finding that this place has, or will have, a violation.");
+  const unbanded = placeLines({ points: 3, council_district: 4 }, staffMeta, { withGrade: false });
+  assert.match(unbanded[0], /^Scored restaurants with about 3 points/);
+  assert.equal(unbanded[1], "In no band: 3 points on the students' point rule (band 1 starts at 8 points).");
 });

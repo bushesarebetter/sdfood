@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import MapView from "./MapView";
 import SearchBox from "./SearchBox";
 import MobileSheet from "./MobileSheet";
@@ -9,7 +9,9 @@ import StaffBanner from "./StaffBanner";
 import ExpiryBanner from "./ExpiryBanner";
 import AreaToggle from "./AreaToggle";
 import Dialog, { CloseButton } from "./Dialog";
-import { useMode, useExpired } from "./useMeta";
+import { useMeta, useMode, useExpired } from "./useMeta";
+import { DistrictPicker } from "./Sidebar";
+import { StaleBadge } from "./PlaceParts";
 import { passesFilters, sortPlaces } from "./lib/filters";
 import { gradeView } from "./lib/grades";
 import { typeLabel } from "./lib/inspections";
@@ -24,12 +26,25 @@ const LIST_PAGE = 50;
 /**
  * Phone layout: the map or the list, a search field, an address check, and
  * a detail sheet on tap. When the map cannot load, the list takes its place.
+ * `?list` in the address (listKey, new each time) opens the list; on the staff
+ * site a council-district picker sits under the search.
  */
-export default function MobileShell({ facilities, filters, hasCounty = false, onCountyChange, selected, onSelect, pointOverlay, onPoint, onNavigate }) {
+export default function MobileShell({ facilities, filters, hasCounty = false, onCountyChange, onDistrictsChange = null, listKey = null, selected, onSelect, pointOverlay, onPoint, onNavigate }) {
   const [aboutOpen, setAboutOpen] = useState(false);
   const [nearOpen, setNearOpen] = useState(false);
-  const [view, setView] = useState("map");
+  const [view, setView] = useState(listKey ? "list" : "map");
   const [mapError, setMapError] = useState(null);
+  useEffect(() => { if (listKey) setView("list"); }, [listKey]);
+  // The list starts below the search, the banners and the controls, however tall they wrap.
+  const topRef = useRef(null);
+  const [topBottom, setTopBottom] = useState(0);
+  useEffect(() => {
+    const el = topRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return undefined;
+    const ro = new ResizeObserver(() => setTopBottom(el.getBoundingClientRect().bottom));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
   const showList = view === "list" || Boolean(mapError);
 
   return (
@@ -49,7 +64,7 @@ export default function MobileShell({ facilities, filters, hasCounty = false, on
         </div>
       )}
 
-      <div className="absolute inset-x-3 z-10 space-y-2" style={{ top: "max(12px, env(safe-area-inset-top))" }}>
+      <div ref={topRef} className="absolute inset-x-3 z-10 space-y-2" style={{ top: "max(12px, env(safe-area-inset-top))" }}>
         <div className="flex items-stretch gap-2">
           <div className="min-w-0 flex-1 shadow-paper">
             <SearchBox facilities={facilities} onSelect={onSelect} />
@@ -77,10 +92,15 @@ export default function MobileShell({ facilities, filters, hasCounty = false, on
           </div>
         )}
         {hasCounty && <AreaToggle compact county={Boolean(filters.county)} onChange={onCountyChange} />}
+        {onDistrictsChange && (
+          <div className="min-w-[10rem] flex-1">
+            <DistrictPicker compact filters={filters} onFiltersChange={(f) => onDistrictsChange(f.districts)} />
+          </div>
+        )}
         </div>
       </div>
 
-      {showList && <PlaceList facilities={facilities} filters={filters} onSelect={onSelect} note={mapError ? MAP_UNAVAILABLE : null} />}
+      {showList && <PlaceList facilities={facilities} filters={filters} onSelect={onSelect} note={mapError ? MAP_UNAVAILABLE : null} top={topBottom} />}
 
       <MobileSheet feature={selected} onClose={() => onSelect(null)} onNavigate={onNavigate} />
 
@@ -121,7 +141,8 @@ function IconButton({ label, onClick, active = false, children }) {
 }
 
 /** The listed places as a list, in the site's order, for phones and for when the map is not available. */
-function PlaceList({ facilities, filters, onSelect, note }) {
+function PlaceList({ facilities, filters, onSelect, note, top = 0 }) {
+  const meta = useMeta();
   const mode = useMode();
   const expired = useExpired();
   const [shown, setShown] = useState(LIST_PAGE);
@@ -130,7 +151,7 @@ function PlaceList({ facilities, filters, onSelect, note }) {
     [facilities, filters, mode]
   );
   return (
-    <div className="absolute inset-0 overflow-y-auto bg-paper px-4 pb-24" style={{ paddingTop: "calc(max(12px, env(safe-area-inset-top)) + 7.5rem)" }}>
+    <div className="absolute inset-0 overflow-y-auto bg-paper px-4 pb-24" style={{ paddingTop: top > 0 ? `${Math.round(top) + 12}px` : "calc(max(12px, env(safe-area-inset-top)) + 7.5rem)" }}>
       {note && <p role="status" className="mb-3 border border-rule-strong bg-paper-sunk px-3 py-2 text-[14px] text-ink">{note}</p>}
       <p className="mb-2 text-[13px] text-ink-2">{places.length.toLocaleString()} listed {places.length === 1 ? "place" : "places"}{mode === "bands" ? ", by band, then points, then name" : ", by name"}.</p>
       <ul>
@@ -146,6 +167,7 @@ function PlaceList({ facilities, filters, onSelect, note }) {
                   {!expired && m.label && <span className="font-semibold" style={{ color: m.text ?? undefined }}>{m.label}, </span>}
                   {typeLabel(p.facility_type)}, {g.graded ? `grade ${g.short}` : g.text.toLowerCase()}
                 </span>
+                <StaleBadge place={p} meta={meta} className="mt-1" />
               </button>
             </li>
           );

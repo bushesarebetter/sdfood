@@ -8,6 +8,10 @@
  * is a closure, a theme with a major violation (or a minor one at two or more
  * inspections), a B or C grade, two or more reinspections, or a complaint
  * visit. Nothing here instructs anyone or judges the place.
+ *
+ * These facts count back from the place's last visit, so they read its own
+ * record. The index's `flags` count back from the list date instead
+ * (OUR_READING.flags).
  */
 import { OUR_READING, THEMES, lastInspection, recordGradeText, withinMonths } from "./inspections.js";
 import { gradeView } from "./grades.js";
@@ -22,8 +26,14 @@ function closureFacts(list, inWindow) {
   list.forEach((i, idx) => {
     if (!i.closed || !inWindow(i.date)) return;
     const county = [`${i.status || "Ordered Closed"} on ${fmtDate(i.date)}${i.type === "complaint" ? ", at a complaint visit" : ""}.`];
-    if (i.reopened === true) {
-      const back = list.slice(idx + 1).find((j) => /approved to reopen/i.test(j.status ?? ""));
+    // `reopened_on` is the date of the County's "Approved to Reopen" record that ended the episode.
+    // An export from before it existed says only `reopened`, so the next such record is used then.
+    const reopen = (j) => /approved to reopen/i.test(j.status ?? "");
+    if (i.reopened_on) {
+      const back = list.slice(idx + 1).find((j) => j.date === i.reopened_on && reopen(j));
+      county.push(`${back?.status ?? "Approved to Reopen"} on ${fmtDate(i.reopened_on)}.`);
+    } else if (i.reopened === true) {
+      const back = list.slice(idx + 1).find(reopen);
       county.push(back ? `${back.status} on ${fmtDate(back.date)}.` : "Approved to Reopen afterwards.");
     }
     out.push({

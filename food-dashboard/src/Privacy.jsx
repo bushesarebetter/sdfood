@@ -9,8 +9,8 @@ const ANALYTICS_SRC = import.meta.env.VITE_ANALYTICS_SRC || "";
 
 // A dated record of what changed on the site, newest first.
 const CHANGES = [
-  ["2026-09-29", "Version 4. The rule is now the simplest one that did as well as the others: points are how far a restaurant's average routine score over two years fell below 100, and the worksheet lists the scores it averages. Bands are kept only where they held at every backtest date, and every scored place shows what places with about its points did. Places outside the City are described by rates measured outside the City. The City staff site shows who is responsible, that downloads may be public records, and every check the list has not passed; it keeps no offline copy."],
-  ["2026-09-24", "Version 3. Every listed place's County records are shown one record at a time with the County's own status text, and the site's readings are labelled \"Our reading\". Each place's record loads on its own. No list shows a position. The published rule and its bands appear only in a bands export. System fonts replace Google Fonts, and the offline copy checks the network first for data."],
+  ["2026-09-29", "Version 4. The rule is now the simplest one that did as well as the others: points are how far a restaurant's average routine score over two years fell below 100, and the worksheet lists the scores it averages. Bands are kept only where they held at every backtest date, and every scored place shows what places with about its points did. Places outside the City are described by rates measured outside the City. The City staff site shows who is responsible, that downloads are likely public records, and every check the list has not passed; it keeps no offline copy. An owner or manager may ask whether their business is on the staff site, and every such request puts its points and band on hold the same business day."],
+  ["2026-09-24", "Version 3. Every listed place's County records are shown one record at a time with the County's own status text, and the site's readings are labelled \"Our reading\". Each place's record loads on its own. No list shows a position. The students' point rule and its bands appear only in a bands export. System fonts replace Google Fonts, and the offline copy checks the network first for data."],
   ["2026-09-21", "First version, with invented sample data."],
 ];
 
@@ -49,6 +49,7 @@ export default function Privacy({ onNavigate }) {
   const staff = isStaff(meta);
   const r = SITE.regulator;
   const authorsRoute = contact ? <>write to <Mail to={contact} /></> : <>open an issue at <Link href={`${REPO_URL}/issues`}>the project&rsquo;s GitHub issues</Link></>;
+  const writeTo = contact ? <Mail to={contact} /> : <>the authors through <Link href={`${REPO_URL}/issues`}>the project&rsquo;s GitHub issues</Link></>;
   const go = (p) => (e) => { e.preventDefault(); onNavigate(p); };
 
   return (
@@ -65,20 +66,28 @@ export default function Privacy({ onNavigate }) {
             close the browser.
           </p>
           <p>
-            &ldquo;Near an address&rdquo; sends what you type through this site&rsquo;s server to OpenStreetMap&rsquo;s Nominatim and, if
-            that finds nothing, to the US Census Bureau&rsquo;s geocoder (or to Google, when the site has a Google key). Results
-            &copy; OpenStreetMap contributors.
+            &ldquo;Near an address&rdquo; sends what you type to this site&rsquo;s own server, which looks it up with OpenStreetMap&rsquo;s
+            Nominatim and, if that finds nothing, the US Census Bureau&rsquo;s geocoder. Results &copy; OpenStreetMap contributors.
           </p>
         </Section>
       )}
 
       <Section heading="What this site collects">
-        <p>
-          Nothing of its own{staff ? ", beyond the staff sign-in above" : ""}. There is no account{staff ? " apart from that sign-in" : ""} and no cookie set by this site. The one form, &ldquo;Near an address&rdquo;, sends
-          what you type to Google, as you type, to suggest addresses and then to locate the one you choose; this site stores none of it.
-          Three settings live in your browser&rsquo;s local storage: whether you have seen the first-visit note, whether you dismissed
-          the cookie note, and whether you chose technical wording.
-        </p>
+        {staff ? (
+          <p>
+            Nothing of its own beyond the staff sign-in above. There is no account apart from that sign-in. The one form, &ldquo;Near an
+            address&rdquo;, goes through this site&rsquo;s own server, as described above; the server keeps only the access log. Three
+            settings live in your browser&rsquo;s local storage: whether you have seen the first-visit note, whether you dismissed the
+            cookie note, and whether you chose technical wording.
+          </p>
+        ) : (
+          <p>
+            Nothing of its own. There is no account and no cookie set by this site. The one form, &ldquo;Near an address&rdquo;, sends
+            what you type to Google, as you type, to suggest addresses and then to locate the one you choose; this site stores none of it.
+            Three settings live in your browser&rsquo;s local storage: whether you have seen the first-visit note, whether you dismissed
+            the cookie note, and whether you chose technical wording.
+          </p>
+        )}
         {ANALYTICS_SRC ? (
           <p>Page views are counted by a script loaded from {hostOf(ANALYTICS_SRC)}. It records the page, the referrer and a coarse location; it does not set a cookie.</p>
         ) : (
@@ -86,18 +95,27 @@ export default function Privacy({ onNavigate }) {
         )}
       </Section>
 
-      <Section heading="The copy kept in your browser">
-        <p>
-          The site installs a service worker so it opens quickly and works offline. It keeps, in your browser&rsquo;s Cache Storage, the
-          site&rsquo;s own code and images, and the data files you have opened: the list, the export&rsquo;s description and each
-          place&rsquo;s record you viewed (up to 300 of them, for up to a week). It always asks the network for data first and uses the
-          copy only when the network does not answer. Nothing about you is in it.
-        </p>
-        <p>
-          To clear it, clear this site&rsquo;s data in your browser&rsquo;s settings (in Chrome and Edge: Settings, Privacy, Site data;
-          in Safari: Settings, Advanced, Website Data), or remove the installed app.
-        </p>
-      </Section>
+      {staff ? (
+        <Section heading="No offline copy">
+          <p>
+            The staff site keeps no copy in your browser: it removes any service worker an earlier visit installed and marks every data
+            file not to be stored. Sign out clears the site from the browser.
+          </p>
+        </Section>
+      ) : (
+        <Section heading="The copy kept in your browser">
+          <p>
+            The site installs a service worker so it opens quickly and works offline. It keeps, in your browser&rsquo;s Cache Storage, the
+            site&rsquo;s own code and images, and the data files you have opened: the list, the export&rsquo;s description and each
+            place&rsquo;s record you viewed (up to 300 of them, for up to a week). It always asks the network for data first and uses the
+            copy only when the network does not answer. Nothing about you is in it.
+          </p>
+          <p>
+            To clear it, clear this site&rsquo;s data in your browser&rsquo;s settings (in Chrome and Edge: Settings, Privacy, Site data;
+            in Safari: Settings, Advanced, Website Data), or remove the installed app.
+          </p>
+        </Section>
+      )}
 
       <Section heading="Fonts">
         <p>The site uses the fonts already on your device. It requests no font from Google Fonts or any other font service.</p>
@@ -148,12 +166,21 @@ export default function Privacy({ onNavigate }) {
         {mode === "bands" && (
           <p>
             <b className="font-semibold text-ink">A place&rsquo;s points or band.</b> An owner or manager may ask for a review{" "}
-            {contact ? <>at <Mail to={contact} /></> : <>through the project&rsquo;s GitHub issues</>}. We recount each item on the
-            place&rsquo;s worksheet against the County&rsquo;s record and answer within five business days. While a review is open, a
-            listing that rests on a single inspection is suspended: the place shows &ldquo;Under review&rdquo; and its record, with no
-            band or points. The outcome goes in the corrections log.
+            {contact ? <>at <Mail to={contact} /></> : <>through the project&rsquo;s GitHub issues</>}. Every request goes on hold the
+            same business day it arrives: the place shows &ldquo;Under review&rdquo; and its record, with no band or points. We recount
+            each item on the place&rsquo;s worksheet against the County&rsquo;s record and answer within five business days. The outcome
+            goes in the corrections log.
           </p>
         )}
+      </Section>
+
+      <Section heading="The City staff version">
+        <p>
+          The authors also run a sign-in site for City of San Diego staff that shows, for each restaurant, the County&rsquo;s record and
+          points from the students&rsquo; point rule. An owner or manager may ask whether their business appears and see exactly what it
+          shows: write to {writeTo} with its name and address. We answer within five business days, and from the day we receive the
+          request its points and band are withheld from the staff site.
+        </p>
       </Section>
 
       <Section heading="Terms of use">
@@ -165,7 +192,7 @@ export default function Privacy({ onNavigate }) {
         </p>
         {staff ? (
           <p>
-            Not for redistribution. {PUBLIC_RECORD_NOTE} {USE_NOTE} The list carries its date and expiry on every downloaded row; do not
+            {PUBLIC_RECORD_NOTE} {USE_NOTE} The list carries its date and expiry on every downloaded row; do not
             use it after it expires{meta?.expires ? <> ({fmtDate(meta.expires)})</> : null}.
           </p>
         ) : (

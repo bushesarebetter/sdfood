@@ -1,7 +1,10 @@
 import Dialog, { CloseButton } from "./Dialog";
 import { useAdvanced } from "./useAdvanced";
 import { useExpired, useMeta, useMode, useSample } from "./useMeta";
-import { GROUP_NOTE, bandDefs, bandPoints, bandSummary, backtestList, persistenceSentence, rateRatio, restRate, ruleSentence } from "./lib/bands";
+import {
+  GROUP_NOTE, bandDefs, bandPoints, bandSummary, backtestList, driftLine, frozenLine, persistenceSentence, rateRatio, restRate, restRatio,
+  routeSentence, ruleSentence, utilityRows,
+} from "./lib/bands";
 import { isStaff, reviewStatus } from "./lib/staff";
 import { gradeContextSentence } from "./lib/framing";
 import { OUR_READING } from "./lib/inspections";
@@ -145,11 +148,17 @@ function Rule({ meta, advanced, expired }) {
   const items = card?.items ?? [];
   const bands = bandDefs(meta);
   const rest = restRate(meta);
+  const restX = restRatio(meta);
+  const base = typeof card?.base_rate === "number" ? card.base_rate : null;
   const cr = meta?.catch_run;
+  const utility = utilityRows(meta);
+  const byRoute = routeSentence(meta);
   return (
     <>
       <Section heading="The students' point rule (not a County grade or rating)">
         <p>{ruleSentence(meta)}</p>
+        {frozenLine(meta) && <p>{frozenLine(meta)} Each list applies this version to the County&rsquo;s record as it stands on the list date.</p>}
+        {driftLine(meta) && <p className="text-ink">{driftLine(meta)}</p>}
         {typeof card?.eligibility === "string" && <p>It scores {card.eligibility.replace(/\.$/, "")}. Every other place carries no points.</p>}
         {items.length > 0 && (
           <Table
@@ -175,16 +184,18 @@ function Rule({ meta, advanced, expired }) {
             place&rsquo;s next routine inspection in the year that followed ({backtestList(meta)}).
           </p>
           <Table
-            head={advanced ? ["Band", "Points", "Places now", "Labelled", "With a major", "Rate [95%]", `× ${typeof card?.base_rate === "number" ? "all scored" : "below"}`, "Kept"] : ["Band", "Points", "Places now", "Had a major", typeof card?.base_rate === "number" ? "Times the rate for all scored" : "Times the rate below"]}
+            head={advanced ? ["Band", "Points", "Places now", "Labelled", "With a major", "Rate [95%]", `× ${base != null ? "all scored" : "below"}`, "Kept"] : ["Band", "Points", "Places now", "Had a major", base != null ? "Times the rate for all scored" : "Times the rate below"]}
             rows={[
               ...bands.map((b) => advanced
                 ? [b.band, bandPoints(meta, b.band) ?? "", num(b.places_now), num(b.labelled), num(b.positives), `${pct(b.rate)}${Array.isArray(b.interval) ? ` [${pct(b.interval[0])}, ${pct(b.interval[1])}]` : ""}`, rateRatio(meta, b.band) ?? "", typeof b.kept_in_refits === "number" ? pct(b.kept_in_refits) : ""]
                 : [`Band ${b.band}`, bandPoints(meta, b.band) ?? "", num(b.places_now), pct(b.rate), rateRatio(meta, b.band) ?? ""]),
-              ...(rest != null ? [advanced ? ["below", "", "", num(card?.rest?.labelled), num(card?.rest?.positives), pct(rest), "1", ""] : ["Scored places below the bands", "", "", pct(rest), "1"]] : []),
+              ...(rest != null ? [advanced ? ["below", "", "", num(card?.rest?.labelled), num(card?.rest?.positives), pct(rest), restX ?? "", ""] : ["Scored places below the bands", "", "", pct(rest), restX ?? ""]] : []),
+              ...(base != null ? [advanced ? ["all scored", "", "", "", "", pct(base), "1", ""] : ["All scored restaurants", "", "", pct(base), "1"]] : []),
             ]}
             note={advanced ? "Rates at the next routine inspection in the backtest, Wilson 95% intervals. Kept: the share of a band's places that refits of the rule on resampled data keep in the band." : "The share of each band's places that had a major violation at their next routine inspection in the backtest."}
           />
           <p>{bandSummary(meta, "1")}</p>
+          {byRoute && <p>{byRoute}</p>}
           <p>{GROUP_NOTE}</p>
         </Section>
       )}
@@ -226,6 +237,22 @@ function Rule({ meta, advanced, expired }) {
         </Section>
       )}
 
+      {utility && (
+        <Section heading="When a band would be named">
+          <p>
+            Naming a band is worth it only if enough of its places go on to have a major. Call B the benefit of naming a place that
+            does, and C the cost of naming one that does not: the share must be above C/(B+C). A band is named only when the low end
+            of its interval clears that bar for a cost ratio (C/B) someone signs.{" "}
+            {typeof meta?.cost_ratio === "number" ? <>The signed cost ratio for this list is {meta.cost_ratio}.</> : <>No one has signed a cost ratio for this list.</>}
+          </p>
+          <Table
+            head={["Cost ratio C/B", "Bar C/(B+C)", "Bands that clear it"]}
+            rows={utility.map((u) => [String(u.cost_ratio), pct(u.bar), u.named.length ? u.named.map((b) => `Band ${b}`).join(", ") : "none"])}
+          />
+          {utility.every((u) => !u.named.length) && <p>No band clears any of these.</p>}
+        </Section>
+      )}
+
       {card?.outside && (
         <Section heading="Outside the City">
           <p>
@@ -249,8 +276,10 @@ function Rule({ meta, advanced, expired }) {
           <Table
             head={["District", "In a band", "Had a major", "Share of those without one"]}
             rows={Object.entries(meta.fairness.by_district).filter(([d]) => d !== "None").map(([d, f]) => [
-              `District ${d}`, num(f.named), f.precision != null ? pct(f.precision) : "",
+              `District ${d}`, num(f.named),
+              f.precision != null ? `${pct(f.precision)}${Array.isArray(f.precision_interval) && f.precision_interval.every((x) => typeof x === "number") ? ` (${pct(f.precision_interval[0])} to ${pct(f.precision_interval[1])})` : ""}` : "",
               f.false_share_ratio != null ? `${f.false_share_ratio}×${Array.isArray(f.interval) ? ` (${f.interval[0]} to ${f.interval[1]})` : ""}` : ""])}
+            note="Had a major: the share of the district's places in a band that had one at their next routine inspection, with its likely range where the export gives one."
           />
           {Array.isArray(meta.fairness.problems) && meta.fairness.problems.length > 0 && (
             <p>Uneven: {meta.fairness.problems.join("; ")}. Part of a district&rsquo;s gap may be how its inspectors cite, not its restaurants: the record does not say which inspector made a visit.</p>

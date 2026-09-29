@@ -1,5 +1,5 @@
 """Write an invented export for the food-inspection site, in the shape the real one takes
-(docs/FOOD_DATA_CONTRACT.md, version 3.3), so the site can be built and reviewed without
+(docs/FOOD_DATA_CONTRACT.md, version 3.4), so the site can be built and reviewed without
 naming a real business.
 
 Every place is fictional. Names carry the word "Sample", streets are made-up names ("Sample
@@ -10,15 +10,19 @@ figure in meta.json is computed from the invented records, not measured.
 What it writes, like the real export (``--out``, default food-dashboard/public/data):
   * ``facilities.geojson``, the index: one Point per listed place with only what the map, the
     list, the filters and the search need (facility_id, name, address, kind, district, last
-    visit, the grade on record, record flags, and in ``bands`` mode band and points);
+    visit, the grade on record, record flags counted back from the list date, and in ``bands``
+    mode band and points);
   * ``place/<facility_id>.json``, one file per place: the index entry plus the County's type,
-    every County record (one entry per record, with the County's status text), the items cited
-    in the 36 months before the last visit, and in ``bands`` mode the worksheet;
+    every County record (one entry per record, with the County's status text; a closure carries
+    ``reopened_on``), the items cited in the 36 months before the last visit, each under the
+    section of the County's report its item number falls in, and in ``bands`` mode the worksheet
+    (``scores_used`` with a health closure read as 70 and the County's own score beside it);
   * ``meta.json``: what the export is. In ``bands`` mode, a sample published rule of two counts
     with whole-number weights (``meta.card``), bands cut at tie boundaries so equal points are
     never split, and a backtest: the same rule as of an earlier date, checked against each
-    place's next routine inspection, with each band's rate, the rate below the bands, and the
-    "average score" comparison.
+    place's next routine inspection, with each band's rate, the rate below the bands, band 1
+    split by how its places got there (``band_1_by_route``), the "average score" comparison,
+    each district's precision, and the frozen-rule and drift fields the real export carries.
 
 Only restaurants with a scored routine inspection in the year before the list date are scored;
 markets, limited-preparation places and other restaurants carry neither points nor a band. One
@@ -33,6 +37,7 @@ Usage
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import random
@@ -76,37 +81,93 @@ KINDS = {
     "market": ["Market", "Grocery", "Deli Market", "Carniceria"],
 }
 
-# Items on the County's report by theme, in the County's kind of wording.
+# Themes are the sections of the County's own inspection report, in the site's order
+# (lib/inspections.js THEMES). "other" is an item no section holds; it is never a flag.
+THEMES = ("knowledge", "health", "hands", "handsink", "temperature", "condition", "sanitizing", "supplier", "process",
+          "advisory", "hsp", "water", "sewage", "vermin", "grp_staff", "grp_food", "grp_storage", "grp_equipment",
+          "grp_facility", "grp_signs", "grp_other", "other")
+
+
+def _form(spec):
+    """{item number: theme} from [(theme, items)], an item a number, a "1a" or an inclusive (lo, hi) range."""
+    out = {}
+    for theme, items in spec:
+        for it in items:
+            if isinstance(it, tuple):
+                out.update({str(n): theme for n in range(it[0], it[1] + 1)})
+            else:
+                out[str(it)] = theme
+    return out
+
+
+# The section of each item number on the County's fixed-facility form (47 and on are signs and permits).
+FIXED_FORM = _form([
+    ("knowledge", ["1a", "1b"]), ("health", [(2, 4)]), ("hands", [5]), ("handsink", [6]), ("temperature", [(7, 11)]),
+    ("condition", [12, 13]), ("sanitizing", [14]), ("supplier", [(15, 17)]), ("process", [18]), ("advisory", [19]),
+    ("hsp", [20]), ("water", [21]), ("sewage", [22]), ("vermin", [23]), ("grp_staff", [24, 25]), ("grp_food", [(26, 29)]),
+    ("grp_storage", [(30, 32)]), ("grp_equipment", [(33, 40)]), ("grp_facility", [(41, 46)]), ("grp_signs", [(47, 99)]),
+])
+# The mobile form: 1a to 15 as on the fixed form, then its own numbering (39 is fire safety). The
+# sample lists no mobile unit; the mapping is here so the two forms are stated in one place.
+MOBILE_FORM = {**{k: v for k, v in FIXED_FORM.items() if not k.isdigit() or int(k) <= 15}, **_form([
+    ("advisory", [18]), ("water", [19]), ("handsink", [20]), ("sewage", [21]), ("vermin", [22]), ("grp_staff", [23]),
+    ("grp_food", [(24, 27)]), ("grp_storage", [28, 29]), ("grp_equipment", [(30, 32), (34, 36)]),
+    ("grp_facility", [33, 37, 38, 40]), ("grp_other", [39]), ("grp_signs", [41, 42]),
+])}
+
+# Items on the County's fixed-facility report by section, in the County's kind of wording.
 ITEMS = {
-    "temperature": [("7", "Proper hot and cold holding temperatures"), ("9", "Proper cooling methods"), ("10", "Proper cooking time and temperatures")],
-    "handwashing": [("5", "Hands clean and properly washed"), ("6", "Adequate handwashing facilities supplied and accessible")],
-    "hygiene": [("2", "Communicable disease; reporting, restrictions and exclusions"), ("4", "Proper eating, tasting, drinking or tobacco use")],
-    "sanitizing": [("14", "Food contact surfaces clean and sanitized"), ("34", "Warewashing facilities installed, maintained and used"), ("40", "Wiping cloths properly used and stored")],
-    "supplier": [("15", "Food obtained from approved source"), ("16", "Compliance with shell stock tags, condition, display")],
-    "condition": [("17", "Food in good condition, safe and unadulterated"), ("20", "Returned and re-service of food")],
-    "process": [("19", "Compliance with variance, specialized process, and HACCP plan")],
+    "knowledge": [("1a", "Demonstration of knowledge; food safety certification"), ("1b", "Food handler cards")],
+    "health": [("2", "Communicable disease; reporting, restrictions and exclusions"), ("3", "No discharge from eyes, nose and mouth"),
+               ("4", "Proper eating, tasting, drinking or tobacco use")],
+    "hands": [("5", "Hands clean and properly washed; gloves used properly")],
+    "handsink": [("6", "Adequate handwashing facilities supplied and accessible")],
+    "temperature": [("7", "Proper hot and cold holding temperatures"), ("8", "Time as a public health control; procedures and records"),
+                    ("9", "Proper cooling methods"), ("10", "Proper cooking time and temperatures"), ("11", "Proper reheating procedures for hot holding")],
+    "condition": [("12", "Returned and reservice of food"), ("13", "Food in good condition, safe and unadulterated")],
+    "sanitizing": [("14", "Food contact surfaces clean and sanitized")],
+    "supplier": [("15", "Food obtained from approved source"), ("16", "Compliance with shell stock tags, condition, display"),
+                 ("17", "Compliance with Gulf Oyster Regulations")],
+    "process": [("18", "Compliance with variance, specialized process, and HACCP plan")],
+    "advisory": [("19", "Consumer advisory provided for raw or undercooked foods")],
+    "hsp": [("20", "Licensed health care facilities and schools: prohibited foods not offered")],
+    "water": [("21", "Hot and cold water available")],
+    "sewage": [("22", "Sewage and wastewater properly disposed")],
     "vermin": [("23", "No rodents, insects, birds or animals")],
-    "plumbing": [("21", "Hot and cold water available"), ("22", "Sewage and wastewater properly disposed")],
-    "storage": [("26", "Approved thawing methods used"), ("27", "Food separated and protected"), ("30", "Food storage; food storage containers identified")],
-    "equipment": [("35", "Equipment and utensils approved, installed, clean, good repair"), ("38", "Adequate ventilation and lighting"), ("39", "Thermometers provided and accurate")],
-    "labeling": [("1", "Demonstration of knowledge; food safety certification"), ("32", "Food properly labeled and honestly presented"), ("47", "Signs posted; last inspection report available")],
-    "other": [("44", "Premises; personal and cleaning items"), ("45", "Floors, walls and ceilings built, maintained and clean"), ("42", "Garbage and refuse properly disposed")],
+    "grp_staff": [("24", "Person in charge present and performs duties"), ("25", "Personal cleanliness and hair restraints")],
+    "grp_food": [("26", "Approved thawing methods used; frozen food"), ("27", "Food separated and protected"),
+                 ("28", "Washing fruits and vegetables"), ("29", "Toxic substances properly identified, stored and used")],
+    "grp_storage": [("30", "Food storage; food storage containers identified"), ("31", "Consumer self-service"),
+                    ("32", "Food properly labeled and honestly presented")],
+    "grp_equipment": [("33", "Nonfood-contact surfaces clean"), ("34", "Warewashing facilities installed, maintained and used; test strips"),
+                      ("35", "Equipment and utensils approved, installed, clean, good repair"), ("38", "Adequate ventilation and lighting"),
+                      ("39", "Thermometers provided and accurate"), ("40", "Wiping cloths properly used and stored")],
+    "grp_facility": [("41", "Plumbing; proper backflow devices"), ("42", "Garbage and refuse properly disposed"),
+                     ("43", "Toilet facilities properly constructed, supplied and cleaned"), ("44", "Premises; personal and cleaning items; vermin-proofing"),
+                     ("45", "Floors, walls and ceilings built, maintained and clean")],
+    "grp_signs": [("47", "Signs posted; last inspection report available"), ("49", "Permits available")],
 }
+# Majors and minors fall on items 1a to 23; good-retail-practice items on 24 and on.
 THEMES_BY_SEVERITY = {
-    "major": [("temperature", 30), ("sanitizing", 14), ("vermin", 12), ("handwashing", 12), ("storage", 8), ("supplier", 4), ("condition", 3), ("process", 1), ("plumbing", 6), ("hygiene", 3)],
-    "minor": [("temperature", 28), ("sanitizing", 16), ("handwashing", 14), ("storage", 12), ("labeling", 10), ("vermin", 6), ("plumbing", 6), ("supplier", 3), ("condition", 3), ("process", 1), ("hygiene", 3)],
-    "grp": [("other", 35), ("equipment", 30), ("labeling", 15), ("sanitizing", 8), ("storage", 8), ("plumbing", 4)],
+    "major": [("temperature", 30), ("sanitizing", 12), ("vermin", 12), ("handsink", 9), ("hands", 5), ("health", 3), ("supplier", 4),
+              ("condition", 3), ("process", 1), ("advisory", 1), ("water", 5), ("sewage", 2), ("knowledge", 1)],
+    "minor": [("temperature", 26), ("sanitizing", 14), ("knowledge", 12), ("handsink", 8), ("hands", 5), ("health", 4), ("vermin", 6),
+              ("water", 3), ("sewage", 2), ("supplier", 3), ("condition", 3), ("process", 1), ("advisory", 3), ("hsp", 1)],
+    "grp": [("grp_facility", 30), ("grp_equipment", 30), ("grp_storage", 12), ("grp_food", 12), ("grp_staff", 6), ("grp_signs", 8)],
 }
 VISIT_TYPES = ("routine", "reinspection", "followup", "complaint")
 SEVERITIES = ("major", "minor", "grp")
 CLOSURES = ("health", "permit", "other")
-THEMES = tuple(ITEMS)
+ESCALATION_FLAGS = ("closures2", "repeat_item", "lt90_2")
+RECORD_FLAGS = ("major", "closed", "bc", "repeat", *ESCALATION_FLAGS)
+CLOSURE_SCORE = 70   # a routine inspection that ended in a health closure order is read as this score
 
 RECORD_START = date(2023, 1, 1)
 THROUGH = date(2026, 8, 31)
 LIST_DATE = THROUGH + timedelta(days=1)
 BACKTEST_AS_OF = date(2025, 9, 1)
 YEAR = timedelta(days=365)
+TWO_YEARS = timedelta(days=730)   # the escalation facts' window, as export_site.ELIGIBLE_DAYS
 SHARES = ((0.025, "1"), (0.075, "2"), (0.175, "3"))
 
 # The sample's published rule: two counts from the record, each with a whole-number weight.
@@ -148,12 +209,17 @@ def poisson(rng: random.Random, lam: float) -> int:
         k += 1
 
 
-def record(d: date, kind: str, status="Complete", score=None, major=0, minor=0, grp=0, closure=None, reopened=None):
-    """One County record, as the contract carries it."""
-    graded = score is not None and kind in ("routine", "followup")
-    return {"date": d.isoformat(), "status": status, "type": kind, "score": score, "grade": grade(score) if graded else None,
-            "major": major, "minor": minor, "grp": grp, "closed": closure is not None, "closure": closure,
-            "reopened": reopened if closure is not None else None}
+def record(d: date, kind: str, status="Complete", score=None, major=0, minor=0, grp=0, closure=None, reopened=None,
+           reopened_on=None, graded=True):
+    """One County record, as the contract carries it. A record that starts a closure episode also
+    carries `reopened_on`, the date of the "Approved to Reopen" record that ended it, or None."""
+    graded = graded and score is not None and kind in ("routine", "followup")
+    out = {"date": d.isoformat(), "status": status, "type": kind, "score": score, "grade": grade(score) if graded else None,
+           "major": major, "minor": minor, "grp": grp, "closed": closure is not None, "closure": closure,
+           "reopened": reopened if closure is not None else None}
+    if closure is not None:
+        out["reopened_on"] = reopened_on.isoformat() if reopened_on else None
+    return out
 
 
 def make_visits(rng: random.Random, latent: float):
@@ -168,12 +234,17 @@ def make_visits(rng: random.Random, latent: float):
         major = (1 + (rng.random() < 0.15)) if rng.random() < p_major else 0
         minor = poisson(rng, 0.3 + 1.5 * latent)
         grp = poisson(rng, 1.0 + 3.0 * latent)
-        # Most inspections that find a major still score 90 or more, as in the County's record.
-        score = max(70, min(100, round(100 - 4 * major - minor - 0.5 * grp - rng.choice((0, 0, 0, 1, 2)))))
-        if major and rng.random() < 0.15:
+        # Most inspections that find a major still score 90 or more; one that finds two sometimes scores
+        # far lower, so a place can reach band 1 on its routine scores alone.
+        worse = rng.randint(4, 16) if major > 1 and rng.random() < 0.6 else 0
+        score = max(70, min(100, round(100 - 4 * major - worse - minor - 0.5 * grp - rng.choice((0, 0, 0, 1, 2)))))
+        if major and rng.random() < 0.02 + 0.3 * latent:   # closures come from places doing worse
             f = d + timedelta(days=rng.randint(1, 4))
             reopened = f <= THROUGH
-            out.append(record(d, "routine", "Ordered Closed", None, major, minor, grp, closure="health", reopened=reopened))
+            # The County scores some closure visits and not others; it grades none of them.
+            county = rng.randint(62, 86) if rng.random() < 0.4 else None
+            out.append(record(d, "routine", "Ordered Closed", county, major, minor, grp, closure="health", reopened=reopened,
+                              reopened_on=f if reopened else None, graded=False))
             if reopened:
                 out.append(record(f, "followup", "Approved to Reopen", rng.randint(88, 97), 0, poisson(rng, 0.5), poisson(rng, 1.0)))
         elif rng.random() < 0.004:
@@ -224,10 +295,6 @@ def exported(violations, inspections):
     return keep[:60]
 
 
-def in_year_before(d: str, end: date) -> bool:
-    return (end - YEAR).isoformat() <= d <= end.isoformat()
-
-
 def grade_on_record(inspections):
     """The latest letter from a routine or re-grade record; `replaced` is the routine B or C a
     re-grade replaced."""
@@ -244,32 +311,64 @@ def grade_on_record(inspections):
     return out
 
 
-def record_flags(inspections, violations):
-    """Record facts from the 12 months before the last visit, as the index carries them."""
-    last = date.fromisoformat(inspections[-1]["date"])
-    window = [i for i in inspections if in_year_before(i["date"], last)]
+def record_flags(inspections, violations, as_of: date = LIST_DATE):
+    """Record facts counted back from the list date, as the index carries them: over the 12 months
+    before it, a major, a health closure, a routine B or C, two or more reinspections, and the theme
+    of each major; over the 24 months before it, the escalation facts, the County's own criteria for
+    a closer look ("recurring major violations, recurring scores of less than 90%, or recurring
+    facility closures", Retail Food Facility Operator's Guide p. 8): two or more health-closure
+    episodes, the same major item at two or more routine inspection dates, and two or more routine
+    inspections scored below 90."""
+    hi, lo1, lo2 = as_of.isoformat(), (as_of - YEAR).isoformat(), (as_of - TWO_YEARS).isoformat()
+    year = [i for i in inspections if lo1 <= i["date"] <= hi]
+    two = [i for i in inspections if lo2 <= i["date"] <= hi]
     flags = []
-    if any(i["major"] > 0 for i in window):
+    if any(i["major"] > 0 for i in year):
         flags.append("major")
-    if any(i["closed"] and i["closure"] == "health" for i in window):
+    if any(i["closed"] and i["closure"] == "health" for i in year):
         flags.append("closed")
-    if any(i["type"] == "routine" and i["grade"] in ("B", "C") for i in window):
+    if any(i["type"] == "routine" and i["grade"] in ("B", "C") for i in year):
         flags.append("bc")
-    if sum(1 for i in window if i["type"] == "reinspection") >= 2:
+    if sum(1 for i in year if i["type"] == "reinspection") >= 2:
         flags.append("repeat")
-    majors = {v["theme"] for v in violations if v["severity"] == "major" and in_year_before(v["date"], last)}
-    flags.extend(t for t in THEMES if t in majors)
+    if sum(1 for i in two if i["closed"] and i["closure"] == "health") >= 2:
+        flags.append("closures2")
+    item_dates = {}
+    for v in violations:
+        if v["severity"] == "major" and v["visit"] == "routine" and lo2 <= v["date"] <= hi:
+            item_dates.setdefault(v["code"], set()).add(v["date"])
+    if any(len(ds) >= 2 for ds in item_dates.values()):
+        flags.append("repeat_item")
+    if sum(1 for i in two if i["type"] == "routine" and i["score"] is not None and i["score"] < 90) >= 2:
+        flags.append("lt90_2")
+    majors = {v["theme"] for v in violations if v["severity"] == "major" and lo1 <= v["date"] <= hi}
+    flags.extend(t for t in THEMES if t in majors and t != "other")
     return flags
 
 
-def rule_values(place, as_of: date):
+def used_scores(place, lo: str, hi: str, closures: bool = True):
+    """The routine scores the rule reads in [lo, hi): a routine that ended in a health closure order
+    is read as CLOSURE_SCORE (`closure: true`), beside the County's own score that day, if any.
+    With `closures=False`, those routines are left out: the record on routine scores alone."""
+    used = []
+    for i in place["inspections"]:
+        if i["type"] != "routine" or not lo <= i["date"] < hi:
+            continue
+        if i["closed"] and i["closure"] == "health":
+            if closures:
+                used.append({"date": i["date"], "score": CLOSURE_SCORE, "closure": True, "county_score": i["score"]})
+        elif i["score"] is not None:
+            used.append({"date": i["date"], "score": i["score"], "closure": False, "county_score": i["score"]})
+    return used
+
+
+def rule_values(place, as_of: date, closures: bool = True):
     """The rule's counts for a place from its record in the year before `as_of`, or None when the
-    place is not scored (not a restaurant, or no scored routine inspection in that year)."""
+    place is not scored (not a restaurant, or no routine score in that year)."""
     if place["facility_type"] != "restaurant":
         return None
     lo, hi = (as_of - YEAR).isoformat(), as_of.isoformat()
-    used = [{"date": i["date"], "score": i["score"], "closure": False} for i in place["inspections"]
-            if i["type"] == "routine" and i["score"] is not None and lo <= i["date"] < hi]
+    used = used_scores(place, lo, hi, closures)
     if not used:
         return None
     avg = sum(u["score"] for u in used) / len(used)
@@ -392,8 +491,84 @@ def backtest(places):
     positives = sum(1 for r in rows if r["positive"])
     lab = [r for r in rows if r["labelled"]]
     extra = {"base_rate": round(sum(r["positive"] for r in lab) / len(lab), 4) if lab else None,
-             "curve": risk_curve([(r["points"], int(r["positive"])) for r in lab])}
+             "curve": risk_curve([(r["points"], int(r["positive"])) for r in lab]),
+             "band_1_share": round(stops[0] / len(rows), 4) if rows else None,
+             "by_route": band_1_by_route(places, rows[:stops[0]]),
+             "by_district": district_precision(places, rows, stops[-1])}
     return bands, rest_row, {"candidates": len(rows), "positives": positives, "labelled": len(lab), **extra}
+
+
+def route_stats(members):
+    lab = [r for r in members if r["labelled"]]
+    k = sum(1 for r in lab if r["positive"])
+    return {"labelled": len(lab), "positives": k, "rate": round(k / len(lab), 4) if lab else None, "interval": wilson(k, len(lab))}
+
+
+def band_1_by_route(places, band_1):
+    """Band 1's backtest places split in two: those in the band because a closure was read as 70 (on
+    routine scores alone their points fall below the band's cut), and those in it on routine scores
+    alone."""
+    if not band_1:
+        return None
+    cut = min(r["points"] for r in band_1)
+    closure, scores = [], []
+    for r in band_1:
+        alone = rule_values(places[r["j"]], BACKTEST_AS_OF, closures=False)
+        pts = worksheet(alone[0])[1] if alone else None
+        (scores if pts is not None and pts >= cut else closure).append(r)
+    return {"closure": route_stats(closure), "scores": route_stats(scores)}
+
+
+def district_precision(places, rows, named_stop):
+    """By council district, as export_site.district_fairness: the backtest's places in a band, how
+    many had a major, precision with its interval, and the district's share of the places in a band
+    without one against its share of scored places (the sample draws no bootstrap: `interval` None)."""
+    named = {id(r) for r in rows[:named_stop]}
+    fp_all = sum(1 for r in rows if id(r) in named and r["labelled"] and not r["positive"])
+    neg_all = sum(1 for r in rows if r["labelled"] and not r["positive"])
+    fpr_all = fp_all / max(1, neg_all)
+    out = {}
+    for d in sorted({places[r["j"]]["district"] for r in rows}):
+        m = [r for r in rows if places[r["j"]]["district"] == d]
+        nm = [r for r in m if id(r) in named]
+        nm_lab = [r for r in nm if r["labelled"]]
+        k = sum(1 for r in nm_lab if r["positive"])
+        fp = sum(1 for r in nm_lab if not r["positive"])
+        neg = sum(1 for r in m if r["labelled"] and not r["positive"])
+        out[str(d)] = {"candidates": len(m), "named": len(nm), "named_positive": k, "false_named": fp,
+                       "precision": round(k / len(nm_lab), 3) if nm_lab else None,
+                       "precision_interval": wilson(k, len(nm_lab)) if nm_lab else None,
+                       "fpr_ratio": round((fp / max(1, neg)) / fpr_all, 2) if fpr_all else None,
+                       "false_share_ratio": round((fp / fp_all) / (len(m) / len(rows)), 2) if fp_all else None,
+                       "interval": None}
+    return out
+
+
+def quarter_start(d: date) -> date:
+    return date(d.year, 3 * ((d.month - 1) // 3) + 1, 1)
+
+
+def routine_major_rate(places, lo: date, hi: date):
+    """The share of routine inspections in [lo, hi) with a major violation."""
+    rs = [i for p in places for i in p["inspections"] if i["type"] == "routine" and lo.isoformat() <= i["date"] < hi.isoformat()]
+    return round(sum(1 for i in rs if i["major"] > 0) / len(rs), 4) if rs else None
+
+
+def drift(places, share_then, share_now, major_rate=0.05, band_share=0.05):
+    """As export_site.drift_check: the routine major rate in the last two full quarters against the
+    backtest's label year, and band 1's share of scored restaurants now against its share then."""
+    end = quarter_start(THROUGH + timedelta(days=1))
+    start = quarter_start(quarter_start(end - timedelta(days=1)) - timedelta(days=1))
+    then = routine_major_rate(places, BACKTEST_AS_OF, BACKTEST_AS_OF + YEAR)
+    now = routine_major_rate(places, start, end)
+    reasons = []
+    if then is not None and now is not None and abs(now - then) > major_rate:
+        reasons.append(f"routine major rate {now:.1%} in the last full quarters against {then:.1%} in the backtest")
+    if share_then is not None and share_now is not None and abs(share_now - share_then) > band_share:
+        reasons.append(f"band 1 holds {share_now:.1%} of scored City restaurants against {share_then:.1%} in the backtest")
+    return {"major_rate_backtest": then, "major_rate_recent": now, "band_1_share_backtest": share_then,
+            "band_1_share_now": share_now, "refit_needed": bool(reasons), "reasons": reasons,
+            "thresholds": {"major_rate": major_rate, "band_share": band_share}}
 
 
 def isotonic(rates, weights):
@@ -460,6 +635,12 @@ def estimate(curve, pts):
     return {"rate": curve["rate"][j], "low": curve["low"][j], "high": curve["high"][j]}
 
 
+def rule_tag(meta_bands) -> str:
+    """Eight hex digits naming the rule and its cuts, as export_site's frozen version does."""
+    body = {"rule": RULE, "cuts": [b["min_points"] for b in meta_bands]}
+    return hashlib.sha256(json.dumps(body, sort_keys=True).encode()).hexdigest()[:8]
+
+
 def build(n_places: int = 1400, seed: int = 9, mode: str = "bands"):
     """(index FeatureCollection, {facility_id: place file}, meta) for `n_places` invented places."""
     if mode not in ("bands", "record"):
@@ -498,6 +679,7 @@ def build(n_places: int = 1400, seed: int = 9, mode: str = "bands"):
             kept = [stability_of[pid] for pid, b in band_of.items() if b == key and pid not in held]
             row["kept_in_refits"] = round(sum(kept) / len(kept), 3) if kept else None
             meta_bands.append(row)
+        share_now = round(stops[0] / len(now), 4) if now else None
     else:
         held = []
 
@@ -568,6 +750,8 @@ def build(n_places: int = 1400, seed: int = 9, mode: str = "bands"):
                 "rest": rest_row,
                 "base_rate": cr["base_rate"],
                 "curve": cr["curve"],
+                "closure_score": CLOSURE_SCORE,
+                "band_1_by_route": cr["by_route"],
             },
             "catch": {},
             "catch_run": {
@@ -584,8 +768,11 @@ def build(n_places: int = 1400, seed: int = 9, mode: str = "bands"):
             "named_bands": [key for _, key in SHARES],
             "cost_ratio": None,
             "utility": None,
-            "fairness": {},
+            "fairness": {"by_district": cr["by_district"], "bands_used": [key for _, key in SHARES], "problems": []},
             "measurement": dict(grade_context),
+            # The rule as frozen (docs/rule.json in the real pipeline); its version names its content.
+            "frozen": {"version": f"{LIST_DATE.isoformat()}-{rule_tag(meta_bands)}", "frozen_on": LIST_DATE.isoformat(), "from_run": "sample"},
+            "drift": drift(places, cr["band_1_share"], share_now),
         })
     return {"type": "FeatureCollection", "features": features}, place_files, meta
 

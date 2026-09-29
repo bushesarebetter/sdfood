@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { PlaceLines, PlaceStatus, CountyDisclaimer, RecordFactList } from "./PlaceParts";
+import { PlaceLines, PlaceStatus, CountyDisclaimer, RecordFactList, StaleBadge } from "./PlaceParts";
 import usePlace from "./usePlace";
-import { useMode, useExpired, useSample } from "./useMeta";
+import { useMeta, useMode, useExpired, useSample } from "./useMeta";
 import { typeLabel } from "./lib/inspections";
 import { gradeView } from "./lib/grades";
 import { recordFacts } from "./lib/recordFacts";
@@ -26,6 +26,7 @@ export default function MobileSheet({ feature, onClose, onNavigate }) {
   const mode = useMode();
   const expired = useExpired();
   const sample = useSample();
+  const meta = useMeta();
 
   const open = feature !== null;
   const p = feature?.properties ?? {};
@@ -87,6 +88,7 @@ export default function MobileSheet({ feature, onClose, onNavigate }) {
               >
                 {g.graded ? `Grade ${g.short}` : g.text}
               </span>
+              <StaleBadge place={p} meta={meta} className="ml-2 mt-2" />
             </div>
             <button onClick={onClose} aria-label="Close place detail" className="-mr-2 -mt-1 flex h-11 w-11 shrink-0 items-center justify-center text-ink-3 active:bg-paper-edge">
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">

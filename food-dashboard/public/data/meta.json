@@ -11,8 +11,8 @@
     "url": null
   },
   "grade_context": {
-    "majors_graded_A_share": 0.9018,
-    "graded_A_share": 0.9835
+    "majors_graded_A_share": 0.875,
+    "graded_A_share": 0.98
   },
   "data_rules": {
     "note": "sample: invented records, one entry per County record, statuses as the County writes them"
@@ -31,7 +31,7 @@
   "model": "sample published rule (2 counts, whole-number weights), invented",
   "label": "at least one major violation at the next routine inspection",
   "label_window": "2026-09-01 to 2027-08-31",
-  "candidates": 957,
+  "candidates": 958,
   "card": {
     "items": [
       {
@@ -57,141 +57,198 @@
     "bands": [
       {
         "band": "1",
-        "min_points": 13,
+        "min_points": 30,
         "max_points": null,
         "share": 0.025,
-        "places_now": 16,
-        "places": 22,
+        "places_now": 25,
+        "places": 25,
         "labelled": 19,
-        "positives": 12,
-        "rate": 0.6316,
+        "positives": 6,
+        "rate": 0.3158,
         "interval": [
-          0.4104,
-          0.8085
+          0.1536,
+          0.5399
         ],
-        "baseline_rate": 0.6667,
+        "baseline_rate": 0.3158,
         "vs_baseline": [
-          -6.79,
-          6.79
+          -4.801,
+          4.801
         ],
-        "kept_in_refits": 0.772
+        "kept_in_refits": 0.742
       },
       {
         "band": "2",
-        "min_points": 9,
-        "max_points": 12,
+        "min_points": 13,
+        "max_points": 29,
         "share": 0.075,
-        "places_now": 61,
-        "places": 58,
-        "labelled": 56,
-        "positives": 19,
-        "rate": 0.3393,
+        "places_now": 48,
+        "places": 48,
+        "labelled": 46,
+        "positives": 21,
+        "rate": 0.4565,
         "interval": [
-          0.2292,
-          0.47
+          0.3215,
+          0.5982
         ],
-        "baseline_rate": 0.2727,
+        "baseline_rate": 0.4444,
         "vs_baseline": [
-          -4.081,
-          12.081
+          -7.874,
+          9.874
         ],
-        "kept_in_refits": 0.74
+        "kept_in_refits": 0.73
       },
       {
         "band": "3",
-        "min_points": 7,
-        "max_points": 8,
+        "min_points": 8,
+        "max_points": 12,
         "share": 0.175,
-        "places_now": 87,
-        "places": 103,
-        "labelled": 95,
-        "positives": 25,
-        "rate": 0.2632,
+        "places_now": 103,
+        "places": 101,
+        "labelled": 94,
+        "positives": 22,
+        "rate": 0.234,
         "interval": [
-          0.1851,
-          0.3597
+          0.1599,
+          0.329
         ],
-        "baseline_rate": 0.2604,
+        "baseline_rate": 0.2188,
         "vs_baseline": [
-          -9.8,
-          9.8
+          -8.088,
+          10.088
         ],
-        "kept_in_refits": 0.77
+        "kept_in_refits": 0.773
       }
     ],
     "rest": {
       "band": "rest",
-      "places": 780,
-      "labelled": 717,
-      "positives": 129,
-      "rate": 0.1799,
+      "places": 774,
+      "labelled": 710,
+      "positives": 134,
+      "rate": 0.1887,
       "interval": [
-        0.1535,
-        0.2097
+        0.1617,
+        0.2192
       ]
     },
-    "base_rate": 0.2086,
+    "base_rate": 0.2106,
     "curve": {
       "model": "sample: isotonic rate by points on the invented backtest",
       "rate": [
-        0.0615,
-        0.1053,
-        0.1801,
-        0.1801,
-        0.2302,
-        0.2302,
-        0.2302,
-        0.2632,
-        0.2632,
-        0.2632,
-        0.2889,
-        0.2889,
-        0.6,
-        0.6,
-        0.6,
-        0.6,
-        0.6,
-        0.6
+        0.1149,
+        0.1149,
+        0.1745,
+        0.2289,
+        0.229,
+        0.229,
+        0.229,
+        0.229,
+        0.229,
+        0.3158,
+        0.3158,
+        0.4,
+        0.4,
+        0.4,
+        0.4,
+        0.4,
+        0.4,
+        0.4,
+        0.4,
+        0.4,
+        0.4,
+        0.4333,
+        0.4333,
+        0.4333,
+        0.4333,
+        0.4333,
+        0.4333,
+        0.4333,
+        0.4333,
+        0.4333,
+        0.4333,
+        0.4333,
+        0.4333,
+        0.4333,
+        0.4333,
+        0.4333,
+        0.4333
       ],
       "low": [
-        0.0152,
-        0.0597,
-        0.1358,
-        0.1358,
-        0.1793,
-        0.1793,
-        0.1793,
-        0.2022,
-        0.2191,
-        0.2191,
-        0.2479,
-        0.2479,
-        0.4722,
-        0.4722,
-        0.4722,
-        0.4722,
-        0.4722,
-        0.4722
+        0.0543,
+        0.0723,
+        0.1304,
+        0.1429,
+        0.1773,
+        0.1773,
+        0.1773,
+        0.1773,
+        0.1773,
+        0.2182,
+        0.2182,
+        0.2778,
+        0.2778,
+        0.2778,
+        0.2778,
+        0.2778,
+        0.2778,
+        0.2778,
+        0.2778,
+        0.2778,
+        0.2778,
+        0.3545,
+        0.3545,
+        0.3545,
+        0.3545,
+        0.3545,
+        0.3545,
+        0.3545,
+        0.3545,
+        0.3545,
+        0.3545,
+        0.3545,
+        0.3545,
+        0.3545,
+        0.3545,
+        0.3545,
+        0.3545
       ],
       "high": [
-        0.1208,
-        0.1798,
-        0.22,
-        0.2643,
-        0.2874,
-        0.2874,
-        0.2874,
-        0.3197,
-        0.3646,
-        0.3646,
-        0.4545,
-        0.4545,
-        0.7857,
-        0.7857,
-        0.7857,
-        0.7857,
-        0.7857,
-        0.7857
+        0.1501,
+        0.157,
+        0.2174,
+        0.2632,
+        0.2818,
+        0.2893,
+        0.2893,
+        0.2893,
+        0.2893,
+        0.4333,
+        0.4333,
+        0.5439,
+        0.5439,
+        0.5439,
+        0.5439,
+        0.5439,
+        0.5439,
+        0.5439,
+        0.5439,
+        0.5439,
+        0.5439,
+        0.5833,
+        0.5833,
+        0.5833,
+        0.5833,
+        0.5833,
+        0.5833,
+        0.5833,
+        0.5833,
+        0.5833,
+        0.5833,
+        0.5833,
+        0.5833,
+        0.5833,
+        0.5833,
+        0.5833,
+        0.5833
       ],
       "groups": [
         [
@@ -224,33 +281,54 @@
         ],
         [
           7,
-          7
+          8
         ],
         [
-          8,
-          9
+          9,
+          10
         ],
         [
-          10,
-          11
+          11,
+          20
         ],
         [
-          12,
-          17
+          21,
+          36
         ]
       ],
       "bins": [],
-      "labelled": 887,
-      "positives": 185
+      "labelled": 869,
+      "positives": 183
+    },
+    "closure_score": 70,
+    "band_1_by_route": {
+      "closure": {
+        "labelled": 18,
+        "positives": 6,
+        "rate": 0.3333,
+        "interval": [
+          0.1628,
+          0.5625
+        ]
+      },
+      "scores": {
+        "labelled": 1,
+        "positives": 0,
+        "rate": 0.0,
+        "interval": [
+          0.0,
+          0.7935
+        ]
+      }
     }
   },
   "catch": {},
   "catch_run": {
     "as_of": "2025-09-01",
-    "candidates": 963,
-    "positives": 185,
-    "labelled": 887,
-    "unlabelled": 76,
+    "candidates": 948,
+    "positives": 183,
+    "labelled": 869,
+    "unlabelled": 79,
     "label_window": "2025-09-01 to 2026-08-31",
     "trained_on": "sample: the rule is invented, not fitted",
     "baseline_name": "average score"
@@ -266,9 +344,161 @@
   ],
   "cost_ratio": null,
   "utility": null,
-  "fairness": {},
+  "fairness": {
+    "by_district": {
+      "1": {
+        "candidates": 83,
+        "named": 14,
+        "named_positive": 2,
+        "false_named": 10,
+        "precision": 0.167,
+        "precision_interval": [
+          0.047,
+          0.448
+        ],
+        "fpr_ratio": 1.06,
+        "false_share_ratio": 1.04,
+        "interval": null
+      },
+      "2": {
+        "candidates": 137,
+        "named": 32,
+        "named_positive": 9,
+        "false_named": 20,
+        "precision": 0.31,
+        "precision_interval": [
+          0.1728,
+          0.4923
+        ],
+        "fpr_ratio": 1.21,
+        "false_share_ratio": 1.26,
+        "interval": null
+      },
+      "3": {
+        "candidates": 192,
+        "named": 34,
+        "named_positive": 7,
+        "false_named": 25,
+        "precision": 0.219,
+        "precision_interval": [
+          0.1102,
+          0.3876
+        ],
+        "fpr_ratio": 1.11,
+        "false_share_ratio": 1.12,
+        "interval": null
+      },
+      "4": {
+        "candidates": 62,
+        "named": 11,
+        "named_positive": 4,
+        "false_named": 7,
+        "precision": 0.364,
+        "precision_interval": [
+          0.1517,
+          0.6462
+        ],
+        "fpr_ratio": 0.97,
+        "false_share_ratio": 0.97,
+        "interval": null
+      },
+      "5": {
+        "candidates": 64,
+        "named": 17,
+        "named_positive": 4,
+        "false_named": 12,
+        "precision": 0.25,
+        "precision_interval": [
+          0.1018,
+          0.495
+        ],
+        "fpr_ratio": 1.44,
+        "false_share_ratio": 1.62,
+        "interval": null
+      },
+      "6": {
+        "candidates": 136,
+        "named": 21,
+        "named_positive": 5,
+        "false_named": 12,
+        "precision": 0.294,
+        "precision_interval": [
+          0.1328,
+          0.5313
+        ],
+        "fpr_ratio": 0.76,
+        "false_share_ratio": 0.76,
+        "interval": null
+      },
+      "7": {
+        "candidates": 76,
+        "named": 10,
+        "named_positive": 3,
+        "false_named": 6,
+        "precision": 0.333,
+        "precision_interval": [
+          0.1206,
+          0.6458
+        ],
+        "fpr_ratio": 0.72,
+        "false_share_ratio": 0.68,
+        "interval": null
+      },
+      "8": {
+        "candidates": 94,
+        "named": 18,
+        "named_positive": 8,
+        "false_named": 9,
+        "precision": 0.471,
+        "precision_interval": [
+          0.2616,
+          0.6904
+        ],
+        "fpr_ratio": 0.79,
+        "false_share_ratio": 0.83,
+        "interval": null
+      },
+      "9": {
+        "candidates": 104,
+        "named": 17,
+        "named_positive": 7,
+        "false_named": 9,
+        "precision": 0.438,
+        "precision_interval": [
+          0.231,
+          0.6682
+        ],
+        "fpr_ratio": 0.86,
+        "false_share_ratio": 0.75,
+        "interval": null
+      }
+    },
+    "bands_used": [
+      "1",
+      "2",
+      "3"
+    ],
+    "problems": []
+  },
   "measurement": {
-    "majors_graded_A_share": 0.9018,
-    "graded_A_share": 0.9835
+    "majors_graded_A_share": 0.875,
+    "graded_A_share": 0.98
+  },
+  "frozen": {
+    "version": "2026-09-01-5f50107e",
+    "frozen_on": "2026-09-01",
+    "from_run": "sample"
+  },
+  "drift": {
+    "major_rate_backtest": 0.1917,
+    "major_rate_recent": 0.1689,
+    "band_1_share_backtest": 0.0264,
+    "band_1_share_now": 0.0261,
+    "refit_needed": false,
+    "reasons": [],
+    "thresholds": {
+      "major_rate": 0.05,
+      "band_share": 0.05
+    }
   }
 }

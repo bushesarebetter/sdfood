@@ -91,3 +91,24 @@ test("a place outside the City is labelled by its own town", async () => {
   assert.equal(cityOf("no commas here"), null);
   assert.equal(cityOf(null), null);
 });
+
+
+test("bands mode: every banded row says what its band means, and that the rule is the students', not the County's", async () => {
+  const { bandMeaning, BAND_SOURCE } = await import("../src/lib/format.js");
+  const { staffMeta } = await import("./fixtures/bandsMeta.mjs");
+  const m = { ...meta, ...staffMeta };
+  const banded = { ...feature, properties: { ...feature.properties, band: "1", points: 9, council_district: 4 } };
+  const get = parse(facilitiesToCsv([banded], { meta: m, mode: "bands" }));
+  assert.equal(BAND_SOURCE, "Students' point rule, not a County rating.");
+  assert.ok(get("what_band_means").startsWith(
+    "In the backtest, about 37 in 100 band 1 places had a major violation at their next routine inspection (likely 33 to 41), against 21 in 100 of all scored restaurants; about 63 in 100 had none."));
+  assert.ok(get("what_band_means").includes("In council district 4, about 29 in 100 band 1 places had one"), "the band line the place's page shows");
+  assert.ok(get("what_band_means").endsWith(" Students' point rule, not a County rating."));
+  const none = { ...feature, properties: { ...feature.properties, band: undefined, points: 3 } };
+  assert.equal(parse(facilitiesToCsv([none], { meta: m, mode: "bands" }))("what_band_means"), "", "no band, no text");
+  const held = { ...feature, properties: { ...feature.properties, band: "1", on_hold: true } };
+  assert.equal(parse(facilitiesToCsv([held], { meta: m, mode: "bands" }))("what_band_means"), "", "a held place shows no band");
+  assert.equal(bandMeaning({ band: "1" }, m, { mode: "record" }), "");
+  assert.ok(!csvColumns().includes("what_band_means"), "a record export has no band column");
+  assert.deepEqual(csvColumns({ mode: "bands" }).slice(5, 9), ["band", "points", "under_review", "what_band_means"]);
+});

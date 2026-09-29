@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { isExpired } from "./lib/expiry";
 import { siteMode } from "./lib/framing";
+import { signInAgain } from "./lib/staff";
 
 /**
  * /data/meta.json describes the export: its mode (`record` or `bands`),
@@ -19,6 +20,7 @@ export function useMetaFetch() {
     setState((s) => ({ ...s, status: "loading" }));
     fetch("/data/meta.json", { headers: { Accept: "application/json" } })
       .then((r) => {
+        if (signInAgain(r)) return new Promise(() => {});   // leaving for the sign-in page
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         return r.json();
       })

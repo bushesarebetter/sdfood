@@ -6,7 +6,7 @@ import StaffActions from "./StaffActions";
 import RecordSummary from "./RecordSummary";
 import VisitList from "./VisitList";
 import StreetViewPanel from "./StreetViewPanel";
-import { PlaceLines, PlaceStatus, CountyDisclaimer, RecordFactList, ThemeList } from "./PlaceParts";
+import { PlaceLines, PlaceStatus, CountyDisclaimer, RecordFactList, ThemeList, StaleBadge } from "./PlaceParts";
 import usePlace from "./usePlace";
 import { useAdvanced } from "./useAdvanced";
 import { useExpired, useMeta, useMode, useSample } from "./useMeta";
@@ -111,6 +111,7 @@ export default function PlacePanel({ feature, onClose, facilities = null, onSele
           <Tag>{typeLabel(p.facility_type)}</Tag>
           {p.council_district && <Tag>{SITE.districts.short} {p.council_district}</Tag>}
           <Tag color={g.textColor}>{g.graded ? `Grade ${g.short}` : g.text}</Tag>
+          <StaleBadge place={p} meta={meta} className="self-center" />
         </div>
         <div className="mt-3 empty:hidden">
           <PlaceLines place={p} withGrade={loaded.status !== "ok"} />

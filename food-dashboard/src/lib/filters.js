@@ -10,7 +10,7 @@
  * to 3, or every listed place. A place under review is in no band. `flag` is
  * one of the index's record flags (lib/inspections.js FLAG_KEYS).
  */
-import { FLAG_KEYS, FLAG_LABELS, TYPE_LABELS } from "./inspections.js";
+import { ESCALATION_FLAGS, FLAG_KEYS, FLAG_LABELS, TYPE_LABELS } from "./inspections.js";
 import { shownBand } from "./marks.js";
 import { ALL_PLACES } from "../constants.js";
 
@@ -97,4 +97,33 @@ export function sortPlaces(features, { mode = "record" } = {}) {
 export function shownPoints(p, { mode = "record" } = {}) {
   if (mode !== "bands" || !p || p.on_hold || typeof p.points !== "number") return null;
   return p.points;
+}
+
+/** Beside a place whose last County visit is more than a year before the record's end. */
+export const STALE_LABEL = "last visit over a year ago";
+const DAY = 86400000;
+const day = (iso) => (typeof iso === "string" && /^\d{4}-\d{2}-\d{2}/.test(iso) ? Date.parse(`${iso.slice(0, 10)}T00:00:00Z`) : NaN);
+
+/** Whether a place's last visit is more than `days` (365) days before `meta.inspections_through`. */
+export function lastVisitStale(p, meta, days = 365) {
+  const last = day(p?.last_visit?.date);
+  const through = day(meta?.inspections_through);
+  if (!Number.isFinite(last) || !Number.isFinite(through)) return false;
+  return (through - last) / DAY > days;
+}
+
+/**
+ * The record flags' windows: most are read from the 12 months before the list date; the
+ * escalation facts (lib/inspections.js ESCALATION_FLAGS) from the 24.
+ */
+export const FLAG_WINDOW = "in the 12 months before the list date";
+export const ESCALATION_WINDOW = "in the 24 months before the list date";
+
+export const flagWindow = (key) => (ESCALATION_FLAGS.includes(key) ? ESCALATION_WINDOW : FLAG_WINDOW);
+
+/** "Our reading of the County's record in the 12 months before the list date (the 24 months before it for: ...)." */
+export function flagWindowNote(keys = []) {
+  const esc = ESCALATION_FLAGS.filter((k) => keys.includes(k)).map((k) => FLAG_LABELS[k] ?? k);
+  const also = esc.length ? ` (the 24 months before it for: ${esc.join("; ")})` : "";
+  return `Our reading of the County's record ${FLAG_WINDOW}${also}.`;
 }

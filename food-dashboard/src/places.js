@@ -1,8 +1,11 @@
 import { loadPlaces } from "./useGoogleMap";
 import { SITE } from "./site";
+import { staffBuild } from "./lib/staff";
 
 /**
- * Address suggestions from Google Places, biased to the city.
+ * Address suggestions from Google Places, biased to the city. Never on the staff site: what City
+ * staff type (often a constituent's address) goes only to the site's own server (/geocode), as the
+ * staff privacy terms say, so there are no suggestions there.
  *
  * One session token covers the keystrokes of one search and the lookup of the
  * chosen place, which is how Google bills it. A picked suggestion resolves to
@@ -12,7 +15,7 @@ import { SITE } from "./site";
  */
 let disabled = false;
 
-export const placesAvailable = () => !disabled;
+export const placesAvailable = () => !disabled && !staffBuild();
 
 export async function newSession() {
   const places = await loadPlaces();
@@ -20,7 +23,7 @@ export async function newSession() {
 }
 
 export async function suggestAddresses(input, sessionToken) {
-  if (disabled || !input || input.trim().length < 3) return [];
+  if (!placesAvailable() || !input || input.trim().length < 3) return [];
   try {
     const places = await loadPlaces();
     const { suggestions } = await places.AutocompleteSuggestion.fetchAutocompleteSuggestions({

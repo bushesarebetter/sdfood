@@ -13,7 +13,7 @@ const place = {
     { date: "2026-05-05", status: "Complete", type: "routine", score: 81, grade: "B", major: 2, minor: 4, grp: 3, closed: false, closure: null, reopened: null },
     { date: "2026-05-12", status: "Complete", type: "followup", score: 95, grade: "A", major: 0, minor: 0, grp: 1, closed: false, closure: null, reopened: null },
   ],
-  violations: [{ date: "2026-05-05", visit: "routine", theme: "handwashing", severity: "major" }],
+  violations: [{ date: "2026-05-05", visit: "routine", theme: "hands", severity: "major" }],
 };
 
 test("a citation names the authors, the run, the place and, in bands mode, its band; never a position", () => {
@@ -34,7 +34,7 @@ test("the record text states the County's record, marks our readings, and says w
   assert.match(t, /Last visit: 2026-05-12, re-grade or reopening visit \(County status: Complete\), score 95, grade A \(95\)\./);
   assert.match(t, /2 major violations, 4 minor violations and 4 good-retail-practice items across 2 County records/);
   assert.match(t, /Our reading: 1 of those records are re-grade or reopening visits\./);
-  assert.match(t, /Hand washing: 1 item, 1 major, latest 2026-05-05/);
+  assert.match(t, /Hands washed, gloves used: 1 item, 1 major, latest 2026-05-05/);
   assert.match(t, /sandiegocounty\.gov/);
   assert.match(t, /not affiliated with or endorsed by the County of San Diego/);
   assert.doesNotMatch(t, /unsafe|dangerous|rank/);

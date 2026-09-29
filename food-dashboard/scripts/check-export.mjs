@@ -12,13 +12,21 @@
  *    score, shap_features, is_known_positive, or anything else unlisted);
  *  - a place without a unique facility_id, a name, an address or a kind, or
  *    an enum outside the contract (kind, district, visit type, grade, flag,
- *    closure, severity, theme);
+ *    closure, severity, theme; "other" is a theme but never a flag);
+ *  - a closure without `reopened_on`, or one that is not null or a date,
+ *    that sits on a record that is not a closure or was not reopened, that
+ *    comes before the closure, or that names no "Approved to Reopen" record;
  *  - a place file that is missing, that does not match its index entry, or
  *    that has no index entry;
  *  - record mode carrying bands fields; in bands mode, a band meta.card.bands
  *    does not define, worksheet rows whose points do not add up to `points`,
- *    a tie in points straddling a band edge, a place under review that still
- *    shows a band or points;
+ *    scores_used rows outside { date, score, closure, county_score } (a
+ *    closure is read as 70; county_score is null or 0 to 100) or that do not
+ *    give the worksheet's deficits, a tie in points straddling a band edge, a
+ *    place under review that still shows a band or points, and, where they
+ *    are given, meta.frozen, meta.drift, meta.card.band_1_by_route,
+ *    meta.card.closure_score or a district's precision_interval of the wrong
+ *    shape (an export from before they existed passes without them);
  *  - a non-sample export without `expires` or `provenance`, or with a place
  *    named "Sample ...", or (bands mode, named_bands non-empty) a band
  *    outside named_bands;
@@ -64,6 +72,7 @@ const DETAIL_KEYS = new Set(["business_type", "inspections", "violations", "scor
 const FORBIDDEN = ["rank", "percentile", "oof_rank", "score", "shap_features", "is_known_positive"];
 const BAND_FIELDS = ["band", "points", "on_hold"];
 const ISO = /^\d{4}-\d{2}-\d{2}$/;
+const CLOSURE_SCORE = 70;   // a routine that ended in a health closure order is read as this score
 
 let failed = false;
 const fail = (msg) => { console.error(`FAIL: ${msg}`); failed = true; };
@@ -214,6 +223,18 @@ for (const f of features) {
     if (i.closure != null && !CLOSURES.includes(i.closure)) note(`closure outside ${CLOSURES.join("|")}|null`, `${id}: ${i.date} ${i.closure}`);
     if (Boolean(i.closed) !== (i.closure != null)) note("closed and closure disagree", `${id}: ${i.date}`);
     if (i.reopened != null && typeof i.reopened !== "boolean") note("reopened outside true|false|null", `${id}: ${i.date}`);
+    // reopened_on: the date of the County's "Approved to Reopen" record that ended the closure, or null.
+    if (i.closed && !("reopened_on" in i)) note("a closure without reopened_on (a date or null)", `${id}: ${i.date}`);
+    const on = i.reopened_on;
+    if (on != null) {
+      if (typeof on !== "string" || !ISO.test(on)) note("reopened_on outside YYYY-MM-DD|null", `${id}: ${i.date} ${JSON.stringify(on)}`);
+      else if (!i.closed) note("reopened_on on a record that is not a closure", `${id}: ${i.date}`);
+      else if (i.reopened !== true) note("reopened_on on a closure whose reopened is not true", `${id}: ${i.date}`);
+      else if (on < i.date) note("reopened_on before the closure", `${id}: ${i.date} reopened ${on}`);
+      else if (!d.inspections.some((j) => j.date === on && /approved to reopen/i.test(j.status ?? ""))) {
+        note('reopened_on that is not the date of an "Approved to Reopen" record', `${id}: ${i.date} reopened ${on}`);
+      }
+    }
   }
   const vs = d.violations ?? [];
   if (!Array.isArray(vs) || vs.length > 60) note("violations missing or more than 60", id);
@@ -238,9 +259,14 @@ for (const f of features) {
       if (Math.abs(sum - p.points) > 1e-9) note("points of met score_card rows do not add up to points", `${id}: ${sum} against ${p.points}`);
       // The worksheet can be checked by hand: the average deficit is 100 minus the rounded mean of the
       // routine scores listed (a closure order read as 70), and the last deficit is 100 minus the last.
+      // county_score is the County's own score that day, or null when it gave none.
       const used = d.scores_used;
-      if (!Array.isArray(used) || used.some((u) => typeof u?.score !== "number" || !/^\d{4}-\d{2}-\d{2}$/.test(u?.date ?? "") || typeof u?.closure !== "boolean")) {
-        note("a scored place without scores_used [{date, score, closure}]", id);
+      const pct = (x) => typeof x === "number" && x >= 0 && x <= 100;
+      if (!Array.isArray(used) || used.some((u) => !pct(u?.score) || !ISO.test(u?.date ?? "") || typeof u?.closure !== "boolean"
+          || !("county_score" in (u ?? {})) || (u.county_score !== null && !pct(u.county_score)))) {
+        note("a scored place without scores_used [{date, score, closure, county_score}] (scores 0 to 100; county_score may be null)", id);
+      } else if (used.some((u) => u.closure && u.score !== CLOSURE_SCORE)) {
+        note(`a scores_used closure not read as ${CLOSURE_SCORE}`, `${id}: ${JSON.stringify(used.find((u) => u.closure && u.score !== CLOSURE_SCORE))}`);
       } else if (used.length) {
         const row = (item) => d.score_card.find((r) => r.item === item);
         const avg = row("avg_deficit"), last = row("last_deficit");
@@ -268,6 +294,7 @@ for (const [kind, { n, example }] of problems) fail(`${n} ${n === 1 ? "case" : "
 
 if (bands) {
   if (!bandDefs.size) fail("a bands-mode export whose meta.card.bands defines no band");
+  for (const p of metaShapeProblems(meta)) fail(p);
   const defs = [...bandDefs.values()].sort((a, b) => Number(a.band) - Number(b.band));
   for (let i = 1; i < defs.length; i++) {
     const hi = defs[i - 1], lo = defs[i];
@@ -275,6 +302,53 @@ if (bands) {
       fail(`band ${lo.band} reaches ${lo.max_points} points, not below band ${hi.band}'s ${hi.min_points}`);
     }
   }
+}
+
+/**
+ * The shape of the bands-mode meta fields added in September 2026. Each is optional, so an export
+ * from before them still passes; one that is present must have the contract's shape.
+ */
+function metaShapeProblems(m) {
+  const out = [];
+  const isObj = (x) => x != null && typeof x === "object" && !Array.isArray(x);
+  const share = (x) => typeof x === "number" && x >= 0 && x <= 1;
+  const shareOrNull = (x) => x === null || share(x);
+  const count = (x) => Number.isInteger(x) && x >= 0;
+  const interval = (iv) => Array.isArray(iv) && iv.length === 2
+    && ((iv[0] === null && iv[1] === null) || (share(iv[0]) && share(iv[1]) && iv[0] <= iv[1]));
+
+  if ("frozen" in m && m.frozen !== null) {
+    const f = m.frozen;
+    if (!isObj(f) || !/^\d{4}-\d{2}-\d{2}-[0-9a-f]{8}$/.test(f.version ?? "") || !ISO.test(f.frozen_on ?? "")
+        || typeof f.from_run !== "string" || !f.from_run) {
+      out.push(`meta.frozen is not null or { version: "YYYY-MM-DD-<8 hex>", frozen_on: YYYY-MM-DD, from_run } (${JSON.stringify(f)})`);
+    }
+  }
+  if ("drift" in m && m.drift !== null) {
+    const d = m.drift;
+    const nums = ["major_rate_backtest", "major_rate_recent", "band_1_share_backtest", "band_1_share_now"];
+    if (!isObj(d) || nums.some((k) => !(k in d) || !shareOrNull(d[k])) || typeof d.refit_needed !== "boolean"
+        || !Array.isArray(d.reasons) || d.reasons.some((r) => typeof r !== "string")
+        || !isObj(d.thresholds) || typeof d.thresholds.major_rate !== "number" || typeof d.thresholds.band_share !== "number") {
+      out.push(`meta.drift is not { ${nums.join(", ")} (0 to 1 or null), refit_needed, reasons: string[], thresholds: { major_rate, band_share } }`);
+    }
+  }
+  const card = m.card ?? {};
+  if ("closure_score" in card && card.closure_score !== CLOSURE_SCORE) out.push(`meta.card.closure_score is ${JSON.stringify(card.closure_score)}, not ${CLOSURE_SCORE}`);
+  if ("band_1_by_route" in card && card.band_1_by_route !== null) {
+    const r = card.band_1_by_route;
+    const route = (x) => isObj(x) && count(x.labelled) && count(x.positives) && x.positives <= x.labelled
+      && shareOrNull(x.rate) && interval(x.interval);
+    if (!isObj(r) || !route(r.closure) || !route(r.scores)) {
+      out.push("meta.card.band_1_by_route is not null or { closure, scores }, each { labelled, positives, rate, interval: [lo, hi] }");
+    }
+  }
+  for (const [dist, f] of Object.entries(m.fairness?.by_district ?? {})) {
+    if (isObj(f) && "precision_interval" in f && f.precision_interval !== null && !interval(f.precision_interval)) {
+      out.push(`meta.fairness.by_district[${dist}].precision_interval is not null or [lo, hi] within 0 to 1`);
+    }
+  }
+  return out;
 }
 
 const addDays = (iso, n) => {

@@ -26,34 +26,44 @@ import { MetaProvider, useMetaFetch, useExpired, useMeta, useMode } from "./useM
 import { findPlace, parsePlacePath, placeKey } from "./lib/links";
 import { siteDescription } from "./lib/framing";
 import { shownBand } from "./lib/marks";
+import { isStaff } from "./lib/staff";
 import { DEFAULT_BAND, ALL_PLACES } from "./constants";
 import { SITE } from "./site";
 
 const PHONE = "(max-width: 767px)";
-const defaultFilters = (mode) => ({ band: mode === "bands" ? DEFAULT_BAND : ALL_PLACES, districts: [], types: [], flag: null, county: false });
+// The public site opens on the bands; the staff site on every listed place.
+const defaultFilters = (mode, staff = false) => ({ band: mode === "bands" && !staff ? DEFAULT_BAND : ALL_PLACES, districts: [], types: [], flag: null, county: false });
 
 /**
  * Six views, no router. `/` the front page, `/map` the map and list,
  * `/place/<facility_id>` one place as a page, `/privacy`, `/corrections`, and
- * anything else a 404. `/map?place=<facility_id>` opens that place on the map.
- * Nothing renders until meta.json has loaded, so no page shows one mode and
- * then another. Once the export has expired, the front page and the map are
- * a notice and a search.
+ * anything else a 404. `/map?place=<facility_id>` opens that place on the map;
+ * `?list` opens the list, whenever the address changes to it (the app's own
+ * navigation or the back button), not only on the first load. The staff
+ * site's `/` is the full list of every listed place, with the name search,
+ * the address lookup and the council-district picker beside it. Nothing
+ * renders until meta.json has loaded, so no page shows one mode and then
+ * another. Once the export has expired, the front page and the map are a
+ * notice and a search.
  */
-function viewFromLocation() {
-  if (typeof window === "undefined") return { view: "landing", place: null };
+let locationSeq = 0;
+function viewFromLocation(staff = false) {
+  const key = ++locationSeq;          // a new key for every read, so asking for the list again opens it again
+  if (typeof window === "undefined") return { view: "landing", place: null, list: false, key };
   const { pathname, search } = window.location;
+  const q = new URLSearchParams(search);
+  const list = q.has("list");
   const path = pathname.replace(/\/+$/, "") || "/";
-  if (path === "/map") return { view: "map", place: null };
+  if (path === "/map") return { view: "map", place: null, list, key };
   if (path === "/") {
-    const q = new URLSearchParams(search);
-    return { view: q.has("place") || q.has("district") ? "map" : "landing", place: null };
+    if (staff) return { view: "map", place: null, list: true, key };
+    return { view: q.has("place") || q.has("district") || list ? "map" : "landing", place: null, list, key };
   }
-  if (path === "/privacy") return { view: "privacy", place: null };
-  if (path === "/corrections") return { view: "corrections", place: null };
-  const key = parsePlacePath(path);
-  if (key != null) return { view: "place", place: key };
-  return { view: "notfound", place: null };
+  if (path === "/privacy") return { view: "privacy", place: null, list: false, key };
+  if (path === "/corrections") return { view: "corrections", place: null, list: false, key };
+  const placeKeyInPath = parsePlacePath(path);
+  if (placeKeyInPath != null) return { view: "place", place: placeKeyInPath, list: false, key };
+  return { view: "notfound", place: null, list: false, key };
 }
 
 export default function App() {
@@ -73,13 +83,16 @@ function Dashboard() {
   const meta = useMeta();
   const mode = useMode();
   const expired = useExpired();
+  const staff = isStaff(meta);
   const [selected, setSelected] = useState(null);
   const [filters, setFilters] = useState(() => {
     const d = readDistrictFromUrl();
-    return { ...defaultFilters(mode), ...(d ? { districts: [d] } : {}) };
+    return { ...defaultFilters(mode, staff), ...(d ? { districts: [d] } : {}) };
   });
-  const [{ view, place }, setLocation] = useState(viewFromLocation);
-  const [listOpen] = useState(() => typeof window !== "undefined" && new URLSearchParams(window.location.search).has("list"));
+  const [loc, setLocation] = useState(() => viewFromLocation(staff));
+  const { view, place } = loc;
+  // Follows the address: a new key each time it asks for the list, so the list opens on every visit to ?list.
+  const listKey = loc.list ? loc.key : null;
   const [pointOverlay, setPointOverlay] = useState(null);
   const [mapError, setMapError] = useState(null);
   const isPhone = useMediaQuery(PHONE);
@@ -110,10 +123,14 @@ function Dashboard() {
   }, [filters.districts, view]);
 
   useEffect(() => {
-    const onPop = () => setLocation(viewFromLocation());
+    const onPop = () => {
+      setLocation(viewFromLocation(staff));
+      const d = readDistrictFromUrl();
+      if (d) setFilters((f) => ({ ...f, districts: [d] }));
+    };
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
-  }, []);
+  }, [staff]);
 
   const navigate = useCallback((path, { place: wantedPlace = null, list = false } = {}) => {
     const url = new URL(path, window.location.origin);
@@ -121,14 +138,14 @@ function Dashboard() {
     if (list) url.searchParams.set("list", "1");
     window.history.pushState(null, "", url);
     window.scrollTo(0, 0);
-    const next = viewFromLocation();
+    const next = viewFromLocation(staff);
     setLocation(next);
     const wanted = url.searchParams.get("place");
     if (next.view === "map" && wanted && facilities) {
       const feature = findPlace(facilities.features, wanted);
       if (feature) setSelected(feature);
     }
-  }, [facilities]);
+  }, [facilities, staff]);
 
   const enterMap = useCallback((feature = null, { list = false } = {}) => {
     navigate("/map", { place: feature ? placeKey(feature.properties) : null, list });
@@ -140,6 +157,13 @@ function Dashboard() {
     setSelected(null);
     navigate("/");
   }, [navigate]);
+
+  // A district's "list" action: that district, and the list open.
+  const openList = useCallback((d = null) => {
+    setFilters((f) => ({ ...f, districts: d == null ? [] : [d] }));
+    navigate("/map", { list: true, place: selected ? placeKey(selected.properties) : null });
+  }, [navigate, selected]);
+  const setDistricts = useCallback((districts) => setFilters((f) => ({ ...f, districts })), []);
 
   const sel = selected?.properties;
   const pageFeature = view === "place" ? findPlace(facilities?.features, place) : null;
@@ -206,9 +230,11 @@ function Dashboard() {
         <WelcomeModal />
         <MobileShell
           facilities={shown}
-          filters={{ ...defaultFilters(mode), county: filters.county, districts: filters.districts }}
+          filters={{ ...defaultFilters(mode, staff), county: filters.county, districts: filters.districts }}
           hasCounty={hasCounty}
           onCountyChange={setCounty}
+          onDistrictsChange={staff ? setDistricts : null}
+          listKey={listKey}
           selected={selected}
           onSelect={setSelected}
           pointOverlay={pointOverlay}
@@ -235,12 +261,12 @@ function Dashboard() {
 
       <main className="relative flex flex-1 overflow-hidden">
         <aside aria-label="Filters and summary" className="print-hide w-[20.5rem] shrink-0 border-r border-rule-strong">
-          <Sidebar facilities={shown} hasCounty={hasCounty} filters={filters} onFiltersChange={setFilters} onPoint={setPointOverlay} onSelect={setSelected} />
+          <Sidebar facilities={shown} hasCounty={hasCounty} filters={filters} onFiltersChange={setFilters} onPoint={setPointOverlay} onSelect={setSelected} onOpenList={openList} />
         </aside>
 
         <div id="map-area" tabIndex={-1} className="print-hide relative min-w-0 flex-1 focus:outline-none">
           <MapView facilities={shown} filters={filters} selected={selected} onSelect={setSelected} pointOverlay={pointOverlay} onError={setMapError} />
-          <PlaceTable facilities={shown} filters={filters} onSelect={setSelected} initialOpen={listOpen} openWhen={Boolean(mapError)} />
+          <PlaceTable facilities={shown} filters={filters} onSelect={setSelected} openKey={listKey} openWhen={Boolean(mapError)} />
         </div>
 
         <PlacePanel feature={selected} onClose={() => setSelected(null)} facilities={shown} onSelect={setSelected} onNavigate={navigate} />

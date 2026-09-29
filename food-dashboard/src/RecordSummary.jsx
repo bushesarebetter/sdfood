@@ -42,8 +42,8 @@ export default function RecordSummary({ place, meta, large = false }) {
           {closures > 0 && (
             <p className="text-[13px]">
               Our reading of the closures: {stats.closures} on a day a major violation was cited
-              {stats.permitClosures > 0 && <>, {stats.permitClosures} over a permit ({OUR_READING.permit.replace(/\.$/, "")})</>}
-              {stats.otherClosures > 0 && <>, {stats.otherClosures} for a reason the record does not give</>}.
+              {stats.permitClosures > 0 && <>; {stats.permitClosures} where {OUR_READING.permit.replace(/\.$/, "")}</>}
+              {stats.otherClosures > 0 && <>; {stats.otherClosures} for a reason the record does not give</>}.
             </p>
           )}
         </>

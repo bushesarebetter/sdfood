@@ -39,8 +39,14 @@ export const SITE = {
     // a name and a phone number or email; it does not take anonymous reports.
     complaintsUrl: "https://www.sandiegocounty.gov/content/sdc/deh/fhd/food/foodcomplaints.html",
     complaintsPhone: "(858) 505-6903",
-    // Suspected food poisoning goes to the foodborne illness line.
+    complaintsEmail: "fhdcomplaints@sdcounty.ca.gov",
+    // Suspected food poisoning goes to the Food and Housing Division's Epidemiology Liaison
+    // (an intake form or email); a medical emergency goes to 911 first.
     illnessPhone: "(858) 505-6814",
+    illnessEmail: "FHDepi@sdcounty.ca.gov",
+    // Rats, mice or flies outside a building are the County's Vector Control Program, not Food and Housing.
+    vectorName: "County Vector Control",
+    vectorPhone: "(858) 694-2888",
     grades: { A: "90 to 100", B: "80 to 89", C: "79 or below" },
     // The month the County's published inspection results begin.
     recordStart: "2023-01",

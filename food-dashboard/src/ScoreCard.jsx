@@ -1,42 +1,36 @@
 import { worksheet, rowText } from "./lib/card";
-import { GROUP_NOTE, bandDefs, bandPoints, bandSummary, estimateSentence, persistenceSentence, ruleSentence, stabilitySentence } from "./lib/bands";
-import { fmtDate } from "./lib/dates";
+import {
+  GROUP_NOTE, bandDefs, bandPoints, bandSummary, estimateSentence, isOutside, persistenceSentence, ruleSentence, scoresRead, stabilitySentence,
+} from "./lib/bands";
 import { shownBand } from "./lib/marks";
 
 /**
- * "How the points add up" (`bands` mode): the students' point rule in one
- * sentence, each count from the record times its weight, the total, and
- * where that total falls: the band's range of points and what the band has
- * been worth in the backtest, or, for a place in no band, where the lowest band
- * starts. Then the scores the average reads (a closure order counted as 70),
- * so the points can be checked by hand, and what places with about these
- * points did in the backtest. Plain mode lists the rows that add points and
- * counts the rest; technical mode shows every row as value × weight.
+ * "How the points add up" (`bands` mode). It leads with the estimate: what places with about this
+ * place's points did in the backtest, dated to that backtest, with a range that reflects sampling
+ * only. Then the students' point rule in one sentence, each count from the record times its
+ * weight, and the total; the scores the average reads (what the County recorded for a closure, and
+ * that the rule counts it as 70), so the points can be checked by hand; then where that total falls:
+ * the band's range of points and what the band has been worth in the backtest, or, for a place in
+ * no band, where the lowest band starts. Plain mode lists the rows that add points and counts the
+ * rest; technical mode shows every row as value × weight.
  */
-
-/** "95 (Feb 1, 2025), 94 (Aug 1, 2025) and 70, a closure order (Jan 15, 2026): mean 86.3." */
-function scoresLine(used) {
-  if (!Array.isArray(used) || !used.length) return null;
-  const parts = used.map((u) => `${u.score}${u.closure ? ", a closure order" : ""} (${fmtDate(u.date)})`);
-  const list = parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts.at(-1)}` : parts[0];
-  const mean = used.reduce((a, u) => a + u.score, 0) / used.length;
-  return { list, mean: Math.round(mean * 10) / 10 };
-}
 export default function ScoreCard({ p, meta, advanced = false, large = false }) {
   const w = worksheet(p, meta);
   if (!w) return null;
   const shown = advanced ? w.rows : w.met;
   const text = large ? "text-[15px]" : "text-[13.5px]";
+  const small = large ? "text-[14.5px]" : "text-[13px]";
   const band = shownBand(p, { mode: "bands" });
   const lowest = bandDefs(meta).at(-1);
   const stability = advanced ? stabilitySentence(p) : null;
-  const outside = p?.council_district == null && Boolean(meta?.card?.outside);
-  const reads = w.rows.some((r) => r.item === "avg_deficit") ? scoresLine(p?.scores_used) : null;
+  const outside = isOutside(p, meta);
+  const reads = w.rows.some((r) => r.item === "avg_deficit") ? scoresRead(p?.scores_used) : null;
   const estimate = estimateSentence(meta, w.total, { estimate: p?.estimate ?? null, outside });
   const persistence = persistenceSentence(meta);
 
   return (
     <div>
+      {estimate && <p className={`mb-4 leading-[1.5] text-ink ${text}`}>{estimate}</p>}
       <p className={`mb-3 leading-[1.5] text-ink-2 ${text}`}>{ruleSentence(meta)}</p>
       <table className={`w-full ${text}`}>
         <caption className="sr-only">How this place&rsquo;s points add up</caption>
@@ -69,21 +63,25 @@ export default function ScoreCard({ p, meta, advanced = false, large = false }) 
         </p>
       )}
       {reads && (
-        <p className={`mt-3 leading-[1.5] text-ink-2 ${large ? "text-[14.5px]" : "text-[13px]"}`}>
-          The average reads the routine scores of the two years before the list: {reads.list}. Their mean is {reads.mean}; 100 minus the
-          mean, rounded half up, is the points below 100.
-        </p>
+        <div className={`mt-3 leading-[1.5] text-ink-2 ${small}`}>
+          <p>The average reads the routine scores of the two years before the list:</p>
+          <ul className="mt-1 list-disc space-y-0.5 pl-5">
+            {reads.lines.map((l, i) => <li key={i} className="tnum">{l}</li>)}
+          </ul>
+          <p className="mt-1">
+            Their mean is {reads.mean}; 100 minus the mean, rounded half up, is the points below 100.
+          </p>
+        </div>
       )}
-      <div className={`mt-3 space-y-2 leading-[1.5] text-ink-2 ${large ? "text-[14.5px]" : "text-[13px]"}`}>
+      <div className={`mt-3 space-y-2 leading-[1.5] text-ink-2 ${small}`}>
         {band ? (
           <>
             <p>Band {band} is {bandPoints(meta, band) ?? "a range of points"}.</p>
-            <p>{bandSummary(meta, band, { outside })}</p>
+            <p>{bandSummary(meta, band, { outside, district: p?.council_district ?? null })}</p>
           </>
         ) : (
           <p>In no band{typeof lowest?.min_points === "number" ? `: band ${lowest.band} starts at ${lowest.min_points} points` : ""}.</p>
         )}
-        {estimate && <p>{estimate}</p>}
         <p>{GROUP_NOTE}</p>
         {persistence && <p>{persistence}</p>}
         {stability && <p>{stability}</p>}

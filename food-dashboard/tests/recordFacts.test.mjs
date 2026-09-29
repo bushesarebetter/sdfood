@@ -26,7 +26,24 @@ test("reopening is stated only when the record says the County approved it", () 
   const notReopened = { inspections: [routine("2026-02-01", null, null, { status: "Ordered Closed", major: 1, closed: true, closure: "health", reopened: false })], violations: [] };
   assert.deepEqual(recordFacts(notReopened)[0].county, ["Ordered Closed on February 1, 2026."]);
   const permit = { inspections: [routine("2026-02-01", 96, "A", { status: "Ordered Closed", closed: true, closure: "permit", reopened: false })], violations: [] };
-  assert.equal(recordFacts(permit)[0].reading, "Our reading: no major violation was cited that day, so the closure is read as a permit matter.");
+  assert.equal(recordFacts(permit)[0].reading, "Our reading: no major violation was cited that day and the inspector's notes mention a permit, so we read the closure as a permit matter.");
+});
+
+test("reopened_on names the County's Approved to Reopen record that ended the closure", () => {
+  const p = {
+    inspections: [
+      routine("2026-02-01", null, null, { status: "Ordered Closed", major: 1, closed: true, closure: "health", reopened: true, reopened_on: "2026-02-05" }),
+      visit("2026-02-02", "complaint"),
+      visit("2026-02-05", "followup", { status: "Approved to Reopen", score: 94, grade: "A" }),
+      routine("2026-05-01", null, null, { status: "Ordered Closed", major: 2, closed: true, closure: "health", reopened: false, reopened_on: null }),
+    ],
+    violations: [],
+  };
+  const closures = recordFacts(p).filter((f) => f.title === "Ordered closed");
+  assert.deepEqual(closures.map((f) => f.county), [
+    ["Ordered Closed on May 1, 2026."],
+    ["Ordered Closed on February 1, 2026.", "Approved to Reopen on February 5, 2026."],
+  ]);
 });
 
 test("a theme quotes the County's item text, notes complaint visits, and needs a major or minors at two inspections", () => {
@@ -75,7 +92,7 @@ test("findings older than 12 months make no fact; nothing instructs or judges", 
       routine("2026-03-01", 78, "C", { major: 2 }),
     ],
     grade: { grade: "C", score: 78, date: "2026-03-01", replaced: null },
-    violations: ["vermin", "temperature", "handwashing", "hygiene", "sanitizing", "supplier", "condition", "process", "storage", "plumbing"].map((t) => v("2026-03-01", t, "major")),
+    violations: ["vermin", "temperature", "hands", "handsink", "health", "sanitizing", "supplier", "condition", "process", "water", "sewage", "grp_food"].map((t) => v("2026-03-01", t, "major")),
   };
   const all = text(recordFacts(busy));
   assert.doesNotMatch(all, /look for|tell the County|report it|avoid|should|unsafe|dangerous|if you eat/i);

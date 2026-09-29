@@ -3,6 +3,8 @@ import { useAdvanced } from "./useAdvanced";
 import { useMeta, useMode } from "./useMeta";
 import { flagChips, typesFor, bandCounts } from "./lib/filters";
 import { bandPoints } from "./lib/bands";
+import { ESCALATION_FLAGS, ESCALATION_NOTE } from "./lib/inspections";
+import { fmtDate } from "./lib/dates";
 import { BAND_FILTERS, ALL_PLACES } from "./constants";
 import AreaToggle, { outsideNote } from "./AreaToggle";
 
@@ -15,8 +17,9 @@ const places = (n) => `${Number(n || 0).toLocaleString("en-US")} ${n === 1 ? "pl
 
 /**
  * The filters, each a row of buttons: in `bands` mode which bands to show;
- * then the kind of place, and a fact from the last year of the record (our
- * reading, from the index's flags). Each button's accessible name says its
+ * then the kind of place, and a fact from the year before the list date (our
+ * reading, from the index's flags; the three escalation facts read two years
+ * and quote the County's own criteria). Each button's accessible name says its
  * count apart from its label ("Band 1, 16 places").
  */
 export default function FilterBar({ filters, onFiltersChange, facilities, hasCounty = false }) {
@@ -26,6 +29,7 @@ export default function FilterBar({ filters, onFiltersChange, facilities, hasCou
   const chips = useMemo(() => flagChips(facilities, filters, { mode }), [facilities, filters, mode]);
   const types = useMemo(() => typesFor(facilities, filters, { mode }), [facilities, filters, mode]);
   const counts = useMemo(() => bandCounts(facilities, { mode }), [facilities, mode]);
+  const escalation = chips.some((c) => ESCALATION_FLAGS.includes(c.key));
 
   const set = (patch) => onFiltersChange({ ...filters, ...patch });
   const toggleType = (key) => {
@@ -99,7 +103,11 @@ export default function FilterBar({ filters, onFiltersChange, facilities, hasCou
               </button>
             ))}
           </div>
-          <p className="mt-2.5 text-[13px] leading-[1.45] text-ink-2">Our reading of the 12 months before each place&rsquo;s last visit.</p>
+          <p className="mt-2.5 text-[13px] leading-[1.45] text-ink-2">
+            Our reading of the 12 months before the list date{meta?.generated ? <>, {fmtDate(meta.generated)}</> : null}, and of the
+            24 months before it for the three escalation facts.
+          </p>
+          {escalation && <p className="mt-1.5 text-[13px] leading-[1.45] text-ink-2">{ESCALATION_NOTE}</p>}
         </>
       )}
     </div>

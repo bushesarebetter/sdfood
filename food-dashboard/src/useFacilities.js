@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
+import { signInAgain } from "./lib/staff";
 
 /**
  * The index (`data/facilities.geojson`), fetched once: what the map, the
@@ -18,6 +19,7 @@ export default function useFacilities() {
     (async () => {
       try {
         const res = await fetch("/data/facilities.geojson");
+        if (signInAgain(res)) return;
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const fc = await res.json();
         if (!Array.isArray(fc?.features)) throw new Error("the index has no features");

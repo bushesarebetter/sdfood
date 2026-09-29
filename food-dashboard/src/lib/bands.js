@@ -12,8 +12,9 @@
  * record as it stood on an earlier date, checked against the routine
  * inspections that followed. It is stated in natural frequencies with its
  * likely range, beside the rate for all scored restaurants
- * (`meta.card.base_rate`). Every scored place also gets an estimate read from
- * a monotone (isotonic) fit of rate by points (`meta.card.curve`). Places outside the
+ * (`meta.card.base_rate`), and with the share that had none. Every scored place
+ * also gets an estimate read from a monotone (isotonic) fit of rate by points
+ * (`meta.card.curve`), dated to the backtest it comes from. Places outside the
  * City are described by rates measured outside the City (`meta.card.outside`).
  * None of it is a statement about any one place (GROUP_NOTE).
  */
@@ -89,6 +90,19 @@ export function restRate(meta) {
   return typeof r === "number" ? r : null;
 }
 
+/**
+ * The places below the bands against the comparison rate, to one decimal: their rate over the rate
+ * for all scored restaurants when the export has it, or 1 when they are the comparison. Null
+ * without a rate for them.
+ */
+export function restRatio(meta) {
+  const r = restRate(meta);
+  if (r == null) return null;
+  const base = meta?.card?.base_rate;
+  if (typeof base === "number") return base > 0 ? Math.round((r / base) * 10) / 10 : null;
+  return 1;
+}
+
 /** A band's rate over the comparison rate (all scored restaurants when the export has it), to one decimal, or null. */
 export function rateRatio(meta, band, { outside = false } = {}) {
   const d = bandRow(meta, band, outside);
@@ -104,34 +118,106 @@ export function backtestList(meta) {
 }
 
 const inHundred = (x) => Math.round(x * 100);
-const likely = (iv) => (Array.isArray(iv) && iv.length === 2 && iv.every((v) => typeof v === "number")
-  ? ` (likely ${inHundred(iv[0])} to ${inHundred(iv[1])})` : "");
+const pair = (iv) => Array.isArray(iv) && iv.length === 2 && iv.every((v) => typeof v === "number");
+const likely = (iv) => (pair(iv) ? ` (likely ${inHundred(iv[0])} to ${inHundred(iv[1])})` : "");
+/** Whether a 95% interval includes zero. */
+const spansZero = (iv) => pair(iv) && iv[0] <= 0 && iv[1] >= 0;
 
 /** Beside every band and estimate: what a band is, and what it is not. */
-export const GROUP_NOTE = "A band is a statistic about a group of places, not a finding about any one of them.";
+export const GROUP_NOTE = "A band describes what happened to a group of places; it is not a finding that this place has, or will have, a violation.";
+
+/** Added to a band's line when its difference from the same-size persistence group spans zero. */
+export const SAME_AS_PERSISTENCE = "Sorting by recent major violations alone picks out a group with the same rate.";
+
+/** Added to an estimate when the export's drift check says the rates should be measured again. */
+export const DRIFT_NOTE = "The County's record has changed since these rates were measured.";
+
+/** A place outside the City is described by the rates measured outside it, when the export has them. */
+export const isOutside = (p, meta) => p?.council_district == null && Boolean(meta?.card?.outside);
+
+/** The bands the district figures cover (`meta.fairness.bands_used`), or band 1. */
+function auditedBands(meta) {
+  const b = meta?.fairness?.bands_used;
+  return Array.isArray(b) && b.length ? b.map(String).sort((x, y) => Number(x) - Number(y)) : ["1"];
+}
+
+/** "band 1 places", "places in bands 1 and 2", "places in bands 1 to 3". */
+function bandGroup(list) {
+  if (list.length === 1) return `band ${list[0]} places`;
+  const run = list.every((b, i) => i === 0 || Number(b) === Number(list[i - 1]) + 1);
+  if (run && list.length > 2) return `places in bands ${list[0]} to ${list.at(-1)}`;
+  return `places in bands ${list.slice(0, -1).join(", ")} and ${list.at(-1)}`;
+}
 
 /**
- * The sentence beside every band, in natural frequencies with its likely range: "In the backtest,
- * band 1 places had a major violation at their next routine inspection at about 1.7 times the rate
- * of all scored restaurants: about 37 in 100 (likely 33 to 41), against 21 in 100." For a place
- * outside the City, the rates measured outside the City.
+ * "In council district 4, about 29 in 100 band 1 places had one." From `meta.fairness.by_district`,
+ * for a City place in a band the district figures cover; null otherwise.
  */
-export function bandSummary(meta, band, { outside = false } = {}) {
+export function districtSentence(meta, band, district) {
+  if (district == null || band == null) return null;
+  const used = auditedBands(meta);
+  if (!used.includes(String(band))) return null;
+  const f = meta?.fairness?.by_district?.[String(district)];
+  if (typeof f?.precision !== "number") return null;
+  return `In council district ${district}, about ${inHundred(f.precision)} in 100 ${bandGroup(used)} had one${likely(f.precision_interval)}.`;
+}
+
+/**
+ * The sentence beside every band, in natural frequencies with its likely range and the share that
+ * had none: "In the backtest, about 37 in 100 band 1 places had a major violation at their next
+ * routine inspection (likely 33 to 41), against 21 in 100 of all scored restaurants; about 63 in
+ * 100 had none." Then, when the same-size group picked by recent major violations did as well
+ * (its `vs_baseline` interval spans zero), SAME_AS_PERSISTENCE; and for a City place with a council
+ * district, what the band's places there did. For a place outside the City, the rates measured
+ * outside the City.
+ */
+export function bandSummary(meta, band, { outside = false, district = null } = {}) {
   const d = bandRow(meta, band, outside);
   if (!d || typeof d.rate !== "number") return `Band ${band} has no backtest rate in this export.`;
   const where = outside ? " outside the City" : "";
   const c = comparison(meta, outside);
-  const ratio = rateRatio(meta, band, { outside });
-  if (!c || ratio == null) {
-    return `In the backtest, about ${inHundred(d.rate)} in 100 band ${d.band} places${where} had a major violation at their next routine inspection${likely(d.interval)}.`;
-  }
-  return `In the backtest, band ${d.band} places${where} had a major violation at their next routine inspection at about ${ratio} times the rate of ${c.who}: about ${inHundred(d.rate)} in 100${likely(d.interval)}, against ${inHundred(c.rate)} in 100.`;
+  const n = inHundred(d.rate);
+  const against = c ? `, against ${inHundred(c.rate)} in 100 of ${c.who}` : "";
+  const out = [`In the backtest, about ${n} in 100 band ${d.band} places${where} had a major violation at their next routine inspection${likely(d.interval)}${against}; about ${100 - n} in 100 had none.`];
+  if (spansZero(d.vs_baseline)) out.push(SAME_AS_PERSISTENCE);
+  const byDistrict = outside ? null : districtSentence(meta, d.band, district);
+  if (byDistrict) out.push(byDistrict);
+  return out.join(" ");
+}
+
+/**
+ * Which backtest the rates come from, by its list dates (`meta.card.by_origin`), else the dates in
+ * `trained_on`, else the one backtest list: "the backtest of lists drawn up from March 1, 2025 to
+ * September 1, 2025".
+ */
+export function backtestPeriod(meta) {
+  const dates = [...new Set((meta?.card?.by_origin ?? [])
+    .map((o) => o?.as_of).filter((x) => typeof x === "string" && /^\d{4}-\d{2}-\d{2}/.test(x)))].sort();
+  if (dates.length > 1) return `the backtest of lists drawn up from ${fmtDate(dates[0])} to ${fmtDate(dates.at(-1))}`;
+  if (dates.length === 1) return `the backtest of the list drawn up on ${fmtDate(dates[0])}`;
+  const t = /(\d{4}-\d{2}-\d{2}) to (\d{4}-\d{2}-\d{2})/.exec(String(meta?.card?.trained_on ?? meta?.catch_run?.trained_on ?? ""));
+  if (t) return `the backtest over the record from ${fmtDate(t[1])} to ${fmtDate(t[2])}`;
+  const asOf = meta?.catch_run?.as_of;
+  return asOf ? `the backtest of the list drawn up on ${fmtDate(asOf)}` : "the backtest";
+}
+
+/**
+ * The backtest list an estimate comes from: the curve is fitted at the confirmation origin only
+ * (`meta.catch_run.as_of`, the first `by_origin` entry), not across every origin.
+ */
+export function estimatePeriod(meta) {
+  const asOf = meta?.catch_run?.as_of ?? meta?.card?.by_origin?.[0]?.as_of;
+  return typeof asOf === "string" && /^\d{4}-\d{2}-\d{2}/.test(asOf)
+    ? `the backtest of the list drawn up on ${fmtDate(asOf)}` : backtestPeriod(meta);
 }
 
 /**
  * What a place's points say as a rate, from its place file's `estimate` or read from the export's
- * curve: "Scored restaurants with about 12 points: about 39 in 100 had a major violation at their
- * next routine inspection in the backtest (likely 35 to 41)." Null without points or a curve.
+ * curve, dated to the backtest list it comes from: "Scored restaurants with about 12 points: about
+ * 39 in 100 had a major violation at their next routine inspection in the backtest of the list drawn
+ * up on September 1, 2025 (likely 35 to 41). The likely range reflects sampling only, not changes
+ * since then." Then DRIFT_NOTE when the export's drift check asks for a refit. Null without points
+ * or a curve.
  */
 export function estimateSentence(meta, points, { estimate = null, outside = false } = {}) {
   if (typeof points !== "number") return null;
@@ -144,7 +230,11 @@ export function estimateSentence(meta, points, { estimate = null, outside = fals
   }
   if (typeof e?.rate !== "number") return null;
   const where = outside ? " outside the City" : "";
-  return `Scored restaurants${where} with about ${points} points: about ${inHundred(e.rate)} in 100 had a major violation at their next routine inspection in the backtest${likely([e.low, e.high])}.`;
+  const range = likely([e.low, e.high]);
+  const out = [`Scored restaurants${where} with about ${points} points: about ${inHundred(e.rate)} in 100 had a major violation at their next routine inspection in ${estimatePeriod(meta)}${range}.`];
+  if (range) out.push("The likely range reflects sampling only, not changes since then.");
+  if (meta?.drift?.refit_needed === true) out.push(DRIFT_NOTE);
+  return out.join(" ");
 }
 
 /**
@@ -181,4 +271,86 @@ export function stabilitySentence(p) {
   const s = p?.band_stability;
   if (p?.band == null || typeof s !== "number") return null;
   return `Stayed in band ${p.band} in ${pct(s)} of refits of the rule on resampled data.`;
+}
+
+/** The score the rule counts for a routine inspection that ended in a closure order. */
+export const CLOSURE_SCORE = 70;
+
+/**
+ * One score the average reads (`scores_used`, `{date, score, closure, county_score}`), as text:
+ * "February 1, 2025: 95", or for a closure, what the County recorded and what the rule counts.
+ * An older export's entry without `county_score` says only that the rule counts the closure as 70.
+ */
+export function scoreUsedText(u) {
+  const date = fmtDate(u?.date);
+  if (!u?.closure) return `${date}: ${u?.score}`;
+  if (u.county_score === null) return `${date}: closed, no County score; this rule counts it as ${CLOSURE_SCORE}`;
+  if (typeof u.county_score === "number") return `${date}: closed (the County's score that day: ${u.county_score}); this rule counts a closure as ${CLOSURE_SCORE}`;
+  return `${date}: closed; this rule counts a closure as ${CLOSURE_SCORE}`;
+}
+
+/** The scores the average reads, as lines, and their mean to one decimal (a closure counted as 70); or null. */
+export function scoresRead(used) {
+  if (!Array.isArray(used) || !used.length) return null;
+  const values = used.map((u) => (u?.closure ? CLOSURE_SCORE : u?.score));
+  if (!values.every((v) => typeof v === "number" && Number.isFinite(v))) return null;
+  const mean = values.reduce((a, v) => a + v, 0) / values.length;
+  return { lines: used.map(scoreUsedText), mean: Math.round(mean * 10) / 10 };
+}
+
+/**
+ * The cost-ratio table (`meta.utility`): for each cost ratio C/B, the bar C/(B+C) a band's interval
+ * must clear at its low end to be named, and the bands that clear it. Null when the export has none.
+ */
+export function utilityRows(meta) {
+  const u = meta?.utility;
+  if (!Array.isArray(u)) return null;
+  const rows = u
+    .filter((r) => typeof r?.cost_ratio === "number" && typeof r?.bar === "number")
+    .map((r) => ({ cost_ratio: r.cost_ratio, bar: r.bar, named: Array.isArray(r.named) ? r.named.map(String) : [] }));
+  return rows.length ? rows : null;
+}
+
+/** "Rule version 2026-09-20-abcd, frozen September 20, 2026.", or null. */
+export function frozenLine(meta) {
+  const f = meta?.frozen;
+  if (!f || typeof f !== "object" || !f.version) return null;
+  return `Rule version ${f.version}${f.frozen_on ? `, frozen ${fmtDate(f.frozen_on)}` : ""}.`;
+}
+
+/** When the export's drift check asks for a refit: DRIFT_NOTE with its reasons; otherwise null. */
+export function driftLine(meta) {
+  const d = meta?.drift;
+  if (!d || d.refit_needed !== true) return null;
+  const reasons = (Array.isArray(d.reasons) ? d.reasons : []).filter((r) => typeof r === "string" && r.trim());
+  return reasons.length ? `${DRIFT_NOTE.replace(/\.$/, "")}: ${reasons.join("; ")}.` : DRIFT_NOTE;
+}
+
+/**
+ * Band 1's backtest rate by how its places got there (`meta.card.band_1_by_route`): through a
+ * closure counted as 70, or on routine scores alone. Takes an object keyed by route or a list of
+ * `{route, rate, interval}`; null when neither route has a rate.
+ */
+export function band1ByRoute(meta) {
+  const r = meta?.card?.band_1_by_route;
+  if (!r || typeof r !== "object") return null;
+  const entries = Array.isArray(r) ? r.map((x) => [String(x?.route ?? x?.key ?? x?.name ?? ""), x]) : Object.entries(r);
+  const withRate = entries.filter(([, v]) => typeof v?.rate === "number");
+  const scoresKey = (k) => /score|routine|alone|without|no_?closure|other/i.test(k);
+  const closure = withRate.find(([k]) => /closure|closed|70/i.test(k) && !scoresKey(k))?.[1] ?? null;
+  const scores = withRate.find(([k]) => scoresKey(k))?.[1] ?? null;
+  return closure || scores ? { closure, scores } : null;
+}
+
+/** Band 1's rate by route, in one sentence, or null. */
+export function routeSentence(meta) {
+  const r = band1ByRoute(meta);
+  if (!r) return null;
+  const { closure: c, scores: s } = r;
+  const next = "had a major violation at their next routine inspection";
+  if (c && s) {
+    return `In the backtest, about ${inHundred(c.rate)} in 100 band 1 places that were in it because of a closure counted as ${CLOSURE_SCORE} ${next}${likely(c.interval)}, against about ${inHundred(s.rate)} in 100 of those in it on routine scores alone${likely(s.interval)}.`;
+  }
+  if (c) return `In the backtest, about ${inHundred(c.rate)} in 100 band 1 places that were in it because of a closure counted as ${CLOSURE_SCORE} ${next}${likely(c.interval)}.`;
+  return `In the backtest, about ${inHundred(s.rate)} in 100 band 1 places that were in it on routine scores alone ${next}${likely(s.interval)}.`;
 }

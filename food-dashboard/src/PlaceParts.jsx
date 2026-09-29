@@ -6,6 +6,7 @@
  */
 import { useMeta, useExpired } from "./useMeta";
 import { placeLines } from "./lib/framing";
+import { lastVisitStale, STALE_LABEL } from "./lib/filters";
 import { PLACE_STATUS_TEXT } from "./lib/placeData";
 import { themeCounts } from "./lib/inspections";
 import { fmtMonth } from "./lib/dates";
@@ -25,6 +26,19 @@ export function PlaceLines({ place, large = false, withGrade = true }) {
         <p key={i} className={i === 0 && withGrade ? "text-ink" : undefined}>{l}</p>
       ))}
     </div>
+  );
+}
+
+/**
+ * A small neutral badge beside a place whose last County visit is more than a year before the
+ * record's end (`meta.inspections_through`); nothing otherwise.
+ */
+export function StaleBadge({ place = null, meta = null, className = "" }) {
+  if (place && !lastVisitStale(place, meta)) return null;
+  return (
+    <span className={`inline-block whitespace-nowrap border border-rule-strong px-1.5 py-px text-[11.5px] font-normal leading-[1.4] text-ink-2 ${className}`}>
+      {STALE_LABEL}
+    </span>
   );
 }
 

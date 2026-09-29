@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 /**
  * Words the site does not use, anywhere in src/, index.html or the static
  * 404 page, comments included. Results are stated as rates, never around
- * what a list did not find; a band is a range of points on a published rule,
+ * what a list did not find; a band is a range of points on the students' point rule,
  * never a risk word or a prediction about a place; and the per-place diner
  * advice is gone. URLs are left out of the check (the host's name is not
  * copy).
@@ -31,6 +31,8 @@ const BANNED = [
   [/strongest sign/i, "strongest sign"],
   [/public[- ]domain/i, "public domain"],
   [/point card/i, "point card"],
+  [/published rule/i, "published rule (it is the students' point rule)"],
+  [/not for redistribution/i, "not for redistribution (downloads are likely public records)"],
   [/—/, "em dash"],
 ];
 

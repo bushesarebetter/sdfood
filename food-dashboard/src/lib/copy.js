@@ -16,7 +16,7 @@ const PLAIN = {
   bandTitle: "Which bands",
   bandUnit: "by points on the students' point rule",
   typeTitle: "Kind of place",
-  flagTitle: "In the last year of the record",
+  flagTitle: "In the 12 months before the list date",
   flagUnit: "our reading",
 
   searchPlaceholder: "Search for a restaurant or market",
@@ -43,7 +43,7 @@ const ADVANCED = {
   bandTitle: "Bands",
   bandUnit: "cumulative",
   typeTitle: "Facility type",
-  flagTitle: "Record flags, 12 months",
+  flagTitle: "Record flags, 12 months to the list date",
   searchPlaceholder: "Search facility",
   detailHistory: "Inspection history",
   detailHistoryNote: "Score by record; reinspections, re-grade or reopening visits and complaint visits drawn lighter",

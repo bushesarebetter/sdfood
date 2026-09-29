@@ -4,19 +4,26 @@ import NearPanel from "./NearPanel";
 import DistrictSummary from "./DistrictSummary";
 import { fmtDate } from "./lib/dates";
 import { headline, subhead, gradeContextSentence } from "./lib/framing";
-import { bandDefs, bandPoints, rateRatio } from "./lib/bands";
+import { GROUP_NOTE, bandDefs, bandPoints, rateRatio, restRatio } from "./lib/bands";
+import { isStaff } from "./lib/staff";
 import { BAND_TEXT } from "./lib/marks";
+import { SITE, DISTRICT_NUMBERS } from "./site";
 
 const pct = (x) => (typeof x === "number" ? `${Math.round(x * 100)}%` : "");
 
 /**
  * The column beside the map, read top to bottom: what this shows and how
  * fresh it is, which places to show, whether any are near an address, in
- * `bands` mode what each band has been worth, and where the places are.
+ * `bands` mode what each band has been worth, and where the places are. On
+ * the staff site the council-district picker and the address lookup come
+ * first, then the district view.
  */
-export default function Sidebar({ facilities, hasCounty = false, filters, onFiltersChange, onPoint, onSelect }) {
+export default function Sidebar({ facilities, hasCounty = false, filters, onFiltersChange, onPoint, onSelect, onOpenList = null }) {
   const meta = useMeta();
   const mode = useMode();
+  const staff = isStaff(meta);
+  const districts = <DistrictSummary facilities={facilities} filters={filters} onFiltersChange={onFiltersChange} onOpenList={onOpenList} />;
+  const near = <NearPanel facilities={facilities} filters={filters} onPoint={onPoint} onSelect={onSelect} />;
 
   return (
     <div className="flex h-full flex-col overflow-y-auto bg-paper">
@@ -32,14 +39,27 @@ export default function Sidebar({ facilities, hasCounty = false, filters, onFilt
         </p>
       </div>
 
-      <hr className="rule" />
-      <FilterBar filters={filters} onFiltersChange={onFiltersChange} facilities={facilities} hasCounty={hasCounty} />
-
-      <hr className="rule" />
-      <DistrictSummary facilities={facilities} filters={filters} onFiltersChange={onFiltersChange} />
-
-      <hr className="rule" />
-      <NearPanel facilities={facilities} filters={filters} onPoint={onPoint} onSelect={onSelect} />
+      {staff ? (
+        <>
+          <hr className="rule" />
+          <DistrictPicker filters={filters} onFiltersChange={onFiltersChange} />
+          <hr className="rule" />
+          {near}
+          <hr className="rule" />
+          {districts}
+          <hr className="rule" />
+          <FilterBar filters={filters} onFiltersChange={onFiltersChange} facilities={facilities} hasCounty={hasCounty} />
+        </>
+      ) : (
+        <>
+          <hr className="rule" />
+          <FilterBar filters={filters} onFiltersChange={onFiltersChange} facilities={facilities} hasCounty={hasCounty} />
+          <hr className="rule" />
+          {districts}
+          <hr className="rule" />
+          {near}
+        </>
+      )}
 
       {mode === "bands" && bandDefs(meta).length > 0 && (
         <>
@@ -47,6 +67,28 @@ export default function Sidebar({ facilities, hasCounty = false, filters, onFilt
           <BandTable meta={meta} />
         </>
       )}
+    </div>
+  );
+}
+
+/** One council district, or every one: the same filter the district view's rows set. */
+export function DistrictPicker({ filters, onFiltersChange, compact = false }) {
+  const value = filters.districts?.length === 1 ? String(filters.districts[0]) : "";
+  const set = (v) => onFiltersChange({ ...filters, districts: v ? [Number(v)] : [] });
+  return (
+    <div className={compact ? "" : "px-6 py-5"}>
+      <label htmlFor={compact ? "district-picker-phone" : "district-picker"} className={compact ? "sr-only" : "label mb-2 block"}>
+        {SITE.districts.label}
+      </label>
+      <select
+        id={compact ? "district-picker-phone" : "district-picker"}
+        value={value}
+        onChange={(e) => set(e.target.value)}
+        className={`w-full border border-rule-strong px-3 text-ink focus:border-ink focus:outline-none ${compact ? "min-h-[36px] bg-paper text-[13px] shadow-paper" : "bg-paper-sunk py-2 text-[14px] focus:bg-paper"}`}
+      >
+        <option value="">Every {SITE.districts.label.toLowerCase()}</option>
+        {DISTRICT_NUMBERS.map((d) => <option key={d} value={d}>{SITE.districts.short} {d}</option>)}
+      </select>
     </div>
   );
 }
@@ -90,7 +132,7 @@ function BandTable({ meta }) {
               <th scope="row" className="py-1.5 text-left font-normal text-ink-2">Below the bands</th>
               <td />
               <td className="tnum py-1.5 text-right text-ink-2">{pct(rest)}</td>
-              <td className="tnum py-1.5 text-right text-ink-2">{typeof base === "number" ? "" : "1"}</td>
+              <td className="tnum py-1.5 text-right text-ink-2">{restRatio(meta) ?? ""}</td>
             </tr>
           )}
         </tbody>
@@ -98,8 +140,7 @@ function BandTable({ meta }) {
       <p className="mt-2.5 text-[13px] leading-[1.45] text-ink-2">
         The share of each band&rsquo;s places that had a major violation at their next routine inspection, on the list drawn up the same way
         {meta?.catch_run?.as_of ? ` on ${fmtDate(meta.catch_run.as_of)}` : " for the backtest"}, with its likely range, and how many
-        times the rate {typeof base === "number" ? "for all scored restaurants" : "below the bands"} that is. A band is a statistic about a
-        group of places, not a finding about any one of them.
+        times the rate {typeof base === "number" ? "for all scored restaurants" : "below the bands"} that is. {GROUP_NOTE}
       </p>
     </div>
   );

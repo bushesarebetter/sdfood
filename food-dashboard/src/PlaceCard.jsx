@@ -6,7 +6,7 @@ import ScoreCard from "./ScoreCard";
 import StaffActions from "./StaffActions";
 import RecordSummary from "./RecordSummary";
 import VisitList from "./VisitList";
-import { PlaceLines, PlaceStatus, CountyDisclaimer, RecordFactList, ThemeList } from "./PlaceParts";
+import { PlaceLines, PlaceStatus, CountyDisclaimer, RecordFactList, ThemeList, StaleBadge } from "./PlaceParts";
 import usePlace from "./usePlace";
 import { useAdvanced } from "./useAdvanced";
 import { useExpired, useMeta, useMode, useSample } from "./useMeta";
@@ -86,11 +86,14 @@ export default function PlaceCard({ placeKey, facilities, error = null, onRetry 
       </p>
       <h1 className="font-serif text-[34px] font-medium leading-[1.08] tracking-[-0.02em] text-ink sm:text-[42px]">{p.name}</h1>
       <p className="mt-2 text-[15px] text-ink-2">{p.address}</p>
-      {g.graded && (
-        <p className="mt-3 inline-block border px-2 py-[3px] text-[13px] font-semibold" style={{ color: g.textColor ?? undefined, borderColor: g.textColor ?? "#B8AF9C" }}>
-          Grade {g.short}
-        </p>
-      )}
+      <div className="mt-3 flex flex-wrap items-center gap-2 empty:hidden">
+        {g.graded && (
+          <p className="inline-block border px-2 py-[3px] text-[13px] font-semibold" style={{ color: g.textColor ?? undefined, borderColor: g.textColor ?? "#B8AF9C" }}>
+            Grade {g.short}
+          </p>
+        )}
+        <StaleBadge place={p} meta={meta} className="!px-2 !py-[3px] !text-[13px]" />
+      </div>
       <div className="mt-3 max-w-[62ch]">
         <PlaceLines place={p} large withGrade={!place} />
       </div>

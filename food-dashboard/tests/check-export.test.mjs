@@ -20,7 +20,7 @@ function place(n, { band, points, index = {}, detail = {} } = {}) {
     ...(band != null ? { band } : {}), ...(points != null ? { points } : {}), ...index,
   };
   const card = points != null ? { score_card: [{ item: "avg_deficit", weight: 1, value: points - 2, points: points - 2, met: points - 2 > 0 }, { item: "theme_temperature", weight: 2, value: 1, points: 2, met: true }], band_stability: 0.9,
-    scores_used: [{ date: "2026-01-02", score: 100 - (points - 2), closure: false }] } : {};
+    scores_used: [{ date: "2026-01-02", score: 100 - (points - 2), closure: false, county_score: 100 - (points - 2) }] } : {};
   return {
     feature: { type: "Feature", geometry: { type: "Point", coordinates: [-117.16, 32.72] }, properties: props },
     file: { ...props, business_type: "Restaurant Food Facility", inspections: [record("2026-05-01")], violations: [{ date: "2026-05-01", visit: "routine", code: "7", theme: "temperature", severity: "minor", description: "x" }], ...card, ...detail },
@@ -146,6 +146,9 @@ test("enums outside the contract fail", () => {
     [{ detail: { inspections: [record("2026-05-01", { status: "" })] } }, /without the County's status text/],
     [{ detail: { inspections: [record("2026-05-01", { closed: true, closure: "fire" })] } }, /closure outside/],
     [{ detail: { violations: [{ date: "2026-05-01", visit: "routine", code: "7", theme: "source", severity: "minor" }] } }, /violation theme outside/],
+    [{ detail: { violations: [{ date: "2026-05-01", visit: "routine", code: "6", theme: "handwashing", severity: "minor" }] } }, /violation theme outside/],
+    [{ index: { flags: ["major", "other"] } }, /flags outside/],
+    [{ index: { flags: ["handwashing"] } }, /flags outside/],
     [{ detail: { violations: [{ date: "2026-05-01", visit: "routine", code: "7", theme: "supplier", severity: "critical" }] } }, /violation severity outside/],
   ];
   for (const [extra, re] of cases) {
@@ -199,4 +202,114 @@ test("a hand-written publication stamp must be well formed and inside the export
   const late = check(places, reviewMeta(1), { publish: { gates_passed_at: "2027-01-01" } });
   assert.match(late.err, /outside this export's window/);
   assert.ok(check(places, reviewMeta(1), { publish: true }).ok, "a well-formed stamp inside the window passes");
+});
+
+test("the new flags and the report-section themes pass", () => {
+  const p = place(1, { band: "1", points: 21, index: { flags: ["major", "closures2", "repeat_item", "lt90_2", "hands", "grp_staff", "grp_other"] } });
+  p.file.violations = [
+    { date: "2026-05-01", visit: "routine", code: "1b", theme: "knowledge", severity: "minor", description: "x" },
+    { date: "2026-05-01", visit: "routine", code: "39", theme: "grp_equipment", severity: "grp", description: "x" },
+    { date: "2026-05-01", visit: "routine", code: "99", theme: "other", severity: "grp", description: "x" },
+  ];
+  const r = check([p], reviewMeta(1), { args: ["--review"] });
+  assert.ok(r.ok, r.err);
+});
+
+/** A place whose record holds a closure on 2026-03-02 and, when `back`, the County's reopening on 2026-03-05. */
+function closedPlace(closure, { back = true } = {}) {
+  const closed = record("2026-03-02", { status: "Ordered Closed", score: null, grade: null, major: 1, closed: true, closure: "health", reopened: true, reopened_on: "2026-03-05", ...closure });
+  if (closed.reopened_on === undefined) delete closed.reopened_on;
+  const inspections = [closed, ...(back ? [record("2026-03-05", { status: "Approved to Reopen", type: "followup" })] : []), record("2026-05-01")];
+  return place(1, { band: "1", points: 21, detail: { inspections } });
+}
+
+test("a closure carries reopened_on: the date of the County's Approved to Reopen record, or null", () => {
+  const ok = check([closedPlace({})], reviewMeta(1), { args: ["--review"] });
+  assert.ok(ok.ok, ok.err);
+  const notReopened = check([closedPlace({ reopened: false, reopened_on: null }, { back: false })], reviewMeta(1), { args: ["--review"] });
+  assert.ok(notReopened.ok, notReopened.err);
+  const nullOnOthers = place(1, { band: "1", points: 21, detail: { inspections: [record("2026-05-01", { reopened_on: null })] } });
+  assert.ok(check([nullOnOthers], reviewMeta(1), { args: ["--review"] }).ok, "a null reopened_on on any record is allowed");
+  const cases = [
+    [closedPlace({ reopened_on: undefined }), /a closure without reopened_on/],
+    [closedPlace({ reopened_on: "June 8, 2025" }), /reopened_on outside YYYY-MM-DD\|null/],
+    [closedPlace({ reopened: false }), /reopened_on on a closure whose reopened is not true/],
+    [closedPlace({ reopened_on: "2026-02-20" }), /reopened_on before the closure/],
+    [closedPlace({}, { back: false }), /reopened_on that is not the date of an "Approved to Reopen" record/],
+    [place(1, { band: "1", points: 21, detail: { inspections: [record("2026-05-01", { reopened_on: "2026-05-03" })] } }), /reopened_on on a record that is not a closure/],
+  ];
+  for (const [p, re] of cases) {
+    const r = check([p], reviewMeta(1), { args: ["--review"] });
+    assert.equal(r.ok, false, String(re));
+    assert.match(r.err, re);
+  }
+});
+
+test("scores_used rows are { date, score, closure, county_score }, and a closure is read as 70", () => {
+  // avg_deficit 19 = 100 - round(mean(92, 70)); a closure the County scored 78 is read as 70.
+  const withClosure = (row) => place(1, { band: "1", points: 21, detail: { scores_used: [{ date: "2025-11-02", score: 92, closure: false, county_score: 92 }, row] } });
+  const ok = check([withClosure({ date: "2026-03-02", score: 70, closure: true, county_score: 78 })], reviewMeta(1), { args: ["--review"] });
+  assert.ok(ok.ok, ok.err);
+  const unscored = check([withClosure({ date: "2026-03-02", score: 70, closure: true, county_score: null })], reviewMeta(1), { args: ["--review"] });
+  assert.ok(unscored.ok, unscored.err);
+  const cases = [
+    [withClosure({ date: "2026-03-02", score: 78, closure: true, county_score: 78 }), /a scores_used closure not read as 70/],
+    [withClosure({ date: "2026-03-02", score: 70, closure: true }), /without scores_used \[\{date, score, closure, county_score\}\]/],
+    [withClosure({ date: "2026-03-02", score: 70, closure: true, county_score: 120 }), /without scores_used/],
+    [withClosure({ date: "2026-03-02", score: 70, closure: "yes", county_score: null }), /without scores_used/],
+    [withClosure({ date: "2026-03-02", score: 60, closure: false, county_score: 60 }), /avg_deficit does not match the scores_used it reads/],
+  ];
+  for (const [p, re] of cases) {
+    const r = check([p], reviewMeta(1), { args: ["--review"] });
+    assert.equal(r.ok, false, String(re));
+    assert.match(r.err, re);
+  }
+});
+
+const newMeta = {
+  frozen: { version: "2026-09-29-1a2b3c4d", frozen_on: "2026-09-29", from_run: "forward_2026-09-29-0a1b2c3d" },
+  drift: {
+    major_rate_backtest: 0.21, major_rate_recent: 0.24, band_1_share_backtest: 0.025, band_1_share_now: null,
+    refit_needed: false, reasons: [], thresholds: { major_rate: 0.05, band_share: 0.05 },
+  },
+  card: {
+    ...card, closure_score: 70,
+    band_1_by_route: {
+      closure: { labelled: 40, positives: 18, rate: 0.45, interval: [0.31, 0.6] },
+      scores: { labelled: 0, positives: 0, rate: null, interval: [null, null] },
+    },
+  },
+  fairness: { by_district: { 3: { named: 4, precision: 0.5, precision_interval: [0.15, 0.85] }, 4: { named: 0, precision: null, precision_interval: null } } },
+};
+
+test("the frozen rule, drift, band 1 by route and district precision intervals pass when well formed, and are optional", () => {
+  const r = check(banded(), { ...reviewMeta(2), ...newMeta }, { args: ["--review"] });
+  assert.ok(r.ok, r.err);
+  const nulls = check(banded(), { ...reviewMeta(2), frozen: null, drift: null, card: { ...card, band_1_by_route: null } }, { args: ["--review"] });
+  assert.ok(nulls.ok, nulls.err);
+  assert.ok(check(banded(), reviewMeta(2), { args: ["--review"] }).ok, "an export from before these fields passes");
+});
+
+test("malformed meta.frozen, meta.drift, band_1_by_route, closure_score or precision_interval fail", () => {
+  const route = newMeta.card.band_1_by_route;
+  const cases = [
+    [{ frozen: { ...newMeta.frozen, version: "v1" } }, /meta\.frozen is not null or/],
+    [{ frozen: { ...newMeta.frozen, frozen_on: "Sept 29" } }, /meta\.frozen is not null or/],
+    [{ frozen: { version: newMeta.frozen.version, frozen_on: "2026-09-29" } }, /meta\.frozen is not null or/],
+    [{ drift: { ...newMeta.drift, refit_needed: "no" } }, /meta\.drift is not/],
+    [{ drift: { ...newMeta.drift, major_rate_recent: "24%" } }, /meta\.drift is not/],
+    [{ drift: { ...newMeta.drift, reasons: "none" } }, /meta\.drift is not/],
+    [{ drift: { ...newMeta.drift, thresholds: { major_rate: 0.05 } } }, /meta\.drift is not/],
+    [{ card: { ...newMeta.card, closure_score: 75 } }, /meta\.card\.closure_score is 75, not 70/],
+    [{ card: { ...newMeta.card, band_1_by_route: { closure: route.closure } } }, /meta\.card\.band_1_by_route is not null or/],
+    [{ card: { ...newMeta.card, band_1_by_route: { ...route, scores: { ...route.scores, positives: 3 } } } }, /band_1_by_route is not/],
+    [{ card: { ...newMeta.card, band_1_by_route: { ...route, closure: { ...route.closure, interval: [0.6, 0.31] } } } }, /band_1_by_route is not/],
+    [{ fairness: { by_district: { 3: { precision_interval: [0.2, 1.4] } } } }, /by_district\[3\]\.precision_interval is not null or \[lo, hi\]/],
+    [{ fairness: { by_district: { 3: { precision_interval: 0.5 } } } }, /by_district\[3\]\.precision_interval/],
+  ];
+  for (const [patch, re] of cases) {
+    const r = check(banded(), { ...reviewMeta(2), ...newMeta, ...patch }, { args: ["--review"] });
+    assert.equal(r.ok, false, String(re));
+    assert.match(r.err, re);
+  }
 });

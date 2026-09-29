@@ -1,19 +1,20 @@
-import { visitLabel, recordGradeText, OUR_READING } from "./lib/inspections";
+import { visitLabel, recordGradeText, reopenedText, OUR_READING, CLOSURE_LABELS, CLOSURES } from "./lib/inspections";
 import { fmtDate } from "./lib/dates";
 
-const CLOSURE_READING = { health: "health hazard", permit: "permit matter", other: "reason not given" };
+const sentence = (s) => `${s.charAt(0).toUpperCase()}${s.slice(1)}`;
 
 /**
  * Every County record for a place, one row per record, oldest first, with
  * the County's status text verbatim. A visit we read as a re-grade or
  * reopening visit, and the reason for a closure, are marked as our reading.
+ * A closure the County's "Approved to Reopen" record ended shows that date.
  * The page shows it open; the panel keeps it folded.
  */
 export default function VisitList({ inspections, open = false, heading = "Every County record" }) {
   const list = inspections ?? [];
   if (!list.length) return null;
   const retyped = list.some((i) => i.type === "followup");
-  const closed = list.some((i) => i.closed);
+  const reasons = CLOSURES.filter((c) => list.some((i) => i.closed && i.closure === c));
   const table = (
     <div className="overflow-x-auto">
       <table className="w-full text-[13px] leading-[1.4]">
@@ -35,7 +36,8 @@ export default function VisitList({ inspections, open = false, heading = "Every 
               </td>
               <td className="py-1.5 pr-3 text-ink">
                 {i.status || ""}
-                {i.closed && i.closure && <span className="block text-[12px] text-ink-3">our reading: {CLOSURE_READING[i.closure] ?? i.closure}</span>}
+                {i.closed && i.closure && <span className="block text-[12px] text-ink-3">our reading: {CLOSURE_LABELS[i.closure] ?? i.closure}</span>}
+                {reopenedText(i) && <span className="block text-[12px] text-ink-2">{reopenedText(i)}</span>}
               </td>
               <td className="tnum py-1.5 pr-3 text-right">{typeof i.score === "number" ? i.score : ""}</td>
               <td className="tnum py-1.5 pr-3 text-right">{recordGradeText(i) ? i.grade : ""}</td>
@@ -44,10 +46,11 @@ export default function VisitList({ inspections, open = false, heading = "Every 
           ))}
         </tbody>
       </table>
-      {(retyped || closed) && (
+      {(retyped || reasons.length > 0) && (
         <p className="mt-2 text-[13px] leading-[1.5] text-ink-2">
           {retyped && <>Our reading: {OUR_READING.followup} </>}
-          {closed && <>A closure&rsquo;s reason is our reading: health hazard when {OUR_READING.health.replace(/\.$/, "")}.</>}
+          {reasons.length > 0 && <>A closure&rsquo;s reason is our reading.</>}
+          {reasons.map((c) => <span key={c}> {sentence(CLOSURE_LABELS[c])}: {OUR_READING[c]}</span>)}
         </p>
       )}
     </div>

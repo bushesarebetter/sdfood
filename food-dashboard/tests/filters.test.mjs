@@ -57,3 +57,22 @@ test("bands mode sorts by band, then points, then name; points show only where p
   assert.equal(shownPoints({ on_hold: true, points: 4 }, { mode: "bands" }), null);
   assert.equal(shownPoints({}, { mode: "bands" }), null);
 });
+
+test("a last visit more than 365 days before the record's end is stale", async () => {
+  const { lastVisitStale, STALE_LABEL } = await import("../src/lib/filters.js");
+  const meta = { inspections_through: "2026-09-19" };
+  assert.equal(STALE_LABEL, "last visit over a year ago");
+  assert.equal(lastVisitStale({ last_visit: { date: "2025-09-18" } }, meta), true, "366 days");
+  assert.equal(lastVisitStale({ last_visit: { date: "2025-09-19" } }, meta), false, "365 days is not more than a year");
+  assert.equal(lastVisitStale({ last_visit: { date: "2026-08-01" } }, meta), false);
+  assert.equal(lastVisitStale({ last_visit: null }, meta), false);
+  assert.equal(lastVisitStale({ last_visit: { date: "2020-01-01" } }, {}), false, "no record end, no claim");
+});
+
+test("the flags are labelled with their window: 12 months before the list date, 24 for the escalation facts", async () => {
+  const { flagWindow, flagWindowNote } = await import("../src/lib/filters.js");
+  assert.equal(flagWindow("major"), "in the 12 months before the list date");
+  for (const k of ["closures2", "repeat_item", "lt90_2"]) assert.equal(flagWindow(k), "in the 24 months before the list date", k);
+  assert.equal(flagWindowNote(["major", "bc"]), "Our reading of the County's record in the 12 months before the list date.");
+  assert.match(flagWindowNote(["major", "closures2"]), /^Our reading of the County's record in the 12 months before the list date \(the 24 months before it for: [^;]+\)\.$/);
+});

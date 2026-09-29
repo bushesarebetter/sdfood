@@ -8,6 +8,8 @@
  * page served in place of a file it does not have), or a network error that
  * a retry may fix.
  */
+import { signInAgain } from "./staff.js";
+
 export const placeFileUrl = (id) => `/data/place/${encodeURIComponent(String(id ?? ""))}.json`;
 
 /** A place file may be a flat object or a GeoJSON Feature; either way, its properties. */
@@ -33,6 +35,7 @@ export async function fetchPlace(id, { fetchImpl = globalThis.fetch } = {}) {
   } catch (err) {
     return { status: "error", reason: String(err?.message ?? err) };
   }
+  if (signInAgain(res)) return { status: "error", reason: "signed out" };
   if (res.status === 404 || res.status === 410) return { status: "missing" };
   if (!res.ok) return { status: "error", reason: `HTTP ${res.status}` };
   const type = res.headers?.get?.("content-type") ?? "";

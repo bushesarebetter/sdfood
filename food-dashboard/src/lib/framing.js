@@ -17,7 +17,7 @@ import { expiryNotice } from "./expiry.js";
 import { typePlural } from "./inspections.js";
 import { gradeView } from "./grades.js";
 import { shownBand } from "./marks.js";
-import { GROUP_NOTE, bandDefs, bandPoints, bandShare, bandSummary, estimateSentence, ruleSentence } from "./bands.js";
+import { GROUP_NOTE, bandDefs, bandPoints, bandShare, bandSummary, estimateSentence, isOutside, ruleSentence } from "./bands.js";
 
 export function siteMode(meta) {
   return meta?.mode === "bands" ? "bands" : "record";
@@ -97,8 +97,9 @@ export function legendNote(meta) {
 
 /**
  * The lines under a place's name in every place view: its grade (unless the
- * view states it in its record summary), then, in `bands` mode, its band, its
- * points and what the band's backtest showed.
+ * view states it in its record summary), then, in `bands` mode, the estimate
+ * for places with about its points first, then its band, its points and what
+ * the band's backtest showed.
  */
 export function placeLines(p, meta, { expired = false, withGrade = true, estimate = null } = {}) {
   const g = gradeView(p?.grade);
@@ -114,15 +115,15 @@ export function placeLines(p, meta, { expired = false, withGrade = true, estimat
     return lines;
   }
   // Outside the City, rates are the ones measured outside the City (meta.card.outside).
-  const outside = p?.council_district == null && Boolean(meta?.card?.outside);
+  const outside = isOutside(p, meta);
   const b = shownBand(p, { mode: "bands" });
   const est = estimateSentence(meta, p?.points, { estimate, outside });
   if (!b) {
     if (typeof p?.points === "number") {
       const lowest = bandDefs(meta).at(-1);
       const edge = typeof lowest?.min_points === "number" ? ` (band ${lowest.band} starts at ${lowest.min_points} points)` : "";
-      lines.push(`In no band: ${p.points} points on the students' point rule${edge}.`);
       if (est) lines.push(est);
+      lines.push(`In no band: ${p.points} points on the students' point rule${edge}.`);
     } else {
       const who = typeof meta?.card?.eligibility === "string" ? ` It scores ${meta.card.eligibility.replace(/\.$/, "")}.` : "";
       lines.push(`Not scored: the students' point rule gives this place no points.${who}`);
@@ -131,9 +132,9 @@ export function placeLines(p, meta, { expired = false, withGrade = true, estimat
   }
   const range = bandPoints(meta, b);
   const pts = typeof p.points === "number" ? `: ${p.points} points` : "";
-  lines.push(`Band ${b} on the students' point rule${pts}${range ? ` (band ${b} is ${range})` : ""}.`);
-  lines.push(bandSummary(meta, b, { outside }));
   if (est) lines.push(est);
+  lines.push(`Band ${b} on the students' point rule${pts}${range ? ` (band ${b} is ${range})` : ""}.`);
+  lines.push(bandSummary(meta, b, { outside, district: p?.council_district ?? null }));
   lines.push(GROUP_NOTE);
   return lines;
 }

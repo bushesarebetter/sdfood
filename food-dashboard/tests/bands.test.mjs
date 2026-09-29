@@ -1,10 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  bandDefs, bandShare, bandPoints, bandSummary, bandRatePhrase, bandInterval, rateRatio, ruleSentence, backtestList, stabilitySentence,
-  estimateSentence, persistenceSentence, GROUP_NOTE,
+  bandDefs, bandShare, bandPoints, bandSummary, bandRatePhrase, bandInterval, rateRatio, restRatio, ruleSentence, backtestList, stabilitySentence,
+  estimateSentence, persistenceSentence, backtestPeriod, districtSentence, GROUP_NOTE, SAME_AS_PERSISTENCE, DRIFT_NOTE,
+  scoreUsedText, scoresRead, utilityRows, frozenLine, driftLine, band1ByRoute, routeSentence, isOutside,
 } from "../src/lib/bands.js";
-import { bandsMeta } from "./fixtures/bandsMeta.mjs";
+import { bandsMeta, staffMeta } from "./fixtures/bandsMeta.mjs";
 
 
 test("bands are ranges of points and slices of the scored places", () => {
@@ -22,19 +23,24 @@ test("bands are ranges of points and slices of the scored places", () => {
   assert.match(ruleSentence({}), /students' point rule/);
 });
 
-test("a band's result is in natural frequencies, with its likely range, beside a stated comparison", () => {
-  assert.equal(rateRatio(bandsMeta, "1"), 3.4);
+test("the band line gives the rate, its likely range, the comparison and the share that had none", () => {
   assert.equal(
-    bandSummary(bandsMeta, "1"),
-    "In the backtest, band 1 places had a major violation at their next routine inspection at about 3.4 times the rate of scored places below the bands: about 55 in 100 (likely 46 to 63), against 16 in 100.",
+    bandSummary(staffMeta, "1").split(". ")[0] + ".",
+    "In the backtest, about 37 in 100 band 1 places had a major violation at their next routine inspection (likely 33 to 41), against 21 in 100 of all scored restaurants; about 63 in 100 had none.",
   );
-  // with the rate for all scored restaurants, that is the comparison (never only the places left below the bands)
-  const withBase = { ...bandsMeta, card: { ...bandsMeta.card, base_rate: 0.2 } };
-  assert.equal(rateRatio(withBase, "1"), 2.7);
-  assert.match(bandSummary(withBase, "1"), /about 2\.7 times the rate of all scored restaurants: about 55 in 100 \(likely 46 to 63\), against 20 in 100\.$/);
-  const noRest = { card: { bands: bandsMeta.card.bands } };
-  assert.equal(bandSummary(noRest, "2"), "In the backtest, about 33 in 100 band 2 places had a major violation at their next routine inspection (likely 27 to 39).");
+  // below the bands is the comparison only when the export has no rate for all scored restaurants
+  assert.equal(
+    bandSummary(bandsMeta, "2"),
+    "In the backtest, about 33 in 100 band 2 places had a major violation at their next routine inspection (likely 27 to 39), against 16 in 100 of scored places below the bands; about 67 in 100 had none.",
+  );
+  const noRest = { card: { bands: bandsMeta.card.bands.map((b) => ({ ...b, vs_baseline: null })) } };
+  assert.equal(bandSummary(noRest, "2"), "In the backtest, about 33 in 100 band 2 places had a major violation at their next routine inspection (likely 27 to 39); about 67 in 100 had none.");
   assert.equal(bandSummary({}, "1"), "Band 1 has no backtest rate in this export.");
+  for (const b of ["1", "2", "3"]) {
+    const [n, none] = [...bandSummary(bandsMeta, b).matchAll(/about (\d+) in 100/g)].map((m) => Number(m[1]));
+    assert.equal(n + none, 100, "the two shares add up to 100");
+  }
+  assert.equal(rateRatio(bandsMeta, "1"), 3.4);
   assert.equal(bandRatePhrase(bandsMeta, "3"), "30% had a major");
   assert.equal(bandInterval(bandsMeta, "1"), "95% interval 46% to 63%");
   assert.equal(backtestList(bandsMeta), "the list drawn up the same way on September 1, 2025");
@@ -42,26 +48,102 @@ test("a band's result is in natural frequencies, with its likely range, beside a
   assert.equal(stabilitySentence({ band: "2" }), null);
 });
 
+test("when the same-size group picked by recent major violations did as well, the band line says so", () => {
+  assert.equal(SAME_AS_PERSISTENCE, "Sorting by recent major violations alone picks out a group with the same rate.");
+  assert.ok(bandSummary(staffMeta, "1").endsWith(SAME_AS_PERSISTENCE), "vs_baseline [-3.1, 2.9] spans zero");
+  assert.ok(bandSummary(bandsMeta, "1").endsWith(SAME_AS_PERSISTENCE), "vs_baseline [-4, 9] spans zero");
+  assert.ok(!bandSummary(bandsMeta, "2").includes(SAME_AS_PERSISTENCE), "no interval, no claim");
+  const better = { card: { ...staffMeta.card, bands: [{ ...staffMeta.card.bands[0], vs_baseline: [1, 8] }] } };
+  assert.ok(!bandSummary(better, "1").includes(SAME_AS_PERSISTENCE), "an interval above zero is not the same rate");
+});
+
+test("for a City place with a council district, the band line adds what the band's places there did", () => {
+  assert.equal(districtSentence(staffMeta, "1", 4), "In council district 4, about 29 in 100 band 1 places had one (likely 20 to 39).");
+  assert.equal(districtSentence(staffMeta, "1", 2), "In council district 2, about 41 in 100 band 1 places had one.");
+  assert.equal(districtSentence(staffMeta, "1", 7), null, "no figures for the district");
+  assert.equal(districtSentence(staffMeta, "1", null), null);
+  assert.equal(districtSentence({ ...staffMeta, fairness: { ...staffMeta.fairness, bands_used: ["1", "2", "3"] } }, "2", 4),
+    "In council district 4, about 29 in 100 places in bands 1 to 3 had one (likely 20 to 39).", "the group the figures cover");
+  assert.equal(districtSentence(staffMeta, "2", 4), null, "band 2 is not in the audited bands");
+  assert.ok(bandSummary(staffMeta, "1", { district: 4 }).endsWith("In council district 4, about 29 in 100 band 1 places had one (likely 20 to 39)."));
+  assert.ok(!bandSummary(staffMeta, "1", { district: 4, outside: true }).includes("council district"), "never outside the City");
+  assert.equal(isOutside({ council_district: null }, staffMeta), false, "no outside rates, so City rates");
+  assert.equal(isOutside({ council_district: null }, { card: { outside: {} } }), true);
+});
+
+test("the below-the-bands ratio is their rate against the comparison rate, never a fixed 1", () => {
+  assert.equal(restRatio(staffMeta), 0.9, "0.18 / 0.21");
+  assert.equal(restRatio(bandsMeta), 1, "below the bands is itself the comparison");
+  assert.equal(restRatio({}), null);
+});
 
 test("a place outside the City is described by the rates measured outside the City", () => {
   const meta = { ...bandsMeta, card: { ...bandsMeta.card, base_rate: 0.2,
     outside: { base_rate: 0.17, bands: [{ band: "1", rate: 0.33, interval: [0.29, 0.37] }],
                curve: { rate: [0.05, 0.1, 0.2], low: [0.04, 0.08, 0.17], high: [0.06, 0.12, 0.24] } } } };
-  assert.match(bandSummary(meta, "1", { outside: true }), /band 1 places outside the City .* all scored restaurants outside the City: about 33 in 100 \(likely 29 to 37\), against 17 in 100\.$/);
+  assert.equal(bandSummary(meta, "1", { outside: true }),
+    "In the backtest, about 33 in 100 band 1 places outside the City had a major violation at their next routine inspection (likely 29 to 37), against 17 in 100 of all scored restaurants outside the City; about 67 in 100 had none.");
   assert.equal(estimateSentence(meta, 2, { outside: true }),
-    "Scored restaurants outside the City with about 2 points: about 20 in 100 had a major violation at their next routine inspection in the backtest (likely 17 to 24).");
+    "Scored restaurants outside the City with about 2 points: about 20 in 100 had a major violation at their next routine inspection in the backtest of the list drawn up on September 1, 2025 (likely 17 to 24). The likely range reflects sampling only, not changes since then.");
 });
 
-test("every scored place gets an estimate from its place file or the curve; the persistence comparison follows the data", () => {
-  const meta = { ...bandsMeta, card: { ...bandsMeta.card, curve: { rate: [0.05, 0.3], low: [0.04, 0.25], high: [0.06, 0.35] } } };
-  assert.match(estimateSentence(meta, 40), /about 40 points: about 30 in 100 .* \(likely 25 to 35\)\.$/, "read at the largest point on the curve");
-  assert.match(estimateSentence(meta, 1, { estimate: { rate: 0.41, low: 0.3, high: 0.5 } }), /about 41 in 100 .* \(likely 30 to 50\)/);
-  assert.equal(estimateSentence(meta, null), null);
+test("an estimate names the backtest it comes from, says its range is sampling only, and notes drift", () => {
+  assert.equal(backtestPeriod(staffMeta), "the backtest of lists drawn up from March 1, 2025 to September 1, 2025", "by_origin dates, in order");
+  assert.equal(backtestPeriod({ card: { trained_on: staffMeta.card.trained_on } }), "the backtest over the record from July 1, 2023 to September 1, 2025");
+  assert.equal(backtestPeriod({ card: { trained_on: "sample: invented weights" }, catch_run: { as_of: "2025-09-01" } }), "the backtest of the list drawn up on September 1, 2025");
+  assert.equal(backtestPeriod({}), "the backtest");
+  assert.equal(
+    estimateSentence(staffMeta, 12),
+    "Scored restaurants with about 12 points: about 39 in 100 had a major violation at their next routine inspection in the backtest of the list drawn up on September 1, 2025 (likely 35 to 43). " +
+      "The likely range reflects sampling only, not changes since then. The County's record has changed since these rates were measured.",
+    "read at the largest point on the curve; drift noted",
+  );
+  const calm = { ...staffMeta, drift: { refit_needed: false, reasons: [] } };
+  assert.ok(!estimateSentence(calm, 3).includes(DRIFT_NOTE));
+  assert.match(estimateSentence(calm, 1, { estimate: { rate: 0.41, low: 0.3, high: 0.5 } }), /about 41 in 100 .* \(likely 30 to 50\)\. The likely range reflects sampling only/);
+  assert.doesNotMatch(estimateSentence(calm, 1, { estimate: { rate: 0.41 } }), /likely/, "no range, no range sentence");
+  assert.equal(estimateSentence(staffMeta, null), null);
   assert.equal(estimateSentence({}, 5), null);
+});
+
+test("the persistence comparison follows the data; the group note says what a band is not", () => {
   const similar = { card: { bands: [{ band: "1", baseline_rate: 0.37, vs_baseline: [-23, 26] }] } };
   assert.match(persistenceSentence(similar), /similar rate \(about 37 in 100\)\. The points are a transparent summary of that record, not a better predictor\.$/);
   const better = { card: { bands: [{ band: "1", baseline_rate: 0.3, vs_baseline: [4, 30] }] } };
   assert.match(persistenceSentence(better), /whose rate was lower \(about 30 in 100\): band 1 found more/);
   assert.equal(persistenceSentence({}), null);
-  assert.match(GROUP_NOTE, /not a finding about any one of them/);
+  assert.equal(GROUP_NOTE, "A band describes what happened to a group of places; it is not a finding that this place has, or will have, a violation.");
+});
+
+test("the scores the average reads say what the County recorded for a closure and what the rule counts", () => {
+  assert.equal(scoreUsedText({ date: "2025-02-01", score: 95, closure: false, county_score: 95 }), "February 1, 2025: 95");
+  assert.equal(scoreUsedText({ date: "2026-01-15", score: 70, closure: true, county_score: null }),
+    "January 15, 2026: closed, no County score; this rule counts it as 70");
+  assert.equal(scoreUsedText({ date: "2026-03-03", score: 70, closure: true, county_score: 84 }),
+    "March 3, 2026: closed (the County's score that day: 84); this rule counts a closure as 70");
+  assert.equal(scoreUsedText({ date: "2026-01-15", score: 70, closure: true }), "January 15, 2026: closed; this rule counts a closure as 70", "an older export");
+  const r = scoresRead([{ date: "2025-02-01", score: 95, closure: false }, { date: "2025-08-01", score: 94 }, { date: "2026-01-15", score: 70, closure: true, county_score: 88 }]);
+  assert.equal(r.mean, 86.3, "a closure counts as 70 whatever the County's score");
+  assert.equal(r.lines.length, 3);
+  assert.equal(scoresRead([]), null);
+  assert.equal(scoresRead([{ date: "2025-01-01" }]), null);
+});
+
+test("the cost-ratio table, the frozen rule, drift and band 1 by route read from meta, and are absent without it", () => {
+  assert.deepEqual(utilityRows(staffMeta), [{ cost_ratio: 0.25, bar: 0.2, named: [] }, { cost_ratio: 1, bar: 0.5, named: [] }]);
+  assert.equal(utilityRows(bandsMeta), null);
+  assert.equal(utilityRows({ utility: null }), null);
+  assert.equal(frozenLine(staffMeta), "Rule version 2026-09-20-abcd1234, frozen September 20, 2026.");
+  assert.equal(frozenLine({ frozen: null }), null);
+  assert.equal(driftLine(staffMeta), "The County's record has changed since these rates were measured: routine major rate 27.0% in the last full quarters against 21.0% in the backtest.");
+  assert.equal(driftLine({ drift: { refit_needed: true } }), DRIFT_NOTE);
+  assert.equal(driftLine({ drift: { refit_needed: false, reasons: ["x"] } }), null);
+  assert.equal(driftLine({}), null);
+  assert.equal(routeSentence(staffMeta),
+    "In the backtest, about 45 in 100 band 1 places that were in it because of a closure counted as 70 had a major violation at their next routine inspection (likely 33 to 58), against about 36 in 100 of those in it on routine scores alone (likely 32 to 40).");
+  const list = { card: { band_1_by_route: [{ route: "no_closure", rate: 0.3 }, { route: "closure_70", rate: 0.5 }] } };
+  assert.equal(band1ByRoute(list).closure.rate, 0.5);
+  assert.equal(band1ByRoute(list).scores.rate, 0.3);
+  assert.match(routeSentence({ card: { band_1_by_route: { closure: { rate: 0.5 } } } }), /^In the backtest, about 50 in 100 band 1 places that were in it because of a closure/);
+  assert.equal(routeSentence(bandsMeta), null);
 });

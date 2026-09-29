@@ -9,6 +9,7 @@ import { markFor } from "./lib/marks";
 import { track } from "./lib/track";
 import { useExpired, useMode } from "./useMeta";
 import { SITE } from "./site";
+import { staffBuild } from "./lib/staff";
 
 const NEAR_M = 500;
 
@@ -29,18 +30,21 @@ export function explain(err) {
  */
 /**
  * Google's geocoder when the Maps key allows it; otherwise the site's own /geocode (the staff
- * server's OpenStreetMap and Census lookup, city_site/server.mjs).
+ * server's OpenStreetMap and Census lookup, city_site/server.mjs). The staff site always uses its
+ * own: what staff type goes only to the site's server.
  */
 async function geocodeText(text) {
-  try {
-    const maps = await loadMaps();
-    const { results } = await new maps.Geocoder().geocode({ address: text, bounds: SITE.bounds, region: "us" });
-    if (results?.length) {
-      const loc = results[0].geometry.location;
-      return { point: [loc.lng(), loc.lat()], label: results[0].formatted_address };
+  if (!staffBuild()) {
+    try {
+      const maps = await loadMaps();
+      const { results } = await new maps.Geocoder().geocode({ address: text, bounds: SITE.bounds, region: "us" });
+      if (results?.length) {
+        const loc = results[0].geometry.location;
+        return { point: [loc.lng(), loc.lat()], label: results[0].formatted_address };
+      }
+    } catch {
+      // no key, or the key lacks Geocoding: fall through to the site's lookup
     }
-  } catch {
-    // no key, or the key lacks Geocoding: fall through to the site's lookup
   }
   const res = await fetch(`/geocode?q=${encodeURIComponent(text)}`, { headers: { Accept: "application/json" } });
   if (res.status === 404) throw new Error("ZERO_RESULTS");
