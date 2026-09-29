@@ -5,8 +5,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   isStaff, contactLine, reviewStatus, reviewGuidance, districtGuidance, auditCsv, auditPrint, signInAgain, GUIDANCE, PUBLIC_RECORD_NOTE, USE_NOTE,
-  evidenceDistricts, fairnessLine, USE_NOTE_SHORT, compactBanner, openChecksSentence, watchPrints, describePrints, printSubject,
-  driftNoteGuidance, DISTRICT_CITING_NOTE, districtStatus, districtShareLine, staffBar,
+  evidenceDistricts, fairnessLine, USE_POINT, openChecksSentence, watchPrints, describePrints, printSubject,
+  driftNoteGuidance, DISTRICT_CITING_NOTE, districtStatus, districtShareLine, staffBar, mailContact,
 } from "../src/lib/staff.js";
 
 const src = join(dirname(fileURLToPath(import.meta.url)), "..", "src");
@@ -97,9 +97,9 @@ test("every staff export's district view says its counts are what inspectors cit
 
 test("only the district selected is given as shares of its own places", () => {
   assert.equal(districtShareLine("District 3", { n: 1336, major: 276, closed: 24, bc: 40 }),
-    "District 3, out of its 1,336 listed places: a major violation at 21 in 100, ordered closed at 2 in 100, a B or C grade at 3 in 100.");
+    "District 3, out of its 1,336 listed places: a major violation at 21 in 100, closed for a health hazard at 2 in 100, a B or C grade at 3 in 100.");
   assert.equal(districtShareLine("District 4", { n: 1, major: 1, closed: 0, bc: 0 }),
-    "District 4, out of its 1 listed place: a major violation at 100 in 100, ordered closed at 0 in 100, a B or C grade at 0 in 100.");
+    "District 4, out of its 1 listed place: a major violation at 100 in 100, closed for a health hazard at 0 in 100, a B or C grade at 0 in 100.");
   assert.equal(districtShareLine("District 5", { n: 0, major: 0, closed: 0, bc: 0 }), null, "no places, no share");
   assert.equal(districtShareLine("District 5", null), null);
 });
@@ -198,30 +198,39 @@ test("the demonstration line follows access_approved, including TRUST applying w
 const CONTACT = { name: "A. Student", email: "student@example.org" };
 const staffWith = (extra = {}) => ({ audience: "staff", contact: CONTACT, access_approved: false, review_status: [...STATUS, ...NEW_STATUS], ...extra });
 
-test("the phone banner keeps the use rule, the public-record note and the contact in view, and every instruction one tap away", () => {
+test("the notice holds the whole use rule, the public-record note, whom to write to, the open checks and every instruction", () => {
   const meta = staffWith();
-  const b = compactBanner(meta);
-  assert.deepEqual(b.lead, [GUIDANCE.demonstration, USE_NOTE_SHORT, PUBLIC_RECORD_NOTE], "the demonstration line while it applies");
+  const b = staffBar(meta);
   assert.equal(b.contact, "Questions and corrections: A. Student (student@example.org).");
   assert.equal(b.use, USE_NOTE, "the full use rule");
   assert.equal(b.open, `This list has not passed ${STATUS.length + NEW_STATUS.length} of the checks a public release would need.`);
-  assert.deepEqual(b.guidance, reviewGuidance(meta), "every instruction the full banner lists, in the same words");
-  assert.equal(b.summary, `The full use rule and all ${b.guidance.length} instructions`);
-  // once the City has recorded its request and TRUST answer, the use rule still leads
-  const approved = compactBanner(staffWith({ access_approved: true }));
-  assert.deepEqual(approved.lead, [USE_NOTE_SHORT, PUBLIC_RECORD_NOTE]);
-  assert.ok(!approved.guidance.includes(GUIDANCE.demonstration));
-  const bare = compactBanner({ audience: "staff" });
+  assert.deepEqual(b.checks, [...STATUS, ...NEW_STATUS], "the checks themselves, one click further");
+  assert.deepEqual(b.guidance, reviewGuidance(meta), "every instruction, in the same words");
+  assert.equal(b.guidance[0], GUIDANCE.demonstration, "the demonstration line first while it applies");
+  const bare = staffBar({ audience: "staff" });
   assert.equal(bare.contact, null);
+  assert.equal(bare.mail, null);
   assert.equal(bare.open, null);
-  assert.equal(bare.summary, "The full use rule");
+  assert.deepEqual(bare.checks, []);
+  assert.equal(bare.toggle, "The notice");
   assert.equal(openChecksSentence({ review_status: ["x"] }), "This list has not passed 1 of the checks a public release would need.");
 });
 
-test("the short use rule says what the full one forbids", () => {
-  for (const words of [/not a City or County finding/, /do not forward names or bands outside the City/, /contact a business about its band/, /any decision about a business/]) {
-    assert.match(USE_NOTE_SHORT, words);
+test("whom to write to is a mailto link beside the points whenever the contact has an email", () => {
+  assert.deepEqual(mailContact(staffWith()), { href: "mailto:student@example.org", label: "Questions: A. Student" });
+  assert.deepEqual(staffBar(staffWith()).mail, { href: "mailto:student@example.org", label: "Questions: A. Student" });
+  assert.deepEqual(mailContact({ contact: { email: " student@example.org " } }), { href: "mailto:student@example.org", label: "Questions: student@example.org" },
+    "no name: the email itself");
+  assert.equal(mailContact({ contact: { name: "A. Student" } }), null, "no email, no link (the notice still names the person)");
+  assert.equal(mailContact({ contact: "a@example.org" }), null, "a public export's string contact");
+  for (const email of ["not an email", "a@b?subject=x", "javascript:alert(1)", ""]) assert.equal(mailContact({ contact: { email } }), null, email);
+});
+
+test("the use rule's point says what the full rule forbids", () => {
+  for (const words of [/^Do not share names or bands outside the City/, /use a band for any decision about a business$/]) {
+    assert.match(USE_POINT, words);
   }
+  assert.match(USE_NOTE, /Do not forward names or bands outside the City/, "the same rule, in full");
 });
 
 /** A window stand-in: an EventTarget with a location. */
@@ -301,7 +310,7 @@ test("the export's drift note becomes an instruction: the rates are probably low
   assert.ok(!g.includes(GUIDANCE.drift), "not a refit alarm");
   assert.equal(g.indexOf(GUIDANCE.driftLow), g.indexOf(GUIDANCE.prospective) - 1, "where the drift line goes");
   assert.equal(openChecksSentence(meta), `This list has not passed ${STATUS.length} of the checks a public release would need.`, "not counted as an open check");
-  assert.ok(compactBanner(meta).guidance.includes(GUIDANCE.driftLow), "on the phone banner too");
+  assert.ok(staffBar(meta).guidance.includes(GUIDANCE.driftLow), "in the staff notice too");
   assert.ok(reviewGuidance({ ...meta, review_status: [...STATUS, NEW_STATUS.at(-1)] }).includes(GUIDANCE.drift), "a refit line still gives its own");
 });
 
@@ -339,28 +348,86 @@ test("the one-line staff bar keeps each rule in view in a few words, and opens t
   const b = staffBar(meta);
   assert.deepEqual(b.points, [
     "For City of San Diego staff",
-    "Downloads are likely public records",
     "A student analysis, not a City or County finding",
+    "Do not share names or bands outside the City or use a band for any decision about a business",
+    "Downloads, prints and messages are likely public records",
     "A demonstration, not a City tool",
-    `${STATUS.length + NEW_STATUS.length} open checks`,
+    `Not cleared for public release: ${STATUS.length + NEW_STATUS.length} checks open`,
   ]);
+  assert.ok(b.points.includes(USE_POINT), "the use rule stays in view once the notice is closed");
+  assert.match(b.points[3], /print/, "not downloads alone");
+  assert.match(b.points[3], /messages/);
   assert.equal(b.toggle, `The notice and ${b.guidance.length} instructions`);
-  // the panel holds what the full banner held, in the same words
+  // the panel holds the whole notice, in the same words
   assert.deepEqual(b.guidance, reviewGuidance(meta));
   assert.equal(b.use, USE_NOTE);
   assert.equal(b.open, openChecksSentence(meta));
   assert.equal(b.contact, "Questions and corrections: A. Student (student@example.org).");
   const approved = staffBar(staffWith({ access_approved: true, review_status: ["x"] }));
   assert.ok(!approved.points.includes("A demonstration, not a City tool"), "not once the City's request and TRUST answer are on record");
-  assert.equal(approved.points.at(-1), "1 open check");
+  assert.equal(approved.points.at(-1), "Not cleared for public release: 1 check open");
+  assert.ok(approved.points.includes(USE_POINT), "the use rule leads whatever the City has recorded");
   const bare = staffBar({ audience: "staff" });
-  assert.deepEqual(bare.points.slice(0, 3), ["For City of San Diego staff", "Downloads are likely public records", "A student analysis, not a City or County finding"]);
-  assert.ok(!bare.points.some((p) => /open check/.test(p)), "no count without open checks");
+  assert.deepEqual(bare.points, [
+    "For City of San Diego staff",
+    "A student analysis, not a City or County finding",
+    USE_POINT,
+    "Downloads, prints and messages are likely public records",
+  ], "no count without open checks");
 });
 
-test("the staff bar opens by itself once a session, prints the whole notice, and signs out by POST", () => {
-  const banner = readFileSync(join(src, "StaffBanner.jsx"), "utf8");
-  assert.match(banner, /sessionStorage/, "once a browser session");
-  assert.match(banner, /print-only[\s\S]*PUBLIC_RECORD_NOTE[\s\S]*USE_NOTE/, "on paper, the whole notice");
-  assert.match(banner, /method="post" action="\/logout"/, "sign-out is a POST");
+const banner = () => readFileSync(join(src, "StaffBanner.jsx"), "utf8");
+
+test("the staff bar opens by itself at each sign-in, prints the whole notice, and signs out by POST", () => {
+  const code = banner();
+  assert.match(code, /sessionStorage/, "the mark lives in this tab's session");
+  assert.match(code, /print-only[\s\S]*PUBLIC_RECORD_NOTE[\s\S]*USE_NOTE/, "on paper, the whole notice");
+  assert.match(code, /method="post" action="\/logout"/, "sign-out is a POST");
+  // The server empties that storage at every sign-in, so the next person meets the notice open.
+  const server = readFileSync(join(src, "..", "..", "city_site", "server.mjs"), "utf8");
+  const login = server.slice(server.indexOf("async function login("), server.indexOf("function logoutPage("));
+  assert.match(login, /"Clear-Site-Data": '"storage"'/, "a sign-in clears the site's storage");
+});
+
+test("closed, the bar shows every point and whom to write to; a screen reader hears one punctuated sentence", () => {
+  const code = banner();
+  const bar = code.slice(code.indexOf('role="note"'), code.indexOf("{open && !compact"));
+  assert.match(bar, /<span className="sr-only">\{`\$\{b\.points\.join\("\. "\)\}\.`\}<\/span>/, "the points as sentences");
+  assert.match(bar, /<span aria-hidden="true">\s*\{b\.points\.map/, "the dotted line is for the eye");
+  assert.match(bar, /inline-block/, "each point wraps whole");
+  assert.doesNotMatch(bar, /whitespace-nowrap[^"]*"\s*>\s*\{pt\}/, "never an unbreakable line");
+  assert.match(bar, /b\.mail && \(\s*<a href=\{b\.mail\.href\}/, "whom to write to, beside the points");
+  assert.doesNotMatch(bar, /\{open && /, "nothing in the line hangs on the notice being open");
+});
+
+test("only 'I have read this' marks the notice read, and it comes after every line of it", () => {
+  const code = banner();
+  const toggle = code.slice(code.indexOf("ref={toggleRef}"), code.indexOf("</button>", code.indexOf("ref={toggleRef}")));
+  assert.match(toggle, /onClick=\{\(\) => setOpen\(\(o\) => !o\)\}/, "the toggle only opens and closes");
+  assert.doesNotMatch(toggle, /acknowledge|markSeen/);
+  assert.equal(code.match(/onClick=\{acknowledge\}/g)?.length, 1, "one button acknowledges");
+  // The desktop panel: one scroller, the button inside it, after the open checks and every instruction.
+  const panel = code.slice(code.indexOf("{open && !compact"), code.indexOf("{open && compact"));
+  assert.match(panel, /max-h-\[50dvh\] overflow-y-auto/);
+  assert.equal(panel.match(/overflow-y-auto/g).length, 1, "no inner scroller that hides lines while the button shows");
+  assert.match(panel, /\{rules\}[\s\S]*\{checks\}[\s\S]*\{ack\}/, "the button last in reading and tab order");
+  const checks = code.slice(code.indexOf("const checks = ("), code.indexOf("const ack = ("));
+  assert.match(checks, /b\.open[\s\S]*b\.guidance\.map/, "the open checks and every instruction come before the button");
+  // The phone: a full-screen sheet, headed, the whole notice, the button at its end.
+  const sheet = code.slice(code.indexOf("{open && compact"), code.indexOf("{/* On paper"));
+  assert.match(sheet, /createPortal\(\s*<Dialog titleId=\{titleId\}/);
+  assert.match(sheet, /className="min-h-dvh max-w-none border-0" z=\{60\}/, "over the cookie line");
+  assert.match(sheet, /<h2 id=\{titleId\}/);
+  assert.match(sheet, /\{rules\}[\s\S]*\{checks\}[\s\S]*\{ack\}/);
+  assert.doesNotMatch(sheet, /max-h-/, "the sheet scrolls as a whole");
+  // After closing from inside, focus goes to the toggle.
+  assert.match(code, /toggleRef\.current\?\.focus\(\)/);
+});
+
+test("the notice says what a band 1 place's group rate is, and which lines are the site's", () => {
+  const code = banner();
+  const rules = code.slice(code.indexOf("const rules = ("), code.indexOf("const checks = ("));
+  assert.match(rules, /mode === "bands" && `\$\{bandSummary\(meta, "1"\)\} `/);
+  assert.match(rules, /Lines marked &ldquo;Our reading&rdquo; are the site&rsquo;s, not the County&rsquo;s\./);
+  assert.match(rules, /PUBLIC_RECORD_NOTE[\s\S]*USE_NOTE[\s\S]*b\.contact/, "the public-record note, the use rule and whom to write to");
 });
