@@ -59,7 +59,7 @@ export default function FilterBar({ filters, onFiltersChange, facilities, hasCou
             ))}
           </div>
           <p className="mt-2.5 text-[13px] leading-[1.45] text-ink-2">
-            {["1", "2", "3"].filter((b) => band === ALL_PLACES || Number(b) <= Number(band)).map((b) => `Band ${b}: ${bandPoints(meta, b) ?? ""}`).join(". ")}.
+            {(meta?.card?.bands ?? []).map((r) => r.band).filter((b) => bandPoints(meta, b) && (band === ALL_PLACES || Number(b) <= Number(band))).map((b) => `Band ${b}: ${bandPoints(meta, b)}`).join(". ")}.
             {band === ALL_PLACES && " Other places are drawn in grey."}
           </p>
         </>

@@ -863,13 +863,14 @@ def band_rows(bands, points, positive, labelled, elig, baseline_order=None, cl=N
 
 
 def merge_overlapping(cuts, points, positive, labelled, elig):
-    """Merge adjacent bands whose intervals overlap, until none do: a band must mean something the
-    band below it does not. Merging bands k and k+1 removes the cut between them (band k's)."""
+    """Merge adjacent bands until each band's rate is above the band below it: a higher band must
+    mean a higher rate. (Their intervals may overlap: three ordered bands are more useful to staff
+    than one.) Merging bands k and k+1 removes the cut between them (band k's)."""
     cuts = list(cuts)
     while len(cuts) > 1:
         rows, _ = band_rows(assign_bands(points, elig, cuts), points, positive, labelled, elig)
         pair = next((i for i, (a, b) in enumerate(zip(rows, rows[1:]))
-                     if a["interval"][0] is not None and b["interval"][1] is not None and a["interval"][0] <= b["interval"][1]), None)
+                     if a["rate"] is not None and b["rate"] is not None and a["rate"] <= b["rate"]), None)
         if pair is None:
             break
         del cuts[pair]

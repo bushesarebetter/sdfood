@@ -260,7 +260,7 @@ def test_worksheet_rows_multiply_and_sum():
     assert rule.score(F)[0] == sum(r["points"] for r in ws) == 14
 
 
-def test_bands_never_split_a_tie_and_overlapping_bands_merge():
+def test_bands_never_split_a_tie_and_unordered_bands_merge():
     pts = np.array([20] * 30 + [15] * 60 + [10] * 200 + [5] * 700, dtype=float)
     elig = np.ones(len(pts), bool)
     cuts = es.band_thresholds(pts)
@@ -274,7 +274,7 @@ def test_bands_never_split_a_tie_and_overlapping_bands_merge():
     merged = es.merge_overlapping(cuts, pts, positive, elig, elig)
     rows, rest = es.band_rows(es.assign_bands(pts, elig, merged), pts, positive, elig, elig)
     for a, b in zip(rows, rows[1:]):
-        assert a["interval"][0] > b["interval"][1], "adjacent bands are distinguishable"
+        assert a["rate"] > b["rate"], "a higher band has a higher rate"
     assert rest["places"] + sum(r["places"] for r in rows) == len(pts)
 
 
