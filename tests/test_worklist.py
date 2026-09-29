@@ -88,7 +88,7 @@ def test_files_for_the_api_and_the_frozen_copy(data, tmp_path):
         assert list(csv.reader(fh)) == [ew.COLUMNS]                  # every district has a file
     m = json.load(open(os.path.join(folder, "manifest.json")))
     assert set(m) == {"month", "generated", "method", "rule", "export_run", "listed_kinds", "files"} and m["month"] == MONTH
-    assert "No published card export" in m["method"]                 # the fallback is stated
+    assert "No point rule export" in m["method"]                     # the fallback is stated
     assert m["files"] == {str(n): ew.sha256(os.path.join(folder, f"district-{n}.csv")) for n in range(1, 10)}
     assert ew.verify(frozen) == []
     target = os.path.join(frozen, "district-1.csv")
@@ -131,24 +131,74 @@ def site_export(tmp_path, points, sample=False):
     return str(site)
 
 
-def test_card_points_first_then_the_one_line_rule(data, tmp_path):
+def test_scored_and_unscored_places_share_one_scale(data, tmp_path):
+    """The card's points where it scores a place, else 100 minus its mean routine score: an unscored
+    place with a worse record is never listed below a scored one with a better record."""
     insp, info = data
     card = ew.load_card(site_export(tmp_path, {"FA0001": (30, "1"), "FA0003": (30, None), "FA0009": (5, None),
-                                               "FA0002": (None, None)}))
+                                               "FA0002": (None, None)}), holds=[])
     f = ew.worklist(insp, info, MONTH, lookup, card=card)
     due = f[f["due_this_month"]]
     d1 = due[due["district"] == 1].sort_values("rule_order")
-    assert list(d1.index) == [1, 3, 2]            # 30 pts (mean 91), 30 pts (mean 97), then no points
-    assert list(due[due["district"] == 2].sort_values("rule_order").index) == [9, 5]
+    assert list(d1.index) == [1, 3, 2]            # 30 pts (mean 91), 30 pts (mean 97), then 18.0 (mean 82)
+    assert list(due[due["district"] == 2].sort_values("rule_order").index) == [5, 9], "11.0 (unscored) above 5 points"
     assert f.loc[1, "why"].startswith("Point rule (the students', not a County rating): 30 points, band 1. Routine scores since 2023-01: 92, 90")
-    assert f.loc[2, "why"].startswith("Not scored by the point rule; placed after its places")
+    assert f.loc[2, "why"].startswith("Not scored by the point rule; placed on the same scale")
     folder, _ = ew.write_month(f, MONTH, out=str(tmp_path / "worklists"), card=card)
     with open(os.path.join(folder, "district-1.csv"), newline="", encoding="utf-8") as fh:
         rows = list(csv.reader(fh))[1:]
-    assert [(r[0], r[ew.COLUMNS.index("rule_order")], r[ew.COLUMNS.index("rule_points")]) for r in rows] ==         [("FA0001", "1", "30"), ("FA0003", "2", "30"), ("FA0002", "3", "")]
+    assert [(r[0], r[ew.COLUMNS.index("rule_order")], r[ew.COLUMNS.index("rule_points")]) for r in rows] == \
+        [("FA0001", "1", "30"), ("FA0003", "2", "30"), ("FA0002", "3", "18.0")]
     m = json.load(open(os.path.join(folder, "manifest.json")))
-    assert m["rule"].startswith("The students' point rule") and "No published card export" not in m["method"]
+    assert "the students' point rule" in m["rule"] and "No point rule export" not in m["method"]
     assert m["export_run"] == card["run"] and "private home" in m["listed_kinds"]
+
+
+def _place_file(site, fid, **d):
+    place = os.path.join(site, "place")
+    os.makedirs(place, exist_ok=True)
+    json.dump({"facility_id": fid, **d}, open(os.path.join(place, f"{fid}.json"), "w", encoding="utf-8"))
+
+
+def test_the_countys_escalation_criteria_come_first(data, tmp_path):
+    insp, info = data
+    site = site_export(tmp_path, {"FA0001": (30, "1"), "FA0003": (3, None), "FA0002": (None, None)})
+    fc = json.loads(open(os.path.join(site, "facilities.geojson")).read())
+    for ft in fc["features"]:
+        if ft["properties"]["facility_id"] == "FA0003":
+            ft["properties"]["flags"] = ["closures2", "lt90_2"]
+            ft["properties"]["grade"] = {"grade": "A", "date": "2026-05-30", "score": 98}
+    open(os.path.join(site, "facilities.geojson"), "w").write(json.dumps(fc))
+    _place_file(site, "FA0003", inspections=[
+        {"date": "2024-05-01", "closed": True, "closure": "health", "reopened": True, "reopened_on": "2024-05-03"},
+        {"date": "2025-01-05", "closed": True, "closure": "health", "reopened": True, "reopened_on": "2025-01-07"},
+        {"date": "2026-03-02", "closed": True, "closure": "health", "reopened": False, "reopened_on": None}])
+    card = ew.load_card(site, holds=[])
+    f = ew.worklist(insp, info, MONTH, lookup, card=card)
+    d1 = f[f["due_this_month"] & (f["district"] == 1)].sort_values("rule_order")
+    assert list(d1.index)[0] == 3, "a place meeting the County's criteria comes first, whatever its points"
+    r = f.loc[3]
+    assert r["escalation"] == "two or more health closures in two years; two or more routine scores below 90 in two years"
+    assert r["why"].startswith("First: two or more health closures")
+    assert (r["closures_24m"], r["last_closure"], r["reopened_on"], r["posted_grade"]) == (2, "2026-03-02", "", "A (2026-05-30)"), \
+        "the export's episodes in the 24 months before its list date (2026-09-20): the 2024 closure is older"
+
+
+def test_a_held_place_keeps_its_record_and_loses_its_points(data, tmp_path):
+    insp, info = data
+    card = ew.load_card(site_export(tmp_path, {"FA0001": (30, "1"), "FA0003": (3, None)}), holds=["FA0001"])
+    assert "FA0001" not in card["points"] and "FA0001" not in card["band"] and card["held"] == {"FA0001"}
+    f = ew.worklist(insp, info, MONTH, lookup, card=card)
+    assert "band 1" not in f.loc[1, "why"] and f.loc[1, "why"].startswith("On hold: its points and band are withheld")
+    assert f.loc[1, "rule_points"] == f.loc[1, "mean_points"], "placed by the one-line rule, like any unscored place"
+
+
+def test_a_closure_reads_as_the_rules_70_not_the_countys_score():
+    used = [(95, False, 95), (70, True, None), (70, True, 94)]
+    why = ew._why([95], 0, 3, points=12, band="1", card=True, used=used)
+    assert "70 (closed; the County gave no score, this rule counts it as 70)" in why
+    assert "70 (closed; the County's score that day 94, this rule counts a closure as 70)" in why
+    assert "mean 78.3" in why
 
 
 def test_the_invented_sample_is_never_used_as_the_card(tmp_path):
@@ -202,7 +252,7 @@ def test_a_scored_row_explains_its_points_from_the_scores_its_worksheet_averages
     json.dump({"facility_id": "FA0001", "scores_used": [{"date": "2025-06-05", "score": 92, "closure": False},
                                                          {"date": "2025-12-02", "score": 90, "closure": False}]},
               open(os.path.join(place, "FA0001.json"), "w", encoding="utf-8"))
-    card = ew.load_card(site)
+    card = ew.load_card(site, holds=[])
     f = ew.worklist(insp, info, MONTH, lookup, card=card)
     assert "It averages the routine scores of the two years before the list: 92, 90; mean 91.0" in f.loc[1, "why"]
     assert f.loc[1, "last_routine_outcome"] == "Complete" and f.loc[1, "closures_24m"] == 0

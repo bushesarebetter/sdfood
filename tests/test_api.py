@@ -47,7 +47,7 @@ def client(tmp_path, monkeypatch):
     with open(wl / "district-3.csv", "w", newline="", encoding="utf-8") as fh:
         w = csv.writer(fh)
         w.writerow(["facility_id", "name", "address", "business_type", "last_routine_date", "last_routine_score",
-                    "mean_routine_score_12m", "due_estimate", "rule_order", "rule_points", "why"])
+                    "rule_mean", "due_estimate", "rule_order", "rule_points", "why"])
         w.writerow(["DEH-1", "Alpha Grill", "1 Alpha St", "Restaurant Food Facility", "2025-10-01", "88", "88", "2026-10-05", "1", "40", "lowest mean"])
         w.writerow(["DEH-3", "Gamma Market", "1 Gamma St", "Retail Market with Deli", "2025-09-01", "94", "93.5", "2026-10-09", "2", "", "not scored"])
     (tmp_path / "research.json").write_text(json.dumps({"days_sooner_within_district_month": 6.2}), encoding="utf-8")
@@ -121,7 +121,7 @@ def test_worklists(client):
     assert months[0]["month"] == "2026-10" and months[0]["districts"] == [3]
     wl = client.get("/v1/worklists/2026-10/districts/3", headers=H).json()
     assert wl["rows"][0]["facility_id"] == "DEH-1" and wl["rows"][0]["rule_order"] == 1 and wl["rows"][0]["rule_points"] == 40
-    assert wl["rows"][1]["rule_points"] is None and wl["rows"][1]["mean_routine_score_12m"] == 93.5
+    assert wl["rows"][1]["rule_points"] is None and wl["rows"][1]["rule_mean"] == 93.5
     csv_text = client.get("/v1/worklists/2026-10/districts/3", params={"format": "csv"}, headers=H).text
     assert csv_text.startswith("facility_id,name")
     assert client.get("/v1/worklists/2026-10/districts/5", headers=H).status_code == 404

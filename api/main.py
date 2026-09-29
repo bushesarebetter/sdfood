@@ -2,7 +2,7 @@
 
 It serves what export_site.py writes (data/site/: the index, one file per place, meta.json) and the
 monthly worklists export_worklist.py writes (data/worklists/<yyyy-mm>/district-<n>.csv): each
-listed restaurant and market's County inspection record, the published scoring rule's points and
+listed restaurant and market's County inspection record, the students' point rule's points and
 band, district summaries and per-district monthly worklists.
 
     SDFOOD_API_KEYS=key1,key2 uvicorn api.main:app --reload       # http://localhost:8000/docs
@@ -157,7 +157,7 @@ class Facility(BaseModel):
     grade: Grade | None
     flags: list[str] = Field(description="Record facts from the 12 months before the last visit: major, closed, bc, "
                                          "repeat, and a theme key for each theme with a major violation")
-    band: str | None = Field(None, description="The published rule's band, when the place is in one")
+    band: str | None = Field(None, description="The students' point rule's band, when the place is in one")
     points: int | None = None
     lon: float
     lat: float
@@ -219,7 +219,7 @@ app = FastAPI(
     version="1.0.0",
     description=(
         "For City of San Diego staff: every listed restaurant and market in the City with the County's inspection "
-        "record, the published scoring rule's points and band, council-district summaries, and monthly worklists.\n\n"
+        "record, the students' point rule's points and band (not a County rating), council-district summaries, and monthly worklists.\n\n"
         "Send your key in the `X-API-Key` header (the **Authorize** button above). Data: the County of San Diego's "
         "published inspection results (SD Food Info) and SANDAG council districts. Independent student project by "
         "Chenhao Zhang and Ayan Pendharkar; not affiliated with or endorsed by the County of San Diego."
@@ -288,7 +288,7 @@ def health():
 
 
 @app.get("/v1/summary", response_model=Summary, tags=["results"], dependencies=[Depends(require_key)],
-         summary="The export, the published rule and its bands")
+         summary="The export, the students' point rule and its bands")
 def summary():
     s = get_store()
     m, card = s.meta, s.meta.get("card") or {}
@@ -305,7 +305,7 @@ def summary():
 @app.get("/v1/results", tags=["results"], dependencies=[Depends(require_key)],
          summary="Headline results, as the City would quote them")
 def results():
-    """The published rule's band rates and lift over other restaurants (backtest), and the research
+    """The students' point rule's band rates and lift over other restaurants (backtest), and the research
     model's head start within a district's month, when data/research_results.json is present."""
     s = get_store()
     card = s.meta.get("card") or {}
@@ -441,7 +441,8 @@ def worklist(month: str = PathParam(pattern=MONTH, description="yyyy-mm"),
             if isinstance(v, str) and v[:1] == "'" and v[1:2] in ("=", "+", "-", "@", "\t", "\r"):
                 r[k] = v[1:]
     for r in rows:                           # numbers as numbers, blanks as null
-        for k in ("rule_order", "rule_points", "last_routine_score", "mean_routine_score_12m"):
+        for k in ("rule_order", "rule_points", "last_routine_score", "rule_mean", "closures_24m",
+                  "mean_routine_score_12m"):          # the last: worklists written before rule_mean
             v = (r.get(k) or "").strip()
             if k in r:
                 try:

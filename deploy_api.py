@@ -14,6 +14,10 @@ Set in the environment, never in the repository:
   SDFOOD_API_URL           optional: the service's address, to wait until it serves the new image
 
 Refuses, before anything is pushed, when:
+  * the staff release's approval (docs/STAFF_APPROVAL.json) is missing, incomplete or past its
+    sunset: the API serves the same named list as the staff site, so it has the same gates;
+  * a place on hold (docs/holds.json) still carries points or a band in the export (a hold added
+    after the export: export again);
   * data/site holds no export, the invented sample, an incomplete export or an expired one;
   * the worklists or data/research_results.json are missing (the image carries both);
   * the registry package exists and is not private (the image holds the export);
@@ -58,6 +62,24 @@ def preflight(site=SITE, worklists=WORKLISTS, research=RESEARCH, today=None, all
     if not allow_expired and (not expires or today > expires):    # the API's own test for stale
         raise Refused(f"the export expired on {expires}: fetch and export again, or pass --allow-expired")
     return meta
+
+
+def release_problems(site=SITE, today=None, approval=None, holds=None):
+    """The staff site's own release gates, for the image that carries the same list: an adult of
+    record, a corrections contact, a sunset date; and every hold applied in the export shipped."""
+    import publish_city_site as pcs
+    today = today or date.today()
+    approval = pcs._json(pcs.APPROVAL, None) if approval is None else approval
+    p = pcs.approval_problems(approval, today)
+    held = set(pcs._json(pcs.HOLDS, {}).get("facility_ids", [])) if holds is None else set(holds)
+    if held:
+        fc = json.loads((site / "facilities.geojson").read_text(encoding="utf-8"))
+        still = sorted(f["properties"]["facility_id"] for f in fc.get("features", [])
+                       if f["properties"]["facility_id"] in held and ("band" in f["properties"] or "points" in f["properties"]))
+        if still:
+            p.append(f"{len(still)} place(s) on hold still carry points or a band in {site} ({', '.join(still[:3])}): "
+                     "export again, then deploy")
+    return p
 
 
 def check_image_name(image):
@@ -268,6 +290,9 @@ def main(argv=None):
     try:
         image = check_image_name(args.image)
         meta = preflight(SITE, WORKLISTS, RESEARCH, allow_expired=args.allow_expired)
+        problems = release_problems(SITE)
+        if problems:
+            raise Refused("the staff release's gates:\n  - " + "\n  - ".join(problems))
         hook, api_url = os.environ.get("RENDER_DEPLOY_HOOK_URL"), os.environ.get("SDFOOD_API_URL")
         if not (args.no_push or args.no_deploy or hook or dry):
             raise Refused("set RENDER_DEPLOY_HOOK_URL (the service's Settings, Deploy Hook), or pass --no-deploy")

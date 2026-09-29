@@ -186,3 +186,21 @@ def test_dockerfile_listens_on_render_port_as_a_non_root_user():
     assert "org.opencontainers.image.source" not in text
     ignore = (ROOT / ".dockerignore").read_text(encoding="utf-8")
     assert ignore.splitlines()[1] == "*" and "data/site/archive/" in ignore   # the archive stays out of the image
+
+
+def test_the_api_has_the_staff_sites_release_gates(export):
+    site, worklists, research = export
+    good = {"responsible_adult": {"name": "A. Adult", "email": "a@example.org"},
+            "corrections_contact": {"email": "fix@example.org"}, "sunset": "2027-06-30"}
+    today = date(2026, 9, 29)
+    assert d.release_problems(site, today, approval=good, holds=[]) == []
+    assert any("STAFF_APPROVAL" in p for p in d.release_problems(site, today, approval={}, holds=[])) or \
+        d.release_problems(site, today, approval={}, holds=[])
+    assert any("has passed" in p for p in d.release_problems(site, today, approval={**good, "sunset": "2026-01-01"}, holds=[]))
+    (site / "facilities.geojson").write_text(json.dumps({"type": "FeatureCollection", "features": [
+        {"properties": {"facility_id": "A", "band": "1", "points": 12}},
+        {"properties": {"facility_id": "B", "on_hold": True}}]}), encoding="utf-8")
+    got = d.release_problems(site, today, approval=good, holds=["A", "B"])
+    assert got == ["1 place(s) on hold still carry points or a band in " + str(site) + " (A): export again, then deploy"]
+    assert d.release_problems(site, today, approval=good, holds=["B"]) == [], "a hold the export applied passes"
+

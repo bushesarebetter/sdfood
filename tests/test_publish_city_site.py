@@ -1,4 +1,7 @@
 """publish_city_site.py: the repository whose privacy is checked is the one that is pushed to."""
+import json
+import subprocess
+
 import pytest
 
 import publish_city_site as pc
@@ -84,7 +87,8 @@ def test_no_staff_release_without_a_responsible_adult_a_contact_and_a_sunset():
     assert "STAFF_APPROVAL.json" in pcs.approval_problems(None, TODAY)[0]
     for broken, why in [({**GOOD, "responsible_adult": {"name": "A"}}, "responsible_adult"),
                         ({**GOOD, "corrections_contact": {"email": "not an email"}}, "corrections_contact"),
-                        ({**GOOD, "sunset": "2026-01-01"}, "has passed"), ({**GOOD, "sunset": ""}, "sunset needs")]:
+                        ({**GOOD, "sunset": "2026-01-01"}, "has passed"), ({**GOOD, "sunset": ""}, "sunset needs"),
+                        ({**GOOD, "sunset": "2028-01-01"}, "more than a year away")]:
         assert any(why in p for p in pcs.approval_problems(broken, TODAY)), why
     assert len(pcs.approval_warnings(GOOD)) == 2 and pcs.approval_warnings({**GOOD, "city_requestor": {"name": "x"},
                                                                            "trust_determination": {"date": "2026-10-01"}}) == []
@@ -122,3 +126,96 @@ def test_staff_are_told_when_the_operator_is_a_student_author():
     assert pcs.independence_problems(GOOD) == []
     assert pcs.independence_problems({**GOOD, "responsible_adult": {"name": "X", "relationship": "author", "email": "x@example.org"}})
     assert pcs.independence_problems({**GOOD, "responsible_adult": {"name": "Chenhao Zhang", "relationship": "parent", "email": "c@example.org"}})
+
+
+def test_what_has_not_been_done_is_said_in_plain_words():
+    items = pcs.open_items(GOOD)
+    assert [i.split(" (")[0] for i in items] == [
+        "no City request for access is on record", "no TRUST Ordinance determination is on record",
+        "no lawyer has reviewed naming these businesses", "the County has not commented on this list",
+        "no business on the list has been told it is on it"]
+    done = {**GOOD, "city_requestor": {"name": "R", "date": "2026-10-01"}, "trust_determination": {"result": "does not apply"},
+            "legal_review": {"date": "2026-10-02"}, "county_informed": {"date": "2026-10-03"}, "owner_notice": {"date": "2026-10-04"}}
+    assert pcs.open_items(done) == []
+    assert pcs.access_approved(done) and not pcs.access_approved(GOOD)
+    assert not pcs.access_approved({**GOOD, "city_requestor": {"name": "R", "date": "2026-10-01"}}), "the TRUST answer too"
+    m = pcs.staff_meta(REAL, done, [], "tester")
+    assert m["access_approved"] is True and pcs.staff_meta(REAL, GOOD, [], "t")["access_approved"] is False
+
+
+def test_drift_is_shown_to_staff():
+    assert pcs.drift_items({}) == [] and pcs.drift_items({"drift": {"refit_needed": False}}) == []
+    got = pcs.drift_items({"drift": {"refit_needed": True, "reasons": ["routine major rate 30.0% against 21.0%"]}})
+    assert got and got[0].startswith("the County's record has moved since the rule was frozen: routine major rate")
+
+
+def test_a_bands_list_applies_the_committed_frozen_rule():
+    bands = {"mode": "bands", "frozen": {"version": "2026-09-29-abcd1234"}}
+    committed = lambda v: (lambda path: None if v is None else json.dumps({"version": v}))
+    assert pcs.frozen_problems({"mode": "record"}, show=committed(None)) == []
+    assert "no frozen rule" in pcs.frozen_problems({"mode": "bands"}, show=committed("x"))[0]
+    assert "not committed" in pcs.frozen_problems(bands, show=committed(None))[0]
+    assert "committed docs/rule.json is 2026-01-01-00000000" in pcs.frozen_problems(bands, show=committed("2026-01-01-00000000"))[0]
+    assert pcs.frozen_problems(bands, show=committed("2026-09-29-abcd1234")) == []
+
+
+def _git(*a, cwd):
+    subprocess.run(["git", *a], cwd=cwd, check=True, capture_output=True)
+
+
+def test_holds_only_changes_nothing_but_the_held_places(tmp_path, monkeypatch):
+    out = tmp_path / "city"
+    data = out / "public" / "data"
+    (data / "place").mkdir(parents=True)
+    fc = {"type": "FeatureCollection", "features": [{"properties": {"facility_id": "A", "band": "1", "points": 12}},
+                                                    {"properties": {"facility_id": "B", "band": "1", "points": 9}}]}
+    (data / "facilities.geojson").write_text(json.dumps(fc), encoding="utf-8")
+    for fid in "AB":
+        (data / "place" / f"{fid}.json").write_text(json.dumps({"facility_id": fid, "band": "1", "points": 9, "inspections": []}))
+    (data / "meta.json").write_text(json.dumps({"run": "forward_2026-09-29-x", "expires": "2026-09-30"}), encoding="utf-8")
+    _git("init", "-q", "-b", "main", cwd=out)
+    holds = tmp_path / "holds.json"
+    holds.write_text(json.dumps({"facility_ids": ["A"]}), encoding="utf-8")
+    monkeypatch.setattr(pcs, "HOLDS", holds)
+    monkeypatch.setattr(pcs, "check_target", lambda *a, **k: "o/r")
+    pushed = []
+    monkeypatch.setattr(pcs, "commit_and_push", lambda o, msg: pushed.append(msg) or "f" * 40)
+    commit, meta, held = pcs.holds_only(out, GOOD, TODAY, "o/r")
+    assert held == {"A"} and pushed and "holds only (1 held)" in pushed[0]
+    shipped = json.loads((data / "facilities.geojson").read_text(encoding="utf-8"))["features"]
+    assert shipped[0]["properties"] == {"facility_id": "A", "on_hold": True} and shipped[1]["properties"]["band"] == "1"
+    assert json.loads((data / "place" / "A.json").read_text())["on_hold"] is True
+    assert "band" in json.loads((data / "place" / "B.json").read_text())
+    log = [json.loads(line) for line in (out / "DEPLOYS.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert log[-1]["holds_only"] is True and log[-1]["held"] == ["A"]
+    # an export 1 day from expiry could not be published; a hold still goes out
+    with pytest.raises(SystemExit, match="sunset"):
+        pcs.holds_only(out, {**GOOD, "sunset": "2026-01-01"}, TODAY, "o/r")
+
+
+def test_ops_holds_what_it_takes_to_rebuild_the_site(tmp_path, monkeypatch):
+    out = tmp_path / "city"
+    out.mkdir()
+    for name in ("rule.json", "pull_meta.json", "STAFF_APPROVAL.json", "holds.json"):
+        (tmp_path / name).write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(pcs, "FROZEN", tmp_path / "rule.json")
+    monkeypatch.setattr(pcs, "PULL_META", tmp_path / "pull_meta.json")
+    monkeypatch.setattr(pcs, "APPROVAL", tmp_path / "STAFF_APPROVAL.json")
+    monkeypatch.setattr(pcs, "HOLDS", tmp_path / "holds.json")
+    pcs.write_ops(out)
+    got = sorted(p.name for p in (out / "ops").iterdir())
+    assert got == ["README.md", "STAFF_APPROVAL.json", "holds.json", "pull_meta.json", "rule.json", "source.tar.gz"]
+    import tarfile
+    with tarfile.open(out / "ops" / "source.tar.gz") as t:
+        names = t.getnames()
+    assert "export_site.py" in names and "publish_city_site.py" in names
+
+
+def test_a_missing_checkout_is_cloned_not_started_afresh(tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.setattr(pcs.subprocess, "run", lambda cmd, **k: calls.append(cmd) or subprocess.CompletedProcess(cmd, 0, "", ""))
+    monkeypatch.setattr(pcs, "run", lambda cmd, cwd: calls.append(cmd) or "")
+    pcs.ensure_checkout(tmp_path / "city", "o/r")
+    assert ["git", "clone", "-q", "https://github.com/o/r.git", str(tmp_path / "city")] in calls
+    assert not any(c[:2] == ["git", "init"] for c in calls), "the deploy history is kept"
+
