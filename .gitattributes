@@ -1,0 +1,7 @@
+# One line ending in the repository, whatever the editor: CRLF files made every edit a whole-file diff.
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.gz binary
+*.ico binary
+*.woff2 binary
