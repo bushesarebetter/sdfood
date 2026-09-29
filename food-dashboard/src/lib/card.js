@@ -1,7 +1,7 @@
 /**
  * How a place's points add up (`bands` mode).
  *
- * The published rule (`meta.card`) is a short list of counts from a place's
+ * The students' point rule (`meta.card`) is a short list of counts from a place's
  * County record, each with a whole-number weight: `items` are
  * `{ item, label, weight, unit, feature }`. Each place carries its worksheet
  * (`score_card`): one row per item, `{ item, weight, value, points, met }`,

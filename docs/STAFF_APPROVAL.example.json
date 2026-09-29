@@ -1,0 +1,27 @@
+{
+  "_read_me": "Copy to docs/STAFF_APPROVAL.json (gitignored: it names people) and fill in. publish_city_site.py refuses to publish the City staff site without a responsible adult, a corrections contact and a sunset date. See docs/STAFF_SITE.md.",
+  "responsible_adult": {
+    "name": "",
+    "relationship": "parent, teacher advisor, or mentor",
+    "email": "",
+    "phone": ""
+  },
+  "corrections_contact": {
+    "name": "",
+    "email": ""
+  },
+  "sunset": "2027-06-30",
+  "city_requestor": {
+    "name": "",
+    "title": "",
+    "office": "",
+    "date": "",
+    "_note": "who at the City asked, in writing, for access; record it before issuing any sign-in"
+  },
+  "trust_determination": {
+    "date": "",
+    "by": "",
+    "result": "",
+    "_note": "the City's answer to whether its TRUST Ordinance (SDMC ch. 2, art. 10, div. 1) applies"
+  }
+}

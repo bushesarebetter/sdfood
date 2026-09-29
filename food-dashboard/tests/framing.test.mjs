@@ -55,9 +55,9 @@ test("bands mode: the headline is about the rule, never a prediction about a pla
     { properties: { facility_type: "restaurant", on_hold: true } },
     { properties: { facility_type: "market" } },
   ];
-  assert.equal(headline(bandsMeta, features), "The 2 San Diego restaurants whose County record scores highest on a published rule");
+  assert.equal(headline(bandsMeta, features), "The 2 San Diego restaurants whose County record scores highest on the students' point rule");
   assert.match(subhead(bandsMeta), /^Places are ordered by how far .* Band 1 is about the 2\.5% of scored places with the most points, band 2 about the next 5% by points, band 3 about the next 10% by points\./);
-  assert.match(legendNote(bandsMeta), /^Darker = more points on the published rule\. In the backtest, band 1 places .* 3\.4 times the rate/);
+  assert.match(legendNote(bandsMeta), /^Darker = more points on the students' point rule\. In the backtest, band 1 places .* about 3\.4 times the rate/);
 });
 
 test("the place lines give the grade, then the band, its points and its backtest rate", () => {
@@ -65,13 +65,14 @@ test("the place lines give the grade, then the band, its points and its backtest
   const lines = placeLines({ ...base, band: "1", points: 21 }, bandsMeta);
   assert.deepEqual(lines, [
     "Latest County grade on record: A (93), June 1, 2026.",
-    "Band 1 on the published rule: 21 points (band 1 is 20 points or more).",
-    "In the backtest, band 1 places had a major violation at their next routine inspection at 3.4 times the rate of scored places below the bands (55% vs 16%).",
+    "Band 1 on the students' point rule: 21 points (band 1 is 20 points or more).",
+    "In the backtest, band 1 places had a major violation at their next routine inspection at about 3.4 times the rate of scored places below the bands: about 55 in 100 (likely 46 to 63), against 16 in 100.",
+    "A band is a statistic about a group of places, not a finding about any one of them.",
   ]);
-  assert.equal(placeLines({ ...base, points: 9 }, bandsMeta)[1], "In no band: 9 points on the published rule (band 3 starts at 12 points).");
+  assert.equal(placeLines({ ...base, points: 9 }, bandsMeta)[1], "In no band: 9 points on the students' point rule (band 3 starts at 12 points).");
   assert.equal(
     placeLines({ ...base }, bandsMeta)[1],
-    "Not scored: the published rule gives this place no points. It scores restaurants with a scored routine inspection in the year before the list date.",
+    "Not scored: the students' point rule gives this place no points. It scores restaurants with a scored routine inspection in the year before the list date.",
     "a place without points is never implied to have been scored",
   );
   const held = placeLines({ ...base, on_hold: true, band: "1", points: 21 }, bandsMeta);

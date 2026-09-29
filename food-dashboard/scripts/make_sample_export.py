@@ -1,5 +1,5 @@
 """Write an invented export for the food-inspection site, in the shape the real one takes
-(docs/FOOD_DATA_CONTRACT.md, version 3.2), so the site can be built and reviewed without
+(docs/FOOD_DATA_CONTRACT.md, version 3.3), so the site can be built and reviewed without
 naming a real business.
 
 Every place is fictional. Names carry the word "Sample", streets are made-up names ("Sample
@@ -268,12 +268,14 @@ def rule_values(place, as_of: date):
     if place["facility_type"] != "restaurant":
         return None
     lo, hi = (as_of - YEAR).isoformat(), as_of.isoformat()
-    scores = [i["score"] for i in place["inspections"] if i["type"] == "routine" and i["score"] is not None and lo <= i["date"] < hi]
-    if not scores:
+    used = [{"date": i["date"], "score": i["score"], "closure": False} for i in place["inspections"]
+            if i["type"] == "routine" and i["score"] is not None and lo <= i["date"] < hi]
+    if not used:
         return None
-    avg = sum(scores) / len(scores)
+    avg = sum(u["score"] for u in used) / len(used)
     temp = sum(1 for v in place["all_violations"] if v["theme"] == "temperature" and v["severity"] != "grp" and lo <= v["date"] < hi)
-    return {"avg_deficit": max(0, round(100 - avg)), "theme_temperature": temp}, avg
+    # rounded half up, as a person checking the worksheet by hand would (and as export_site.py does)
+    return {"avg_deficit": max(0, 100 - math.floor(avg + 0.5)), "theme_temperature": temp}, avg, used
 
 
 def worksheet(values):
@@ -352,9 +354,9 @@ def scored_order(places, as_of):
         got = rule_values(p, as_of)
         if got is None:
             continue
-        values, avg = got
+        values, avg, used = got
         sheet, pts = worksheet(values)
-        rows.append({"j": j, "points": pts, "avg": avg, "sheet": sheet, "name": p["name"]})
+        rows.append({"j": j, "points": pts, "avg": avg, "sheet": sheet, "name": p["name"], "used": used})
     rows.sort(key=lambda r: (-r["points"], r["name"]))
     return rows
 
@@ -388,7 +390,55 @@ def backtest(places):
     n, n_lab, k, rate, iv = stats(rest)
     rest_row = {"band": "rest", "places": n, "labelled": n_lab, "positives": k, "rate": rate, "interval": iv}
     positives = sum(1 for r in rows if r["positive"])
-    return bands, rest_row, {"candidates": len(rows), "positives": positives, "labelled": sum(1 for r in rows if r["labelled"])}
+    lab = [r for r in rows if r["labelled"]]
+    extra = {"base_rate": round(sum(r["positive"] for r in lab) / len(lab), 4) if lab else None,
+             "curve": risk_curve([(r["points"], int(r["positive"])) for r in lab])}
+    return bands, rest_row, {"candidates": len(rows), "positives": positives, "labelled": len(lab), **extra}
+
+
+def logit_fit(pairs, iters=60):
+    """(a, b), b >= 0, of P(major) = 1 / (1 + exp(-(a + b log(1 + points)))) by Newton's method."""
+    xs = [math.log1p(p) for p, _ in pairs]
+    ys = [y for _, y in pairs]
+    a = b = 0.0
+    for _ in range(iters):
+        ga = gb = haa = hab = hbb = 0.0
+        for x, y in zip(xs, ys):
+            q = 1 / (1 + math.exp(-(a + b * x)))
+            w = q * (1 - q)
+            ga, gb, haa, hab, hbb = ga + y - q, gb + (y - q) * x, haa + w, hab + w * x, hbb + w * x * x
+        det = haa * hbb - hab * hab
+        if det <= 1e-12:
+            break
+        da, db = (hbb * ga - hab * gb) / det, (haa * gb - hab * ga) / det
+        a, b = a + da, b + db
+        if abs(da) + abs(db) < 1e-10:
+            break
+    if b < 0:                                   # more points never means a lower rate
+        m = sum(ys) / len(ys)
+        a, b = math.log(max(m, 1e-6) / max(1 - m, 1e-6)), 0.0
+    return a, b
+
+
+def risk_curve(pairs, n_boot=60, seed=5):
+    """The rate by points, smoothed as in export_site.risk_curve (sample: resampling places, not addresses)."""
+    top = max(p for p, _ in pairs)
+    rate_at = lambda a, b: [1 / (1 + math.exp(-(a + b * math.log1p(x)))) for x in range(top + 1)]
+    fit = rate_at(*logit_fit(pairs))
+    rng = random.Random(seed)
+    draws = [rate_at(*logit_fit([rng.choice(pairs) for _ in pairs])) for _ in range(n_boot)]
+    col = lambda j: sorted(d[j] for d in draws)
+    lo = [col(j)[int(0.025 * (n_boot - 1))] for j in range(top + 1)]
+    hi = [col(j)[int(round(0.975 * (n_boot - 1)))] for j in range(top + 1)]
+    r4 = lambda v: [round(x, 4) for x in v]
+    return {"model": "sample: logistic in log(1 + points) on the invented backtest", "rate": r4(fit),
+            "low": r4([min(l, f) for l, f in zip(lo, fit)]), "high": r4([max(h, f) for h, f in zip(hi, fit)]),
+            "bins": [], "labelled": len(pairs), "positives": sum(y for _, y in pairs)}
+
+
+def estimate(curve, pts):
+    j = min(max(int(pts), 0), len(curve["rate"]) - 1)
+    return {"rate": curve["rate"][j], "low": curve["low"][j], "high": curve["high"][j]}
 
 
 def build(n_places: int = 1400, seed: int = 9, mode: str = "bands"):
@@ -398,7 +448,7 @@ def build(n_places: int = 1400, seed: int = 9, mode: str = "bands"):
     rng = random.Random(seed)
     places = [make_place(rng, i + 1) for i in range(n_places)]
 
-    band_of, points_of, sheet_of, stability_of = {}, {}, {}, {}
+    band_of, points_of, sheet_of, stability_of, used_of = {}, {}, {}, {}, {}
     meta_bands, rest_row, cr = [], None, None
     if mode == "bands":
         now = scored_order(places, LIST_DATE)
@@ -407,6 +457,7 @@ def build(n_places: int = 1400, seed: int = 9, mode: str = "bands"):
             pid = places[r["j"]]["id"]
             points_of[pid] = r["points"]
             sheet_of[pid] = r["sheet"]
+            used_of[pid] = r["used"]
             key = band_for(pos, stops)
             if key:
                 band_of[pid] = key
@@ -452,6 +503,8 @@ def build(n_places: int = 1400, seed: int = 9, mode: str = "bands"):
             props["points"] = points_of[p["id"]]
             detail["score_card"] = sheet_of[p["id"]]
             detail["band_stability"] = stability_of[p["id"]]
+            detail["scores_used"] = used_of[p["id"]]
+            detail["estimate"] = estimate(cr["curve"], points_of[p["id"]])
         features.append({"type": "Feature", "geometry": {"type": "Point", "coordinates": p["coords"]}, "properties": props})
         place_files[p["id"]] = {**props, **detail}
 
@@ -494,6 +547,8 @@ def build(n_places: int = 1400, seed: int = 9, mode: str = "bands"):
                 "baseline_name": "average score",
                 "bands": meta_bands,
                 "rest": rest_row,
+                "base_rate": cr["base_rate"],
+                "curve": cr["curve"],
             },
             "catch": {},
             "catch_run": {
@@ -522,9 +577,9 @@ def write(out: Path, fc, place_files, meta) -> None:
     (out / "facilities.geojson").write_text(json.dumps(fc, separators=(",", ":")), encoding="utf-8")
     (out / "meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
     pdir = out / "place"
-    if pdir.exists():
-        shutil.rmtree(pdir)
-    pdir.mkdir()
+    pdir.mkdir(exist_ok=True)
+    for old in pdir.glob("*.json"):       # emptied, not removed: a synced folder (OneDrive) may hold the directory
+        old.unlink()
     for pid, doc in place_files.items():
         (pdir / f"{pid}.json").write_text(json.dumps(doc, separators=(",", ":")), encoding="utf-8")
 

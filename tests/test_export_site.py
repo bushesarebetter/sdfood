@@ -260,22 +260,67 @@ def test_worksheet_rows_multiply_and_sum():
     assert rule.score(F)[0] == sum(r["points"] for r in ws) == 14
 
 
-def test_bands_never_split_a_tie_and_unordered_bands_merge():
+def test_bands_never_split_a_tie():
     pts = np.array([20] * 30 + [15] * 60 + [10] * 200 + [5] * 700, dtype=float)
     elig = np.ones(len(pts), bool)
-    cuts = es.band_thresholds(pts)
-    bands = es.assign_bands(pts, elig, cuts)
+    bands = es.assign_bands(pts, elig, es.band_thresholds(pts))
     for v in np.unique(pts):
         assert len({b for b, p in zip(bands, pts) if p == v}) == 1, "a tie is never split"
-    positive = np.zeros(len(pts))
-    positive[:15] = 1                   # 20 points: 50%
-    positive[30:45] = 1                 # 15 points: 25%
-    positive[90:140] = 1                # 10 points: 25%
-    merged = es.merge_overlapping(cuts, pts, positive, elig, elig)
-    rows, rest = es.band_rows(es.assign_bands(pts, elig, merged), pts, positive, elig, elig)
-    for a, b in zip(rows, rows[1:]):
-        assert a["rate"] > b["rate"], "a higher band has a higher rate"
+
+
+def _origins(pts, rates, n=3, seed=0, flat=None):
+    """Invented backtest origins: each place's outcome drawn at its points' rate (or one flat rate)."""
+    rng = np.random.default_rng(seed)
+    p = np.array([flat if flat is not None else rates[v] for v in pts])
+    ones = np.ones(len(pts), bool)
+    return [(pts, (rng.random(len(pts)) < p).astype(float), ones, ones) for _ in range(n)]
+
+
+def test_a_real_gradient_keeps_its_bands_at_every_origin():
+    pts = np.array([20] * 80 + [15] * 160 + [10] * 400 + [0] * 3000, dtype=float)
+    cuts = es.band_thresholds(pts)
+    kept = es.validate_bands(cuts, _origins(pts, {20: 0.70, 15: 0.45, 10: 0.30, 0: 0.10}))
+    assert kept == cuts, "clear, repeated differences survive"
+    rows, rest = es.band_rows(es.assign_bands(pts, np.ones(len(pts), bool), kept), pts, *_origins(pts, {20: 0.7, 15: 0.45, 10: 0.3, 0: 0.1}, n=1)[0][1:])
     assert rest["places"] + sum(r["places"] for r in rows) == len(pts)
+
+
+def test_a_split_that_reverses_at_one_origin_is_merged():
+    pts = np.array([20] * 300 + [10] * 300 + [0] * 3000, dtype=float)
+    ones = np.ones(len(pts), bool)
+    cuts = [20.0, 10.0]
+    def outcomes(r20, r10, seed):
+        rng = np.random.default_rng(seed)
+        p = np.where(pts == 20, r20, np.where(pts == 10, r10, 0.1))
+        return (pts, (rng.random(len(pts)) < p).astype(float), ones, ones)
+    kept = es.validate_bands(cuts, [outcomes(0.5, 0.35, 1), outcomes(0.5, 0.35, 2), outcomes(0.30, 0.40, 3)])
+    assert kept == [10.0], "bands 1 and 2 swap order at one origin: they are one band"
+
+
+def test_under_a_flat_rate_bands_are_almost_never_invented():
+    """Gelman's check: with no real gradient, the old 'rates in order at one origin' rule returned more
+    than one band about two times in three. The rule now must do so (or keep any band at all) rarely."""
+    pts = np.array([20] * 40 + [15] * 80 + [10] * 300 + [5] * 600 + [0] * 1500, dtype=float)
+    cuts = es.band_thresholds(pts)
+    trials = 150
+    kept = [es.validate_bands(cuts, _origins(pts, None, seed=t, flat=0.25)) for t in range(trials)]
+    assert sum(len(k) > 1 for k in kept) / trials <= 0.02
+    assert sum(len(k) >= 1 for k in kept) / trials <= 0.05
+
+
+def test_the_risk_curve_rises_with_points_and_brackets_its_estimate():
+    rng = np.random.default_rng(4)
+    pts = rng.integers(0, 25, 3000)
+    pos = (rng.random(3000) < 0.05 + 0.02 * pts).astype(float)
+    ones = np.ones(3000, bool)
+    cl = np.arange(3000)
+    c = es.risk_curve(pts, pos, ones, ones, cl, n_boot=60)
+    r = np.array(c["rate"])
+    assert np.all(np.diff(r) >= -1e-9) and len(r) == pts.max() + 1
+    assert all(lo <= m + 1e-9 <= hi + 2e-9 for lo, m, hi in zip(c["low"], c["rate"], c["high"]))
+    assert sum(b["labelled"] for b in c["bins"]) == 3000 and c["labelled"] == 3000
+    e = es.estimate(c, 99)                          # beyond the backtest's largest: read at the largest
+    assert e == {"rate": c["rate"][-1], "low": c["low"][-1], "high": c["high"][-1]}
 
 
 def test_naming_by_cost_ratio():
@@ -292,6 +337,10 @@ def test_the_rule_is_the_sparsest_within_epsilon():
     assert chosen == "count score" and sel["within_epsilon"]
     chosen, sel = es.select_rule([val(0.60, 0.62, 0.70), val(0.60, 0.62, 0.70)])
     assert chosen == "count score" and not sel["within_epsilon"]
+    # Nothing matches the black boxes, and the denser rule is ahead by less than EPSILON: the sparser
+    # rule ships (a denser rule is never chosen on a difference inside the declared tolerance).
+    chosen, sel = es.select_rule([val(0.696, 0.703, 0.72), val(0.692, 0.690, 0.71)])
+    assert chosen == "average score" and not sel["within_epsilon"]
 
 
 # ── fairness, approval, notices ───────────────────────────────────────────────────────
@@ -515,3 +564,76 @@ def test_facility_ids_are_unique_even_when_the_county_repeats_one():
             i["custom_id"] = "DEH2024-FFPP-000009"
     places, _, _ = es.prepare(raw, DISTRICTS)
     assert len({p["facility_id"] for p in places}) == 2
+
+
+# ── escalation facts, the worksheet's scores, the outside-City check, the run id, the pull ──────
+
+VERMIN = "23. No rodents, insects, birds, or animals"
+
+
+def _place(raw_visits, btype="Restaurant Food Facility"):
+    st = es.Stats()
+    return es.load_places([business("7", raw_visits, btype=btype)], st)[0]
+
+
+def test_escalation_flags_follow_the_countys_own_criteria():
+    closed = lambda day: inspection(day, score="0", grade="", status="Ordered Closed", violations=[violation(VERMIN, "major")])
+    p = _place([inspection("2025-01-10", violations=[violation(VERMIN, "major")]), closed("2025-06-02"),
+                inspection("2025-06-05", kind="Re-inspection", score="0", grade="", status="Approved to Reopen"),
+                inspection("2025-11-03", violations=[violation(VERMIN, "major")]), closed("2026-05-04")])
+    recs = es.display_records(p)
+    f = es.flags(recs, p["visits"])
+    assert "closures2" in f, "two closure orders in two years"
+    assert "repeat_item" in f, "item 23 major at 2 of the last 3 routine inspections"
+    q = _place([inspection("2025-01-10", violations=[violation(VERMIN, "major")]), inspection("2025-11-03")])
+    assert not {"closures2", "repeat_item"} & set(es.flags(es.display_records(q), q["visits"]))
+
+
+def test_the_worksheet_lists_the_scores_it_averages_and_rounds_half_up():
+    p = _place([inspection("2025-02-01", score="95"), inspection("2025-08-01", score="94"),
+                inspection("2026-01-15", score="0", grade="", status="Ordered Closed", violations=[violation(VERMIN, "major")])])
+    used = es.scores_used(p, "2026-09-20")
+    assert [u["score"] for u in used] == [95, 94, es.CLOSURE_SCORE] and [u["closure"] for u in used] == [False, False, True]
+    f = es.features_at(p, "2026-09-20")
+    mean = sum(u["score"] for u in used) / len(used)             # 86.33
+    assert f["avg_deficit"] == 100 - int(mean + 0.5) and f["last_deficit"] == 100 - es.CLOSURE_SCORE
+    two = _place([inspection("2025-02-01", score="95"), inspection("2025-08-01", score="94")])
+    assert es.features_at(two, "2026-03-01")["avg_deficit"] == 5, "94.5 rounds up to 95, as a person would"
+
+
+def test_places_outside_the_city_get_a_band_only_where_bands_were_checked_there(built):
+    fc, details, meta, extra = built
+    out = meta["card"]["outside"]
+    assert {"bands_shown", "bands", "rest", "curve", "base_rate"} <= set(out)
+    outside = [f["properties"] for f in fc["features"] if f["properties"]["council_district"] is None]
+    assert outside, "the invented county has places outside the City"
+    if not out["bands_shown"]:
+        assert not any("band" in p for p in outside)
+    for p in (f["properties"] for f in fc["features"]):
+        if "points" in p:
+            e = details[p["facility_id"]]["estimate"]
+            assert e is None or 0 <= e["low"] <= e["rate"] <= e["high"] <= 1
+
+
+def test_the_run_id_names_its_content_and_every_shown_band_is_audited(built):
+    fc, details, meta, extra = built
+    assert re.fullmatch(r"forward_\d{4}-\d{2}-\d{2}-[0-9a-f]{8}", meta["run"])
+    assert es.run_date(meta["run"]) == meta["run"][8:18] and es.run_date("forward_2026-09-20") == "2026-09-20"
+    assert meta["fairness"]["bands_used"] == [r["band"] for r in meta["card"]["bands"]]
+    assert meta["card"]["base_rate"] is not None and meta["card"]["curve"]["rate"]
+    assert all(set(o) >= {"as_of"} for o in meta["card"]["by_origin"]) and len(meta["card"]["by_origin"]) == 3
+
+
+def test_the_export_refuses_a_pull_that_is_not_complete(tmp_path, monkeypatch):
+    pull = tmp_path / "sd_businesses.2026-09-29.json"
+    pull.write_text("[]", encoding="utf-8")
+    (tmp_path / "pull_meta.2026-09-29.json").write_text(json.dumps({"complete": False}), encoding="utf-8")
+    with pytest.raises(SystemExit, match="not recorded as complete"):
+        es.main(["--pull", str(pull), "--out", str(tmp_path / "out")])
+    (tmp_path / "pull_meta.2026-09-29.json").write_text(json.dumps({"complete": True, "sha256": "0" * 64}), encoding="utf-8")
+    with pytest.raises(SystemExit, match="does not match the sha256"):
+        es.main(["--pull", str(pull), "--out", str(tmp_path / "out")])
+    lone = tmp_path / "sd_businesses.nometa.json"
+    lone.write_text("[]", encoding="utf-8")
+    with pytest.raises(SystemExit, match="no pull meta"):
+        es.main(["--pull", str(lone), "--out", str(tmp_path / "out")])

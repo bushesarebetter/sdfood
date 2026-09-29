@@ -184,5 +184,20 @@ Coverage by group is still monitored in use.
   with neighborhood; that is why this audit reports outcomes by group rather than inputs.
 - The data hold only surviving facilities, about 3.7 years of them.
 - Any deployment should re-run this audit on the County's internal records, on a schedule.
+- **The rule the staff site shows is audited by council district on every band it shows**
+  (`export_site.district_fairness`, the About page's district table), not only on a named top band.
+  Some districts get more than their share of places in a band that then had no major (the export's
+  `fairness.problems`); the site shows them. Part of a district's gap may be how its inspectors cite:
+  the record does not say which inspector made a visit.
+- **Area proxies cannot see who inside an area bears the errors.** A coarse screen by restaurant name
+  (keywords suggesting a cuisine; not the owner's ethnicity, and not a validated measure) found that,
+  among restaurants whose next routine inspection was clean, places with East or Southeast Asian
+  names were put in a band about 2 to 3 times as often as places with unclassified names, and places
+  with Latin or Mexican names about 1.6 times as often. The average-score rule shows the same gap
+  (about 2.2 times), so it comes from the County's own scores, not from how the rule weighs them. It
+  may be real differences in risk, or differences in how inspectors cite (the temperature item "time
+  as a public health control" is cited far more often at the first group); without inspector ids the
+  two cannot be separated. The next step is a proper audit: hand-code a stratified sample of places,
+  or obtain the County's risk category or menu type, and report the false-positive ratio by group.
 
 Full source list (data, methods, fairness papers): [REFERENCES.md](REFERENCES.md).

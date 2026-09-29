@@ -30,6 +30,24 @@ export function isExpired(meta, today = new Date()) {
   return t > m[1];
 }
 
+/** Whole days from `today` to meta.expires (0 on the expiry day itself), or null without an expiry. */
+export function daysLeft(meta, today = new Date()) {
+  const m = ISO_DAY.exec(meta?.expires ?? "");
+  const t = typeof today === "string" ? ISO_DAY.exec(today)?.[1] : isoDay(today);
+  if (!m || !t) return null;
+  return Math.round((Date.parse(`${m[1]}T00:00:00Z`) - Date.parse(`${t}T00:00:00Z`)) / 864e5);
+}
+
+/** Within SOON_DAYS of expiry, and not yet expired: say when the list goes search-only, and who refreshes it. */
+export const SOON_DAYS = 3;
+export function soonNotice(meta, today = new Date()) {
+  const d = daysLeft(meta, today);
+  if (d == null || d < 0 || d > SOON_DAYS) return null;
+  const who = meta?.operator?.name ? ` It is refreshed by ${meta.operator.name}.` : "";
+  const when = d === 0 ? "today" : d === 1 ? "tomorrow" : `in ${d} days`;
+  return `This list goes search-only ${when}, on ${fmtDate(meta.expires)}, unless it is refreshed.${who}`;
+}
+
 export function expiryNotice(meta) {
   const since = meta?.inspections_through ? fmtDate(meta.inspections_through) : "this export was made";
   return `This export is out of date. The County's record has moved on since ${since}, so this site now offers only a search of the record it holds. The County's own search has current results.`;

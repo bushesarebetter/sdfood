@@ -46,7 +46,7 @@ async function geocodeText(text) {
   if (res.status === 404) throw new Error("ZERO_RESULTS");
   const hit = res.ok && /json/i.test(res.headers.get("content-type") || "") ? await res.json() : null;
   if (!hit || typeof hit.lat !== "number") throw new Error("GEOCODER_UNAVAILABLE");
-  return { point: [hit.lon, hit.lat], label: hit.label };
+  return { point: [hit.lon, hit.lat], label: hit.label, source: hit.source ?? null };
 }
 
 export default function NearPanel({ facilities, filters, onPoint, onSelect, compact = false }) {
@@ -65,18 +65,18 @@ export default function NearPanel({ facilities, filters, onPoint, onSelect, comp
     setError(null);
     track("near-check");
     try {
-      let point, label;
+      let point, label, source = null;
       if (pick) {
         ({ point, label } = await resolvePlace(pick));
       } else {
-        ({ point, label } = await geocodeText(text));
+        ({ point, label, source } = await geocodeText(text));
       }
       const shown = facilities.features.filter((f) => passesFilters(f.properties, filters, { mode }));
       const places = shown
         .map((feature) => ({ feature, meters: metersBetween(point, feature.geometry.coordinates) }))
         .filter((r) => r.meters <= NEAR_M)
         .sort((a, b) => a.meters - b.meters);
-      setResult({ label, places });
+      setResult({ label, places, source });
       onPoint?.({ point });
     } catch (err) {
       setError(explain(err));
@@ -141,6 +141,8 @@ export default function NearPanel({ facilities, filters, onPoint, onSelect, comp
             {result.places.length
               ? <>{result.places.length} listed {result.places.length === 1 ? "place" : "places"} within {NEAR_M} m of {result.label}.</>
               : <>No listed places within {NEAR_M} m of {result.label}.</>}
+            {result.source === "osm" && <span className="mt-1 block text-[12px] text-ink-3">Address found by OpenStreetMap. &copy; OpenStreetMap contributors.</span>}
+            {result.source === "census" && <span className="mt-1 block text-[12px] text-ink-3">Address found by the US Census Bureau&rsquo;s geocoder.</span>}
           </p>
           {result.places.length > 0 && (
             <ol className="mt-2">

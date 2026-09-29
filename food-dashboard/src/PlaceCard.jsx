@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import PageFrame from "./PageFrame";
 import InspectionChart from "./InspectionChart";
 import ScoreCard from "./ScoreCard";
+import StaffActions from "./StaffActions";
 import RecordSummary from "./RecordSummary";
 import VisitList from "./VisitList";
 import { PlaceLines, PlaceStatus, CountyDisclaimer, RecordFactList, ThemeList } from "./PlaceParts";
@@ -136,6 +137,8 @@ export default function PlaceCard({ placeKey, facilities, error = null, onRetry 
               <ScoreCard p={place} meta={meta} advanced={advanced} large />
             </Section>
           )}
+
+          <div className="mt-9 empty:hidden"><StaffActions large /></div>
         </>
       )}
 

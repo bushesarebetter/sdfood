@@ -18,8 +18,10 @@ forward, on the County's own schedule.
 ## Silent phase: three months
 
 1. **Before each month**, `python export_worklist.py --month <yyyy-mm>` writes one list per
-   council district: the facilities estimated due that month (below), in the published rule's
-   order. It also writes a read-only, timestamped copy with a sha256 manifest
+   council district: the facilities estimated due that month (below), in the students' point
+   rule's order. Only the kinds of place the site lists appear: restaurants, limited-preparation
+   places and markets with food prep, never a private home (home kitchens, cottage food), a
+   health-care kitchen, a school or a food truck at its commissary, which follow other rules. It also writes a read-only, timestamped copy with a sha256 manifest
    (`data/worklists/<yyyy-mm>/frozen/<stamp>/`), including `scoring.csv`, which holds every
    active facility's position under each arm. The manifest's hashes are emailed to the County
    before the month starts; `python export_worklist.py --verify <frozen dir>` checks them later.
@@ -28,6 +30,13 @@ forward, on the County's own schedule.
    nothing**: the list is not used to schedule, assign, reorder or skip any inspection.
 3. **After three months**, the County shares the routine inspections done in those districts
    and months (below), and the analysis runs once, as written here.
+
+**A lighter first step (phase 0).** A supervisor who holds a named list may feel bound to act on
+what it shows (four closures for vermin, say), and acting on it would change the comparison. So the
+County need not receive the lists at all at first: the lists are frozen each month and their hashes
+sent to a neutral party (or to the County, unopened), and the result is scored afterwards from the
+public record. The County is asked only for its inspector territories and its actual due lists. The
+supervisors' part begins only if phase 0 shows a head start worth testing.
 
 **Due this month (an estimate).** The public record has no schedule. A facility is listed when,
 on the month's last day, the days since its last routine inspection reach its business type's
@@ -154,12 +163,16 @@ month, and driving time.
 ## Keeping the study clean
 
 - The pilot uses only **County-internal lists**; anything public is counts only (`dashboard.html`). District lists go only to the
-  participating inspection supervisors. City staff who use the internal API should not pass district lists
-  to inspectors or businesses during the pilot.
-- **No public list of names exists during the study.** The public website in `food-dashboard/`
-  shows only invented sample data, and no real names are published from the County's data without
-  the County's review. A public named list could change what businesses and inspectors do, and
-  would contaminate the comparison.
+  participating inspection supervisors.
+- **The City staff site.** While the pilot runs, no band, point or list from the staff site (or the
+  staff API) may reach an inspector, a supervisor or a business: the pilot would then measure the
+  list's influence, not its accuracy. The staff site says so in a banner during the pilot, and its
+  access log records each place opened; the analysis reports the primary result both with and
+  without the inspections at places staff looked at in the month before.
+- **We will not publish a named list.** The public website in `food-dashboard/` shows only
+  invented sample data, and no real names are published from the County's data without the
+  County's review. Lists held by the City or the County are their records and may be released under
+  the Public Records Act; the pilot does not depend on keeping them confidential.
 - The frozen copies are read-only and hashed; the analysis uses them, never a later rerun.
 
 ## Contacts

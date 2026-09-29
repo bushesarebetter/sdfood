@@ -119,16 +119,19 @@ Food Info). It publishes no inspection frequencies and says nothing about the or
 inspections, so what follows is measured from its record and labelled as such
 ([docs/COUNTY_METHOD.md](docs/COUNTY_METHOD.md) sets every claim beside the County's own sources):
 
-- **How often depends mostly on the kind of place.** A school processing kitchen's next routine
-  inspection comes a median 185 days later, a restaurant's 312, a pre-packaged market's
-  361 (`model_food.py`); school processing facilities get about 2.3 routine inspections a
-  year against a 1.5 median.
+- **How often differs by kind of place, mostly because of schools.** A school processing kitchen's
+  next routine inspection comes a median 185 days later, a restaurant's 312, a pre-packaged market's
+  361 (`model_food.py`); school processing facilities get about 2.3 routine inspections a year
+  against a 1.5 median. Schools in the national school lunch program must be inspected twice a
+  school year under federal law (42 U.S.C. §1758(h)), so that gap is not a County risk tier. Apart
+  from schools, the kinds of place differ little: low-risk facilities every 315 days, restaurants
+  every 312.
 - **A facility's own record moves it a little.** The next routine comes a median **277 days** after
   one that found a major against **303** after one that did not; across the 4,746 facilities on the
   record for three years or more, the correlation between a facility's routine major-violation rate
   and its routine inspections per year is −0.07.
 - **Within a month, the order shows no risk ordering** (above). Follow-up visits respond to
-  findings: a B or C is re-graded within 30 days (County Code §61.107(b)).
+  findings: a B or C may be re-graded within 30 days (County Code §61.107(b)).
 
 This project orders routine inspections **within the County's required schedule** by each facility's
 record. It does not change how often any facility is inspected.

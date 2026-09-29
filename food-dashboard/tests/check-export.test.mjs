@@ -19,7 +19,8 @@ function place(n, { band, points, index = {}, detail = {} } = {}) {
     grade: { grade: "A", score: 95, date: "2026-05-01", replaced: null }, flags: [],
     ...(band != null ? { band } : {}), ...(points != null ? { points } : {}), ...index,
   };
-  const card = points != null ? { score_card: [{ item: "avg_deficit", weight: 1, value: points - 2, points: points - 2, met: points - 2 > 0 }, { item: "theme_temperature", weight: 2, value: 1, points: 2, met: true }], band_stability: 0.9 } : {};
+  const card = points != null ? { score_card: [{ item: "avg_deficit", weight: 1, value: points - 2, points: points - 2, met: points - 2 > 0 }, { item: "theme_temperature", weight: 2, value: 1, points: 2, met: true }], band_stability: 0.9,
+    scores_used: [{ date: "2026-01-02", score: 100 - (points - 2), closure: false }] } : {};
   return {
     feature: { type: "Feature", geometry: { type: "Point", coordinates: [-117.16, 32.72] }, properties: props },
     file: { ...props, business_type: "Restaurant Food Facility", inspections: [record("2026-05-01")], violations: [{ date: "2026-05-01", visit: "routine", code: "7", theme: "temperature", severity: "minor", description: "x" }], ...card, ...detail },

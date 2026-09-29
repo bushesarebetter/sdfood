@@ -60,7 +60,7 @@ const FRESH_DAYS = 14;   // export_site.FRESH_DAYS: expires = inspections_throug
 const MAX_INDEX_BYTES = 3 * 1024 * 1024;
 const MAX_REVIEW_INDEX_BYTES = 8 * 1024 * 1024;
 const INDEX_KEYS = new Set(["facility_id", "name", "address", "facility_type", "council_district", "last_visit", "grade", "flags", "band", "points", "on_hold"]);
-const DETAIL_KEYS = new Set(["business_type", "inspections", "violations", "score_card", "band_stability"]);
+const DETAIL_KEYS = new Set(["business_type", "inspections", "violations", "score_card", "band_stability", "scores_used", "estimate"]);
 const FORBIDDEN = ["rank", "percentile", "oof_rank", "score", "shap_features", "is_known_positive"];
 const BAND_FIELDS = ["band", "points", "on_hold"];
 const ISO = /^\d{4}-\d{2}-\d{2}$/;
@@ -223,7 +223,7 @@ for (const f of features) {
     if (!VISIT_TYPES.includes(v.visit)) note(`violation visit outside ${VISIT_TYPES.join("|")}`, `${id}: ${v.date} ${v.visit}`);
   }
   if (!bands) {
-    for (const k of ["score_card", "band_stability"]) if (k in d) note(`bands field ${k} in a record-mode place file`, id);
+    for (const k of ["score_card", "band_stability", "scores_used", "estimate"]) if (k in d) note(`bands field ${k} in a record-mode place file`, id);
   } else if (typeof p.points === "number") {
     if (!Array.isArray(d.score_card) || !d.score_card.length) note("a place with points and no score_card", id);
     else {
@@ -236,6 +236,23 @@ for (const f of features) {
         sum += Number(r.points) || 0;
       }
       if (Math.abs(sum - p.points) > 1e-9) note("points of met score_card rows do not add up to points", `${id}: ${sum} against ${p.points}`);
+      // The worksheet can be checked by hand: the average deficit is 100 minus the rounded mean of the
+      // routine scores listed (a closure order read as 70), and the last deficit is 100 minus the last.
+      const used = d.scores_used;
+      if (!Array.isArray(used) || used.some((u) => typeof u?.score !== "number" || !/^\d{4}-\d{2}-\d{2}$/.test(u?.date ?? "") || typeof u?.closure !== "boolean")) {
+        note("a scored place without scores_used [{date, score, closure}]", id);
+      } else if (used.length) {
+        const row = (item) => d.score_card.find((r) => r.item === item);
+        const avg = row("avg_deficit"), last = row("last_deficit");
+        const mean = used.reduce((a, u) => a + u.score, 0) / used.length;
+        if (avg && avg.value !== 100 - Math.round(mean)) note("avg_deficit does not match the scores_used it reads", `${id}: ${avg.value} against ${100 - Math.round(mean)}`);
+        if (last && last.value !== 100 - used.at(-1).score) note("last_deficit does not match the last of scores_used", `${id}: ${last.value}`);
+      }
+    }
+    const e = d.estimate;
+    if (e != null && !(typeof e.rate === "number" && typeof e.low === "number" && typeof e.high === "number"
+        && e.low >= 0 && e.high <= 1 && e.low <= e.rate + 1e-9 && e.rate <= e.high + 1e-9)) {
+      note("an estimate outside 0 <= low <= rate <= high <= 1", `${id}: ${JSON.stringify(e)}`);
     }
   }
 }

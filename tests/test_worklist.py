@@ -87,7 +87,7 @@ def test_files_for_the_api_and_the_frozen_copy(data, tmp_path):
     with open(os.path.join(folder, "district-3.csv"), newline="", encoding="utf-8") as fh:
         assert list(csv.reader(fh)) == [ew.COLUMNS]                  # every district has a file
     m = json.load(open(os.path.join(folder, "manifest.json")))
-    assert set(m) == {"month", "generated", "method", "rule", "files"} and m["month"] == MONTH
+    assert set(m) == {"month", "generated", "method", "rule", "export_run", "listed_kinds", "files"} and m["month"] == MONTH
     assert "No published card export" in m["method"]                 # the fallback is stated
     assert m["files"] == {str(n): ew.sha256(os.path.join(folder, f"district-{n}.csv")) for n in range(1, 10)}
     assert ew.verify(frozen) == []
@@ -140,14 +140,15 @@ def test_card_points_first_then_the_one_line_rule(data, tmp_path):
     d1 = due[due["district"] == 1].sort_values("rule_order")
     assert list(d1.index) == [1, 3, 2]            # 30 pts (mean 91), 30 pts (mean 97), then no points
     assert list(due[due["district"] == 2].sort_values("rule_order").index) == [9, 5]
-    assert f.loc[1, "why"].startswith("Published card: 30 points, band 1. Routine scores since 2023-01: 92, 90")
-    assert f.loc[2, "why"].startswith("Not scored by the published card; placed after its places")
+    assert f.loc[1, "why"].startswith("Point rule (the students', not a County rating): 30 points, band 1. Routine scores since 2023-01: 92, 90")
+    assert f.loc[2, "why"].startswith("Not scored by the point rule; placed after its places")
     folder, _ = ew.write_month(f, MONTH, out=str(tmp_path / "worklists"), card=card)
     with open(os.path.join(folder, "district-1.csv"), newline="", encoding="utf-8") as fh:
         rows = list(csv.reader(fh))[1:]
     assert [(r[0], r[ew.COLUMNS.index("rule_order")], r[ew.COLUMNS.index("rule_points")]) for r in rows] ==         [("FA0001", "1", "30"), ("FA0003", "2", "30"), ("FA0002", "3", "")]
     m = json.load(open(os.path.join(folder, "manifest.json")))
-    assert m["rule"].startswith("Published point card") and "No published card export" not in m["method"]
+    assert m["rule"].startswith("The students' point rule") and "No published card export" not in m["method"]
+    assert m["export_run"] == card["run"] and "private home" in m["listed_kinds"]
 
 
 def test_the_invented_sample_is_never_used_as_the_card(tmp_path):
@@ -181,3 +182,27 @@ def test_the_model_trains_on_features_as_of_the_first(tmp_path, monkeypatch):
     r = seen["rows"].set_index("completed_date").loc[pd.Timestamp("2026-08-20")]
     assert r["prior_n"] == 1                             # the 2026-08-03 visit is after the 1st
     assert r["days_since_last"] == (pd.Timestamp("2026-08-01") - pd.Timestamp("2026-03-02")).days
+
+
+def test_private_homes_and_other_unlisted_kinds_never_reach_a_list(data):
+    insp, info = data
+    homes = insp.copy()
+    homes.loc[homes["business_id"] == 2, "business_type"] = "Microenterprise Home Kitchen Operation"
+    homes.loc[homes["business_id"] == 5, "business_type"] = "Cottage Food Operation - Class B"
+    f = ew.worklist(homes, info, MONTH, lookup)
+    assert 2 not in f.index and 5 not in f.index and 1 in f.index
+    assert 2 in ew.worklist(homes, info, MONTH, lookup, listed_only=False).index    # the counts-only dashboard
+
+
+def test_a_scored_row_explains_its_points_from_the_scores_its_worksheet_averages(data, tmp_path):
+    insp, info = data
+    site = site_export(tmp_path, {"FA0001": (9, "1")})
+    place = os.path.join(site, "place")
+    os.makedirs(place, exist_ok=True)
+    json.dump({"facility_id": "FA0001", "scores_used": [{"date": "2025-06-05", "score": 92, "closure": False},
+                                                         {"date": "2025-12-02", "score": 90, "closure": False}]},
+              open(os.path.join(place, "FA0001.json"), "w", encoding="utf-8"))
+    card = ew.load_card(site)
+    f = ew.worklist(insp, info, MONTH, lookup, card=card)
+    assert "It averages the routine scores of the two years before the list: 92, 90; mean 91.0" in f.loc[1, "why"]
+    assert f.loc[1, "last_routine_outcome"] == "Complete" and f.loc[1, "closures_24m"] == 0

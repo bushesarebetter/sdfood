@@ -14,7 +14,7 @@ const PLAIN = {
   aboutButton: "About this site",
 
   bandTitle: "Which bands",
-  bandUnit: "by points on the published rule",
+  bandUnit: "by points on the students' point rule",
   typeTitle: "Kind of place",
   flagTitle: "In the last year of the record",
   flagUnit: "our reading",

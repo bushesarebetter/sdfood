@@ -18,9 +18,12 @@ Checked 2026-09-27; the County's pages are linked in [REFERENCES.md](../REFERENC
 - **The record answers the question that matters for the case.** Within a council district's month, the
   order the County actually worked puts an inspection that found a major violation ahead of a clean one
   50.7% of the time (95% CI 49.1–52.1%): no different from chance. The one-line rule does so
-  74.4% of the time. The County's risk prioritization shows up in **how often** a kind of facility is
-  visited (school kitchens about twice as often as restaurants), which this project leaves alone, not in
-  the order within a month, which is all it changes. So the head start is measured against an order that
+  74.4% of the time. Schools are visited about twice as often as restaurants because federal law
+  requires two inspections a school year for schools in the national school lunch program
+  (42 U.S.C. §1758(h)); apart from them, the kinds of place differ little (low-risk facilities every
+  315 days, restaurants every 312). Whatever risk tiers the County uses, the public record does not
+  show them, and this project leaves how often places are visited alone: it changes only the order
+  within a month. So the head start is measured against an order that
   does not already rank by risk, and it is not counting risk work the County already does.
 
 ## Claim by claim
@@ -92,8 +95,8 @@ risk × overdue weighting) finds majors later than the record alone (README).
   within a district's month) is measured against the order the County actually worked, and that order does
   not already put risky places first. If the County ranked by risk inside a month, it would show here; it
   does not.
-- **Nothing here second-guesses the County's frequencies.** The County's risk tiers work through how often
-  a kind of place is visited. The proposal keeps every visit and every frequency, and only orders the
+- **Nothing here second-guesses the County's frequencies.** Any risk tiers the County uses would work
+  through how often a place is visited (the records request asks for them). The proposal keeps every visit and every frequency, and only orders the
   visits already due in a month.
 - **The same kind of result has been found before.** Chicago's food-inspection pilot, the precedent this
   project follows, reports critical violations found about 7 days sooner

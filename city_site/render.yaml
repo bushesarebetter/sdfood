@@ -1,0 +1,20 @@
+# The City staff site's Render settings, as a reviewed record. publish_city_site.py copies this file into
+# the private deploy repository. The service was made in the dashboard, so Render does not read this file
+# unless you connect it as a Blueprint; keep the two in step by hand (docs/HOSTING.md, "The City staff site").
+services:
+  - type: web
+    name: sdfood-city
+    runtime: node
+    region: oregon                 # the nearest to San Diego; cannot change after creation
+    plan: starter                  # $7 a month stays awake; free sleeps after 15 idle minutes (Render: not for production)
+    branch: main
+    buildCommand: npm ci && npx vite build
+    startCommand: node server.mjs
+    healthCheckPath: /healthz      # a new deploy that does not answer never replaces the live one
+    envVars:
+      - { key: NODE_VERSION, value: "24" }
+      - { key: SITE_USERS, sync: false }        # "name:token,..." one sign-in per person (tokens 16+ characters)
+      - { key: SITE_PASSWORD, sync: false }     # the older shared sign-in, 16+ characters, while migrating
+      - { key: SITE_CONTACT, sync: false }      # who to ask for access, shown when sign-in is refused
+      - { key: VITE_GOOGLE_MAPS_API_KEY, sync: false }
+      - { key: VITE_GOOGLE_MAPS_MAP_ID, sync: false }

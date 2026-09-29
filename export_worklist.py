@@ -60,7 +60,11 @@ DUE_MARGIN = 30           # days before the estimated due date a facility joins 
 MIN_GAPS = 30             # a type needs this many routine-to-routine gaps for its own median
 DISTRICTS = range(1, 10)
 COLUMNS = ["facility_id", "name", "address", "business_type", "last_routine_date", "last_routine_score",
-           "mean_routine_score_12m", "due_estimate", "rule_order", "rule_points", "why"]
+           "mean_routine_score_12m", "due_estimate", "rule_order", "rule_points", "why",
+           "last_routine_outcome", "closures_24m", "escalation"]
+ESCALATION = {"closures2": "closed twice or more in two years",
+              "repeat_item": "same major item at 2 of the last 3 routine inspections"}
+POINT_RULE = "Point rule (the students', not a County rating)"
 SCORING = ["district", "facility_id", "business_id", "due_this_month", "due_estimate", "rule_points",
            "rule_order", "rule_order_all", "card_points", "mean_points", "model_risk", "model_order",
            "model_order_all"]
@@ -106,8 +110,16 @@ def load_card(site=SITE):
         return None
     props = [ft["properties"] for ft in json.load(open(fc_path, encoding="utf-8"))["features"]]
     card = meta.get("card") or {}
+    scores = {}                       # the routine scores each place's points average, from its place file
+    for p in props:
+        pf = os.path.join(site, "place", f"{p['facility_id']}.json")
+        if p.get("points") is not None and os.path.exists(pf):
+            used = json.load(open(pf, encoding="utf-8")).get("scores_used")
+            if used is not None:
+                scores[p["facility_id"]] = [(u["score"], bool(u["closure"])) for u in used]
     return {"points": {p["facility_id"]: p["points"] for p in props if p.get("points") is not None},
             "band": {p["facility_id"]: p["band"] for p in props if p.get("band")},
+            "flags": {p["facility_id"]: p.get("flags") or [] for p in props}, "scores": scores,
             "rule": card.get("rule", ""), "eligibility": card.get("eligibility", ""),
             "run": meta.get("run") or meta.get("generated"), "through": meta.get("inspections_through")}
 
@@ -117,8 +129,8 @@ def rule_text(card):
     if card is None:
         return (f"One-line rule: {MEAN_RULE}. rule_points = 100 minus that mean, rounded to 0.1, highest first; "
                 "ties by earlier due_estimate, then facility_id. rule_order is 1..N per district.")
-    return (f"Published point card (export_site.py export {card['run']}, inspections through {card['through']}): "
-            f"{card['rule']} rule_points = the card's points, highest first; ties by the lower mean routine score on "
+    return (f"The students' point rule, not a County rating (export_site.py export {card['run']}, inspections "
+            f"through {card['through']}): {card['rule']} rule_points = its points, highest first; ties by the lower mean routine score on "
             f"record, then earlier due_estimate, then facility_id. Places the card does not score (it scores "
             f"{card['eligibility']}) follow with rule_points blank, by the one-line rule: {MEAN_RULE}; then earlier "
             "due_estimate, then facility_id. rule_order is 1..N per district; why says which ordering placed each row.")
@@ -169,10 +181,19 @@ def intervals(rt, asof=None, last_visit=None):
     return out, overall
 
 
-def _why(scores, majors, n, *, closures=0, points=None, band=None, card=False):
-    """Which ordering placed the row, and the facts behind it."""
-    lead = (f"Published card: {int(points)} points{f', band {band}' if band else ''}. " if points is not None
-            else "Not scored by the published card; placed after its places, by lowest mean routine score. "
+def _why(scores, majors, n, *, closures=0, points=None, band=None, card=False, used=None):
+    """Which ordering placed the row, and the facts behind it. For a scored place, the same scores
+    its worksheet averages (the two years before the list; a closure order read as 70), so the
+    points can be checked by hand from this line alone."""
+    if points is not None and used:
+        listed = ", ".join(f"{sc:g}{' (closure order)' if c else ''}" for sc, c in used)
+        mean = sum(sc for sc, _ in used) / len(used)
+        return (f"{POINT_RULE}: {int(points)} points{f', band {band}' if band else ''}. It averages the routine "
+                f"scores of the two years before the list: {listed}; mean {mean:.1f}, and 100 minus the mean, "
+                f"rounded, is its points."
+                + (f" {majors} of {n} routine inspections since 2023-01 found a major violation." if majors else ""))
+    lead = (f"{POINT_RULE}: {int(points)} points{f', band {band}' if band else ''}. " if points is not None
+            else "Not scored by the point rule; placed after its places, by lowest mean routine score. "
             if card else "")
     rated = scores + [float(mf.es.CLOSURE_SCORE)] * closures
     shut = (f" {closures} routine inspection{'s' if closures > 1 else ''} ended in a health closure order "
@@ -186,11 +207,14 @@ def _why(scores, majors, n, *, closures=0, points=None, band=None, card=False):
     return lead + rec + (f" {majors} of {n} routine inspections found a major violation." if majors else "")
 
 
-def worklist(insp, info, month, lookup, *, card=None, use_status=True, why=True, city_only=True):
+def worklist(insp, info, month, lookup, *, card=None, use_status=True, why=True, city_only=True, listed_only=True):
     """Every active City facility as of the month's first day, with its due estimate, rule points
     and order. insp: model_food.load() rows; info: facility_info(); lookup(lon, lat) -> district;
     card: load_card() or None for the one-line rule alone. city_only=False keeps facilities outside
-    the City too, as district 0 (the dashboard)."""
+    the City too, as district 0 (the dashboard). listed_only keeps only the kinds of place the site
+    lists (restaurants, limited-preparation places, markets with food prep): never a private home
+    (home kitchens, cottage food), a health-care kitchen, a school or a food truck at its commissary,
+    which follow other rules and have no place on a list sent to City staff."""
     start, end = month_bounds(month)
     h = insp[insp["completed_date"] < start]
     last_visit = h.groupby("business_id")["completed_date"].max()
@@ -203,6 +227,17 @@ def worklist(insp, info, month, lookup, *, card=None, use_status=True, why=True,
     f = pd.DataFrame({"business_type": last["business_type"].astype(str),
                       "last_routine_date": last["completed_date"], "last_routine_score": last["score"],
                       "lat": last["lat"], "lng": last["lng"]})
+    if listed_only:
+        f = f[f["business_type"].map(mf.es.KINDS).isin(mf.es.PUBLIC_KINDS)]
+    closure = last["closure"] if "closure" in last.columns else pd.Series(index=last.index, dtype=object)
+    status = last["status"] if "status" in last.columns else pd.Series("", index=last.index)
+    f["last_routine_outcome"] = [f"{st}{' (health closure)' if cl == 'health' else ''}"
+                                 for st, cl in zip(status.reindex(f.index).fillna(""), closure.reindex(f.index))]
+    if "closure" in h.columns:
+        h24 = h[(h["completed_date"] >= start - pd.Timedelta(days=730)) & (h["closure"].astype(str) == "health")]
+        f["closures_24m"] = h24.groupby("business_id").size().reindex(f.index).fillna(0).astype(int)
+    else:
+        f["closures_24m"] = 0
     f["mean_all"] = g["score"].mean()
     # the rule's mean counts a routine that ended in a health closure as CLOSURE_SCORE, as the card does
     f["mean_rated"] = (g["rated_score"] if "rated_score" in rt.columns else g["score"]).mean()
@@ -226,6 +261,8 @@ def worklist(insp, info, month, lookup, *, card=None, use_status=True, why=True,
     f["card_points"] = f["facility_id"].map(card["points"]) if card else np.nan
     f["card_band"] = f["facility_id"].map(card["band"]) if card else None
     f["rule_points"] = f["card_points"] if card else f["mean_points"]
+    f["escalation"] = (["; ".join(v for k, v in ESCALATION.items() if k in card["flags"].get(fid, []))
+                        for fid in f["facility_id"]] if card else "")
     if why:
         rows = rt[rt["business_id"].isin(f.index)]
         sc = rows.groupby("business_id")["score"].apply(lambda s: [float(v) for v in s.dropna()])
@@ -234,8 +271,9 @@ def worklist(insp, info, month, lookup, *, card=None, use_status=True, why=True,
         mj = rows.groupby("business_id")["n_major"].apply(lambda s: int((s > 0).sum()))
         nr = rows.groupby("business_id").size()
         f["why"] = [_why(sc.get(b, []), mj.get(b, 0), nr.get(b, 0), closures=int(cl.get(b, 0)),
-                         points=None if pd.isna(p) else p, band=None if pd.isna(bd) else bd, card=bool(card))
-                    for b, p, bd in zip(f.index, f["card_points"], f["card_band"])]
+                         points=None if pd.isna(p) else p, band=None if pd.isna(bd) else bd, card=bool(card),
+                         used=card["scores"].get(fid) if card else None)
+                    for b, p, bd, fid in zip(f.index, f["card_points"], f["card_band"], f["facility_id"])]
     return rank(f)
 
 
@@ -326,10 +364,15 @@ def write_month(f, month, out=OUT, generated=None, freeze=True, card=None):
                              csv_text(r["business_type"]),
                              _fmt(r["last_routine_date"]), _fmt(r["last_routine_score"]),
                              _fmt(r["mean_routine_score_12m"]), _fmt(r["due_estimate"]),
-                             int(r["rule_order"]), _points(r), csv_text(r["why"])])
+                             int(r["rule_order"]), _points(r), csv_text(r["why"]),
+                             csv_text(r.get("last_routine_outcome", "")), _fmt(r.get("closures_24m"), 0),
+                             csv_text(r.get("escalation", ""))])
         files[str(n)] = sha256(path)
     manifest = {"month": month, "generated": generated.isoformat(),
-                "method": METHOD + (FALLBACK if card is None else ""), "rule": rule_text(card), "files": files}
+                "method": METHOD + (FALLBACK if card is None else ""), "rule": rule_text(card),
+                "export_run": card["run"] if card else None,
+                "listed_kinds": "restaurants, limited-preparation places and markets with food prep; never a private home",
+                "files": files}
     json.dump(manifest, open(os.path.join(folder, "manifest.json"), "w"), indent=1)
     if not freeze:
         return folder, None

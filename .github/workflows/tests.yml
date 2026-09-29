@@ -10,7 +10,9 @@ jobs:
           python-version: "3.13"
       - uses: actions/setup-node@v7
         with:
-          node-version: "22"
+          node-version-file: food-dashboard/.node-version
+          cache: npm
+          cache-dependency-path: food-dashboard/package-lock.json
       - run: python -m pip install -r requirements.txt
       - name: the committed dashboard publishes counts only
         run: python privacy_gate.py dashboard.html
@@ -19,3 +21,6 @@ jobs:
       - name: site tests
         working-directory: food-dashboard
         run: node --test tests/*.test.mjs
+      - name: the site builds from the lockfile, as Render builds it (on the committed sample)
+        working-directory: food-dashboard
+        run: npm ci && npm run build

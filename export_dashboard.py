@@ -103,7 +103,7 @@ def main():
     data_to = insp["completed_date"].max()
     month = (data_to + pd.offsets.MonthBegin(1)).strftime("%Y-%m")
     start, _ = ew.month_bounds(month)
-    f = ew.worklist(insp, info, month, es.district_lookup(es.load_districts()), why=False, city_only=False)
+    f = ew.worklist(insp, info, month, es.district_lookup(es.load_districts()), why=False, city_only=False, listed_only=False)
     f = ew.model_orders(insp, month, f)
     h = insp[insp["completed_date"] < start].groupby("business_id")
     f["prior_major_rate"] = h["major"].mean().reindex(f.index)

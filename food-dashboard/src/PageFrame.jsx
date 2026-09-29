@@ -1,6 +1,7 @@
 import { REPO_URL } from "./constants";
 import { SITE, STUDENT_NOTE } from "./site";
 import SampleBanner from "./SampleBanner";
+import StaffBanner from "./StaffBanner";
 import ExpiryBanner from "./ExpiryBanner";
 import { useExpired } from "./useMeta";
 
@@ -34,6 +35,7 @@ export default function PageFrame({ onNavigate, wide = false, children }) {
         </div>
       </header>
       <SampleBanner />
+      <StaffBanner />
       <ExpiryBanner />
 
       <main className={`mx-auto w-full flex-1 px-5 pb-16 pt-12 md:px-8 md:pt-16 ${wide ? "max-w-[56rem]" : "max-w-[44rem]"}`}>{children}</main>

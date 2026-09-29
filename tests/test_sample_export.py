@@ -14,7 +14,7 @@ VISIT_TYPES = {"routine", "reinspection", "followup", "complaint"}
 SEVERITIES = {"major", "minor", "grp"}
 CLOSURES = {"health", "permit", "other"}
 INDEX_KEYS = {"facility_id", "name", "address", "facility_type", "council_district", "last_visit", "grade", "flags", "band", "points", "on_hold"}
-DETAIL_KEYS = {"business_type", "inspections", "violations", "score_card", "band_stability"}
+DETAIL_KEYS = {"business_type", "inspections", "violations", "score_card", "band_stability", "scores_used", "estimate"}
 FORBIDDEN = {"rank", "percentile", "oof_rank", "score", "shap_features", "is_known_positive"}
 REAL_STREETS = ("Convoy", "Garnet", "University Ave", "5th Ave", "India St", "El Cajon", "Adams Ave", "Rosecrans")
 
@@ -136,7 +136,7 @@ def test_record_mode_has_nothing_from_a_model():
     assert not {"card", "catch", "catch_run", "named_bands", "candidates", "model"} & set(meta)
     for f in fc["features"]:
         assert not {"band", "points", "on_hold"} & set(f["properties"])
-        assert not {"score_card", "band_stability"} & set(places[f["properties"]["facility_id"]])
+        assert not {"score_card", "band_stability", "scores_used", "estimate"} & set(places[f["properties"]["facility_id"]])
 
 
 def test_written_export_passes_the_site_check(tmp_path):

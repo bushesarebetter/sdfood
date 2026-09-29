@@ -5,6 +5,8 @@ import MobileSheet from "./MobileSheet";
 import AboutModal from "./AboutModal";
 import NearPanel from "./NearPanel";
 import SampleBanner from "./SampleBanner";
+import StaffBanner from "./StaffBanner";
+import ExpiryBanner from "./ExpiryBanner";
 import AreaToggle from "./AreaToggle";
 import Dialog, { CloseButton } from "./Dialog";
 import { useMode, useExpired } from "./useMeta";
@@ -62,6 +64,8 @@ export default function MobileShell({ facilities, filters, hasCounty = false, on
           </IconButton>
         </div>
         <SampleBanner compact />
+        <StaffBanner compact />
+        <ExpiryBanner compact />
         <div className="flex flex-wrap gap-2">
         {!mapError && (
           <div role="group" aria-label="Show" className="inline-flex border border-rule-strong bg-paper shadow-paper">

@@ -28,7 +28,7 @@ export default function WelcomeModal() {
       <div className="space-y-4 px-8 py-6 font-serif text-[16px] leading-[1.55] text-ink-2">
         {mode === "bands" ? (
           <p>
-            Coloured dots are places in the bands of the published rule; darker = more points. Grey dots are other listed
+            Coloured dots are places in the bands of the students' point rule; darker = more points. Grey dots are other listed
             places. {bandSummary(meta, "1")}
           </p>
         ) : (

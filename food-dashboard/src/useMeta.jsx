@@ -5,7 +5,7 @@ import { siteMode } from "./lib/framing";
 /**
  * /data/meta.json describes the export: its mode (`record` or `bands`),
  * whether it is the invented sample, when inspections run through and when it
- * expires, and in `bands` mode the published rule, its bands and backtest.
+ * expires, and in `bands` mode the students' point rule, its bands and backtest.
  * The site renders nothing until it has loaded, so a page never shows one
  * mode and then another, and never shows a list it cannot date.
  */

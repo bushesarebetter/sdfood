@@ -18,7 +18,7 @@ const place = {
 
 test("a citation names the authors, the run, the place and, in bands mode, its band; never a position", () => {
   const c = citation({ place, url: "https://example.org/place/SAMPLE-FFPP-00077", meta, mode: "bands" });
-  assert.match(c, /^Zhang, C\., and Pendharkar, A\. \(\d{4}\)\. San Diego Food Inspection Record, run forward_2026-09-20: Sample Grill 077, 800 Sample Row, San Diego, CA 92101, band 2 on the published rule\. https:\/\/example\.org\/place\/SAMPLE-FFPP-00077\. Retrieved \d{4}-\d{2}-\d{2}\.$/);
+  assert.match(c, /^Zhang, C\., and Pendharkar, A\. \(\d{4}\)\. San Diego Food Inspection Record, run forward_2026-09-20: Sample Grill 077, 800 Sample Row, San Diego, CA 92101, band 2 on the students' point rule\. https:\/\/example\.org\/place\/SAMPLE-FFPP-00077\. Retrieved \d{4}-\d{2}-\d{2}\.$/);
   assert.doesNotMatch(citation({ place, url: "u", meta }), /band/, "record mode names no band");
   assert.doesNotMatch(citation({ place, url: "u", meta, mode: "bands", expired: true }), /band/);
   assert.equal(standing({ ...place, on_hold: true, band: undefined }, { mode: "bands" }), null);
@@ -27,7 +27,7 @@ test("a citation names the authors, the run, the place and, in bands mode, its b
 test("the record text states the County's record, marks our readings, and says where to check it", () => {
   const t = recordText({ place, url: "https://example.org/place/SAMPLE-FFPP-00077", meta, mode: "bands" });
   assert.match(t, /County permit record SAMPLE-FFPP-00077/);
-  assert.match(t, /band 2 on the published rule, 17 points\./);
+  assert.match(t, /band 2 on the students' point rule, 17 points\./);
   assert.match(t, /Latest County grade on record: A \(95\), May 12, 2026\./);
   assert.match(t, /Before it, the routine inspection on May 5, 2026 was graded B \(81\)\. Our reading: the later visit was a re-grade\./);
   assert.match(t, /94% of them did\. The County requires each major violation to be corrected/);

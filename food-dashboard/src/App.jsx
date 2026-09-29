@@ -14,6 +14,8 @@ import Corrections from "./Corrections";
 import NotFound from "./NotFound";
 import Notice from "./Notice";
 import SampleBanner from "./SampleBanner";
+import StaffBanner from "./StaffBanner";
+import ExpiryBanner from "./ExpiryBanner";
 import { inArea, hasCountyPlaces } from "./AreaToggle";
 import useFacilities from "./useFacilities";
 import useMediaQuery from "./useMediaQuery";
@@ -155,7 +157,7 @@ function Dashboard() {
         ? (() => {
             const p = sel && view === "map" ? sel : pageFeature.properties;
             const b = view === "map" ? selBand : !expired ? shownBand(p, { mode }) : null;
-            return `${p.name}, ${p.address}${b ? `, band ${b} on the published rule` : ""}: its County inspection record, visit by visit.`;
+            return `${p.name}, ${p.address}${b ? `, band ${b} on the students' point rule` : ""}: its County inspection record, visit by visit.`;
           })()
         : siteDescription(meta),
     noindex: view === "place" || view === "notfound" || (view === "map" && Boolean(sel)),
@@ -228,6 +230,8 @@ function Dashboard() {
 
       <Header facilities={shown} onSelect={setSelected} onHome={goHome} onNavigate={navigate} />
       <SampleBanner fixed />
+      <StaffBanner fixed />
+      <ExpiryBanner fixed />
 
       <main className="relative flex flex-1 overflow-hidden">
         <aside aria-label="Filters and summary" className="print-hide w-[20.5rem] shrink-0 border-r border-rule-strong">

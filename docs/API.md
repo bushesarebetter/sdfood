@@ -1,10 +1,11 @@
 # San Diego Food Inspection API
 
-The API is an internal service for City of San Diego staff. It covers every listed restaurant and
-market in the City, and for each one gives:
+The API is a key-protected service for City of San Diego staff (not deployed today: the City uses
+the staff site, docs/STAFF_SITE.md). It covers every listed restaurant and market in San Diego County
+(City places carry a council district; the rest have none), and for each one gives:
 
 - the County's inspection record;
-- the published scoring rule's points and band;
+- the students' point rule's points and band (not a County grade or rating);
 - council-district summaries;
 - monthly worklists for each district.
 
@@ -49,7 +50,7 @@ Examples:
 K="X-API-Key: key-for-staff"; B=http://localhost:8000
 curl -H "$K" "$B/v1/facilities?district=3&band=1&sort=points&limit=20"
 curl -H "$K" "$B/v1/facilities?flag=major&flag=temperature&district=9"
-curl -H "$K" "$B/v1/facilities/DEH2015-FFPP-006053"
+curl -H "$K" "$B/v1/facilities/SAMPLE-FFPP-00011"
 curl -H "$K" "$B/v1/worklists/2026-10/districts/3?format=csv" -o district-3-october.csv
 ```
 

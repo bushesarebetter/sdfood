@@ -11,11 +11,11 @@ import { SITE, STUDENT_NOTE } from "../site.js";
 
 const today = () => new Date().toISOString().slice(0, 10);
 
-/** "band 2 on the published rule", or null outside `bands` mode, for a place in no band, or on an expired export. */
+/** "band 2 on the students' point rule", or null outside `bands` mode, for a place in no band, or on an expired export. */
 export function standing(p, { mode = "record", expired = false } = {}) {
   if (expired) return null;
   const b = shownBand(p, { mode });
-  return b ? `band ${b} on the published rule` : null;
+  return b ? `band ${b} on the students' point rule` : null;
 }
 
 /** A citation for one place, for a memo, a report or a paper. */

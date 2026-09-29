@@ -1,7 +1,11 @@
-# Publishing: the staff API, and the gated public site
+# Publishing: the City staff site, the staff API, and the gated public site
 
-There are three ways results from the real data leave this machine.
+There are four ways results from the real data leave this machine. Each is a release of named results
+and has its own gates.
 
+0. **The City staff site** (`publish_city_site.py`; [STAFF_SITE.md](STAFF_SITE.md)). The live one:
+   every listed place with its record, points, estimate and band, behind a per-person sign-in, built
+   from a private repository. Its gates are in "The staff site's gates" below.
 1. **The staff API** ([API.md](API.md)). This is internal, for City of San Diego staff. It is
    reached with a key and deployed from a privately built image, and it serves every listed place
    with its record, its points and band, and the monthly worklists.
@@ -20,6 +24,29 @@ There are three ways results from the real data leave this machine.
 and provenance, not just `meta.sample`). The approval, the notice log and the holds list are
 git-ignored too: they hold personal contacts and the names of places before they are public. If a
 real export is ever published, deploy the built site from a private build.
+
+## The staff site's gates
+
+`publish_city_site.py` refuses to push unless every one of these holds:
+
+| gate | why |
+|---|---|
+| `docs/STAFF_APPROVAL.json` names a responsible adult (name and email) and a corrections contact (email) | The students are minors, who can disaffirm what they agree to; the City needs an adult it can hold to the site's terms, and owners need someone to write to |
+| Its `sunset` date has not passed | The site comes down unless a City owner takes it over |
+| The export is real, from a complete pull, and at least 2 days from expiry | A partial pull would quietly drop places; an expiring list would close within days |
+| The export is not older than the live one, and not more than 10% smaller unless `--force` | A refresh never quietly replaces a fuller list |
+| The code that built it was committed (its provenance is not `-dirty`) | Any list staff saw can be rebuilt from a commit |
+| The push goes only to the private repository named, and it is private | The real export never reaches a public repository |
+
+Two things are shipped rather than gated. **Every public-release gate the list does not pass** (the
+table below, run on this export) goes into the staff copy of `meta.json` as `review_status`, and the
+site shows it on every page. **Holds** (`docs/holds.json`) take effect at publish without a rebuild.
+Every publish is appended to `data/staff_deploys.jsonl`, and the server logs each record opened with
+the sign-in's name, so it can always be said which list someone saw.
+
+**The staff channel is not confidential.** What City staff download, print or send is a City public
+record under the California Public Records Act, and anyone may request it. The staff site says so on
+every page, and nothing in this project promises a list will stay private.
 
 ## The staff API
 
@@ -98,8 +125,14 @@ the privacy gate, strips every other historical version, verifies that none is s
 and only then force-pushes. It was tested on a scratch copy of this repository: eight historical
 versions were stripped, the clean one was kept, and the commit history was otherwise unchanged. Then:
 
-1. Ask GitHub Support to remove cached views and unreachable objects and to clear pull-request
-   refs that still point at old commits (GitHub Docs, *Removing sensitive data from a repository*).
+1. **Check the pull-request refs.** GitHub keeps each pull request's commits under
+   `refs/pull/N/head`, and no push can rewrite them: a purged file stays public through the pull
+   request's Commits and Files tabs. The script now checks them after the push and fails if any still
+   reaches a removed file. On 2026-09-29, `refs/pull/1/head` and `refs/pull/2/head` still reached
+   facility-level versions. Until GitHub removes them: make the repository private, then ask GitHub
+   Support (GitHub Docs, *Removing sensitive data from a repository*) to remove those refs, and to
+   remove cached views and unreachable objects, giving the commit hashes. Make it public again only
+   once the script's check passes.
 2. Every collaborator re-clones. Old clones still hold the old files.
 3. Replace or delete any copy of the old page hosted elsewhere (GitHub Pages, shared links).
 

@@ -1,16 +1,64 @@
 # Hosting on Render
 
-Two services in one Render workspace:
+Three services can run in one Render workspace. The first is what the City uses.
 
-| | Staff API | Public site |
-|---|---|---|
-| What | `api/`: the real export, for City staff; every data request needs a key ([API.md](API.md)) | `food-dashboard/`: the invented sample |
-| Render service | Web Service, deployed from an existing image | Static Site |
-| Built from | a **private** image on GitHub's container registry (ghcr.io), built on the machine that holds `data/` by `deploy_api.py` | this public repository, on every push to `main` |
-| Address | `https://sdfood-api.onrender.com` (the name you choose) | `https://sd-food-safety-risk.onrender.com` |
+| | City staff site (live) | Staff API (optional) | Public site |
+|---|---|---|---|
+| What | `food-dashboard/` with the real export, behind a sign-in (`city_site/server.mjs`) | `api/`: the real export as JSON and CSV, every request keyed ([API.md](API.md)) | `food-dashboard/`: the invented sample |
+| Render service | Web Service (Node) | Web Service, from an existing image | Static Site |
+| Built from | the PRIVATE repository `ChenhaoZhang01/sdfood-city`, written by `publish_city_site.py` | a private image on ghcr.io, built by `deploy_api.py` | this public repository |
+| Address | `https://sdfood-city.onrender.com` | `https://sdfood-api.onrender.com` | `https://sdfood.onrender.com` |
 
-The real export never goes to GitHub: `/data/` is ignored, and the image that carries it lives in a
-private package. The public repository only builds the site, with the sample.
+The real export never goes to this public repository: `/data/` is ignored, and the copies that carry it
+live in a private repository and a private image package.
+
+## 0. The City staff site
+
+Use policy: [STAFF_SITE.md](STAFF_SITE.md). Running it week to week: [RUNBOOK.md](RUNBOOK.md).
+
+### Once: the approval
+
+Copy `docs/STAFF_APPROVAL.example.json` to `docs/STAFF_APPROVAL.json` (gitignored) and fill in a
+responsible adult, a corrections contact and a sunset date. `publish_city_site.py` refuses to publish
+without them.
+
+### Once: the private repository
+
+`python export_site.py && python publish_city_site.py` creates `ChenhaoZhang01/sdfood-city` (private) on
+its first run, and pushes the built site's sources, the real export, `server.mjs`, a record of the
+Render settings (`render.yaml`) and a daily check (`.github/workflows/watch.yml`). It refuses to push to
+any repository that is not that one, and not private. Then, on GitHub:
+
+- Settings: turn off "Allow forking" (`gh repo edit ChenhaoZhang01/sdfood-city --allow-forking=false`).
+  Never make it public: a public repository cannot hide its history.
+- Add the co-author and the responsible adult as collaborators, and have them watch the repository, so
+  the daily check's issues reach them.
+
+### Once: the Render service
+
+New, Web Service, from the private repository (Render's GitHub App needs access to it):
+
+| Setting | Value |
+|---|---|
+| Name | `sdfood-city` |
+| Region | Oregon (US West) |
+| Instance type | Starter ($7 a month) stays awake; Free sleeps after 15 idle minutes, and Render says Free is not for production |
+| Build command | `npm ci && npx vite build` |
+| Start command | `node server.mjs` |
+| Health check path | `/healthz` (a new deploy that does not answer never replaces the live one) |
+| Environment | `NODE_VERSION` = `24`; `SITE_USERS` = `name:token,...` (one per person, tokens 16+ characters); `SITE_CONTACT` = who to ask for access; `VITE_GOOGLE_MAPS_API_KEY` and `VITE_GOOGLE_MAPS_MAP_ID` (section 4; add `https://sdfood-city.onrender.com/*` to the key's allowed websites) |
+
+The build checks the export it ships (`scripts/exportGate.mjs`, in review mode because of the staff
+marker file) and turns off the offline cache (`vite.config.js`). `SITE_PASSWORD` (one shared sign-in,
+user `city`) still works while people move to their own sign-ins; the server refuses to start if any
+sign-in is shorter than 16 characters. Turn on two-factor sign-in for the Render and GitHub accounts:
+anyone who can open the Render dashboard can read the sign-ins.
+
+### Checks
+
+- `https://sdfood-city.onrender.com/healthz` answers `{"ok": true, "run": ..., "expires": ..., "source": ...}`.
+- The site asks for a sign-in; your sign-in opens it; `/logout` signs you out.
+- The banner at the top of every page names the contact and the checks the list has not passed.
 
 ## 1. The staff API
 

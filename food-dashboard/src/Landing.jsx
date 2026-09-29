@@ -2,6 +2,7 @@ import { useState } from "react";
 import SearchBox from "./SearchBox";
 import AboutModal from "./AboutModal";
 import SampleBanner from "./SampleBanner";
+import StaffBanner from "./StaffBanner";
 import { Footer } from "./PageFrame";
 import { useMeta, useMode } from "./useMeta";
 import { headline, subhead, gradeContextSentence } from "./lib/framing";
@@ -42,6 +43,7 @@ export default function Landing({ facilities, error, onRetry, onEnter, onNavigat
         </div>
       </header>
       <SampleBanner />
+      <StaffBanner />
 
       {notice}
 

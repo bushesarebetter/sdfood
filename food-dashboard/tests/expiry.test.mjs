@@ -5,7 +5,7 @@ import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { isExpired, expiryNotice, isoDay } from "../src/lib/expiry.js";
+import { isExpired, expiryNotice, isoDay, daysLeft, soonNotice } from "../src/lib/expiry.js";
 
 const script = join(dirname(fileURLToPath(import.meta.url)), "..", "scripts", "check-expiry.mjs");
 
@@ -57,4 +57,16 @@ test("the prebuild check stops a build of a real export once it has expired", ()
   const flipped = runCheck({ sample: true, run: "forward_2026-09-20", expires: "2026-10-03", provenance: { code_sha: "abc" } }, "2099-01-01");
   assert.equal(flipped.ok, false, "a real export does not escape expiry by setting meta.sample");
   assert.match(flipped.err, /not the invented sample/);
+});
+
+
+test("staff are warned in the last days before the list goes search-only", () => {
+  const meta = { expires: "2026-10-03", operator: { name: "A. Adult" } };
+  assert.equal(daysLeft(meta, "2026-09-29"), 4);
+  assert.equal(soonNotice(meta, "2026-09-29"), null, "four days out: no warning yet");
+  assert.match(soonNotice(meta, "2026-09-30"), /^This list goes search-only in 3 days, on October 3, 2026, unless it is refreshed\. It is refreshed by A\. Adult\.$/);
+  assert.match(soonNotice(meta, "2026-10-02"), /tomorrow/);
+  assert.match(soonNotice(meta, "2026-10-03"), /today/);
+  assert.equal(soonNotice(meta, "2026-10-04"), null, "after expiry the expired notice takes over");
+  assert.equal(soonNotice({}, "2026-10-01"), null);
 });

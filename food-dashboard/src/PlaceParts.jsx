@@ -17,7 +17,7 @@ const LINK = "border-b border-ink/25 text-ink hover:border-ink";
 export function PlaceLines({ place, large = false, withGrade = true }) {
   const meta = useMeta();
   const expired = useExpired();
-  const lines = placeLines(place, meta, { expired, withGrade });
+  const lines = placeLines(place, meta, { expired, withGrade, estimate: place?.estimate ?? null });
   if (!lines.length) return null;
   return (
     <div className={`space-y-1.5 leading-[1.5] text-ink-2 ${large ? "text-[15px]" : "text-[13.5px]"}`}>
@@ -57,7 +57,7 @@ export function PlaceStatus({ status, id, onRetry, large = false }) {
   );
 }
 
-/** The County's own disclaimer for SD Food Info, quoted as published, attributed and linked. */
+/** Excerpts from the County's own disclaimer for SD Food Info, attributed and linked. */
 export function CountyDisclaimer({ collapsed = false }) {
   const d = SITE.regulator.disclaimer;
   const body = (
@@ -66,8 +66,9 @@ export function CountyDisclaimer({ collapsed = false }) {
         {d.paragraphs.map((p, i) => <p key={i}>&ldquo;{p}&rdquo;</p>)}
       </blockquote>
       <p className="mt-2 text-[13px] text-ink-2">
-        From the County&rsquo;s <a href={d.url} target="_blank" rel="noopener noreferrer" className={LINK}>SD Food Info disclaimer</a>, as
-        published on {d.retrieved}. &ldquo;This web site&rdquo; there means {SITE.regulator.resultsName}, the source of every record here.
+        Excerpts (some sentences omitted) from the County&rsquo;s <a href={d.url} target="_blank" rel="noopener noreferrer" className={LINK}>SD Food Info disclaimer</a>,
+        retrieved {d.retrieved}. It is the County&rsquo;s statement about its own site: &ldquo;this web site&rdquo; there means{" "}
+        {SITE.regulator.resultsName}, the source of every record here. It does not cover this site, which the County has not reviewed.
       </p>
     </>
   );

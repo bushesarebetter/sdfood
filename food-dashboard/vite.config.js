@@ -1,9 +1,17 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
-import exportGate from "./scripts/exportGate.mjs";
+import { existsSync } from "node:fs";
+import exportGate, { STAFF_MARKER } from "./scripts/exportGate.mjs";
+
+// The City staff site: the marker exists only in the PRIVATE staff repository (publish_city_site.py
+// writes it). There the site runs on shared City computers, so nothing is kept offline: the service
+// worker removes itself and any cache an earlier build made, and the app knows to show the staff
+// notices (__STAFF__).
+const STAFF = existsSync(new URL(`./${STAFF_MARKER}`, import.meta.url));
 
 export default defineConfig({
+  define: { __STAFF__: JSON.stringify(STAFF) },
   plugins: [
     react(),
 
@@ -18,7 +26,7 @@ export default defineConfig({
      * an expired or replaced export is never served over a live one. Google's
      * tiles are never cached, and there are no web fonts to cache.
      */
-    VitePWA({
+    STAFF ? VitePWA({ selfDestroying: true, registerType: "autoUpdate" }) : VitePWA({
       registerType: "autoUpdate",
       includeAssets: ["icons/*.png", "og-card.png"],
       manifest: {
@@ -42,7 +50,7 @@ export default defineConfig({
       workbox: {
         globPatterns: ["**/*.{js,css,html,png,svg}"],
         globIgnores: ["data/**"],
-        navigateFallbackDenylist: [/^\/data\//],
+        navigateFallbackDenylist: [/^\/data\//, /^\/logout/, /^\/geocode/],
         maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
         runtimeCaching: [
           {

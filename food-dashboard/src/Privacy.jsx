@@ -1,4 +1,5 @@
 import PageFrame from "./PageFrame";
+import { isStaff, PUBLIC_RECORD_NOTE, USE_NOTE } from "./lib/staff";
 import { useMeta, useMode } from "./useMeta";
 import { fmtDate } from "./lib/dates";
 import { REPO_URL } from "./constants";
@@ -8,6 +9,7 @@ const ANALYTICS_SRC = import.meta.env.VITE_ANALYTICS_SRC || "";
 
 // A dated record of what changed on the site, newest first.
 const CHANGES = [
+  ["2026-09-29", "Version 4. The rule is now the simplest one that did as well as the others: points are how far a restaurant's average routine score over two years fell below 100, and the worksheet lists the scores it averages. Bands are kept only where they held at every backtest date, and every scored place shows what places with about its points did. Places outside the City are described by rates measured outside the City. The City staff site shows who is responsible, that downloads may be public records, and every check the list has not passed; it keeps no offline copy."],
   ["2026-09-24", "Version 3. Every listed place's County records are shown one record at a time with the County's own status text, and the site's readings are labelled \"Our reading\". Each place's record loads on its own. No list shows a position. The published rule and its bands appear only in a bands export. System fonts replace Google Fonts, and the offline copy checks the network first for data."],
   ["2026-09-21", "First version, with invented sample data."],
 ];
@@ -39,8 +41,12 @@ const Mail = ({ to }) => <a href={`mailto:${to}`} className="border-b border-ink
 export default function Privacy({ onNavigate }) {
   const meta = useMeta();
   const mode = useMode();
-  const contact = typeof meta?.contact === "string" && meta.contact.trim() ? meta.contact.trim() : null;
-  const operator = meta?.operator && (meta.operator.name || meta.operator.contact) ? meta.operator : null;
+  // A public export names a contact as a string; the staff copy of meta.json (publish_city_site.py) as {name, email}.
+  const rawContact = typeof meta?.contact === "string" ? meta.contact : meta?.contact?.email;
+  const contact = typeof rawContact === "string" && rawContact.trim() ? rawContact.trim() : null;
+  const operator = meta?.operator && (meta.operator.name || meta.operator.contact || meta.operator.email)
+    ? { ...meta.operator, contact: meta.operator.contact ?? meta.operator.email } : null;
+  const staff = isStaff(meta);
   const r = SITE.regulator;
   const authorsRoute = contact ? <>write to <Mail to={contact} /></> : <>open an issue at <Link href={`${REPO_URL}/issues`}>the project&rsquo;s GitHub issues</Link></>;
   const go = (p) => (e) => { e.preventDefault(); onNavigate(p); };
@@ -50,9 +56,25 @@ export default function Privacy({ onNavigate }) {
       <p className="label mb-4">Updated {fmtDate(CHANGES[0][0])}</p>
       <h1 className="mb-10 font-serif text-[36px] font-medium leading-[1.08] tracking-[-0.02em] text-ink sm:text-[44px]">Privacy, terms and corrections</h1>
 
+      {staff && (
+        <Section heading="The City staff site">
+          <p>
+            You sign in with a City staff sign-in. The server records the sign-in&rsquo;s name with each place record opened and each
+            address looked up (an access log, kept in the host&rsquo;s logs), and nothing else. The site keeps no offline copy: it removes
+            any service worker and marks every data file not to be stored. On a shared computer, use Sign out at the top of any page, then
+            close the browser.
+          </p>
+          <p>
+            &ldquo;Near an address&rdquo; sends what you type through this site&rsquo;s server to OpenStreetMap&rsquo;s Nominatim and, if
+            that finds nothing, to the US Census Bureau&rsquo;s geocoder (or to Google, when the site has a Google key). Results
+            &copy; OpenStreetMap contributors.
+          </p>
+        </Section>
+      )}
+
       <Section heading="What this site collects">
         <p>
-          Nothing of its own. There is no account and no cookie set by this site. The one form, &ldquo;Near an address&rdquo;, sends
+          Nothing of its own{staff ? ", beyond the staff sign-in above" : ""}. There is no account{staff ? " apart from that sign-in" : ""} and no cookie set by this site. The one form, &ldquo;Near an address&rdquo;, sends
           what you type to Google, as you type, to suggest addresses and then to locate the one you choose; this site stores none of it.
           Three settings live in your browser&rsquo;s local storage: whether you have seen the first-visit note, whether you dismissed
           the cookie note, and whether you chose technical wording.
@@ -108,7 +130,7 @@ export default function Privacy({ onNavigate }) {
         <p>
           <b className="font-semibold text-ink">The site&rsquo;s own readings,</b> labelled &ldquo;Our reading&rdquo; where they appear:
           a routine inspection retyped as a re-grade or reopening visit, the reason given for a closure, the theme each item is put under,
-          and the record flags the filters use{mode === "bands" ? "; and the published rule's points and bands, which are the site's alone" : ""}.
+          and the record flags the filters use{mode === "bands" ? "; and the students' point rule's points and bands, which are the site's alone" : ""}.
         </p>
       </Section>
 
@@ -141,19 +163,27 @@ export default function Privacy({ onNavigate }) {
           <Link href={r.resultsUrl}>inspection search</Link> is the record of reference, and where a record here differs from it, the
           County&rsquo;s is right.
         </p>
+        {staff ? (
+          <p>
+            Not for redistribution. {PUBLIC_RECORD_NOTE} {USE_NOTE} The list carries its date and expiry on every downloaded row; do not
+            use it after it expires{meta?.expires ? <> ({fmtDate(meta.expires)})</> : null}.
+          </p>
+        ) : (
         <p>
           You may quote or reuse the list with attribution, and only with its list date attached
           {meta?.generated ? <> (this export: {fmtDate(meta.generated)})</> : null}. Do not reuse it after it expires
           {meta?.expires ? <> ({fmtDate(meta.expires)})</> : null}. The downloaded spreadsheet carries both dates on every row. The code
           is released under the MIT licence at <Link href={REPO_URL}>GitHub</Link>.
         </p>
+        )}
       </Section>
 
       <Section heading="Operator and legal notices">
         {operator ? (
           <p>
-            Operated by {operator.name ?? "the approved operator"}
+            Operated by {operator.name ?? "the approved operator"}{operator.role ? <> ({operator.role})</> : null}
             {operator.contact ? <>; legal notices to <Mail to={operator.contact} /></> : null}.
+            {meta?.sunset ? <> The staff site comes down on {fmtDate(meta.sunset)} unless a City owner takes it over.</> : null}
           </p>
         ) : (
           <p>Not set: this export is not approved for publication.</p>

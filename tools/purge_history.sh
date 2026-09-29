@@ -49,7 +49,21 @@ if [ "$PUSH" = "--push" ]; then
   git remote add origin "$URL" 2>/dev/null || git remote set-url origin "$URL"
   git push --force --all origin
   git push --force --tags origin
-  echo "pushed. Now contact GitHub Support (docs/PUBLISHING.md) and re-clone everywhere."
+  # GitHub keeps each pull request's head under refs/pull/N/head, and no push can rewrite those: a
+  # purged blob stays public through the pull request's Commits and Files tabs. Check them.
+  CHECK=$(mktemp -d); git init -q --bare "$CHECK"
+  git -C "$CHECK" fetch -q "$URL" '+refs/pull/*:refs/pull/*' || true
+  STILL=""
+  for r in $(git -C "$CHECK" for-each-ref --format='%(refname)' refs/pull); do
+    if git -C "$CHECK" rev-list "$r" | while read -r c; do git -C "$CHECK" rev-parse -q --verify "$c:dashboard.html" 2>/dev/null; done \
+        | grep -qFxf "$WORK/blobs.txt"; then STILL="$STILL $r"; fi
+  done
+  if [ -n "$STILL" ]; then
+    echo "STILL PUBLIC through read-only pull request refs:$STILL"
+    echo "Make the repository private now, and ask GitHub Support to remove these refs and garbage-collect (docs/PUBLISHING.md)."
+    exit 1
+  fi
+  echo "pushed; no pull request ref reaches a stripped blob. Now contact GitHub Support (docs/PUBLISHING.md) and re-clone everywhere."
 else
   echo "dry run only. Inspect $WORK/repo.git, then re-run with --push."
 fi

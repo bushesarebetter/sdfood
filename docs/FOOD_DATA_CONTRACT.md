@@ -1,4 +1,4 @@
-# The food-safety site's export contract (version 3.2)
+# The food-safety site's export contract (version 3.3)
 
 `food-dashboard/` shows City of San Diego restaurants and markets with the County's inspection
 record. It has two modes, set by `meta.mode`:
@@ -6,8 +6,9 @@ record. It has two modes, set by `meta.mode`:
 - **`record`, the default publishable product.** The County's record for every listed place,
   with no model and no ordering: search, map, filters on record facts, each place's
   inspections, what inspectors found, and "If you eat here" drawn from the record.
-- **`bands`, the gated product.** The same, plus a published point card that puts some places
-  in bands, with each band's backtest hit rate. It reaches the site only if every gate in
+- **`bands`, the gated product.** The same, plus the students' point rule, which puts some places
+  in bands, with each band's backtest hit rate and each scored place's estimate. The City staff site
+  (docs/STAFF_SITE.md) shows it behind a sign-in; the public site shows it only if every gate passes. It reaches the site only if every gate in
   [PUBLISHING.md](PUBLISHING.md) passes. As of September 2026 none does, and
   [MODEL_CARD.md](MODEL_CARD.md) says why.
 
@@ -62,7 +63,7 @@ invented sample (`food-dashboard/scripts/make_sample_export.py`) is in `bands` m
 | `council_district` | int or null | 1 to 9; null outside the City (unpublished `bands` exports only) |
 | `last_visit` | `{ date, type }` | the most recent visit |
 | `grade` | `{ grade, score, date, replaced }` or null | the grade on the County's card in the window: the latest letter from a routine or re-grade visit; `replaced` is `{ grade, score, date }` of the routine grade a re-grade replaced, else null |
-| `flags` | array | record facts from the 12 months before the last visit: `major` (a major violation), `closed` (a health-hazard closure), `bc` (a B or C at a graded routine), `repeat` (two or more reinspections), and one theme key per theme with a major |
+| `flags` | array | record facts from the 12 months before the last visit: `major` (a major violation), `closed` (a health-hazard closure), `bc` (a B or C at a graded routine), `repeat` (two or more reinspections), and one theme key per theme with a major; and two escalation facts over the two years before the last visit, the County's own criteria for a closer look (Operator's Guide p. 8): `closures2` (two or more health-hazard closures, any visit type) and `repeat_item` (the same major item at 2 of the last 3 routine inspections) |
 | `band`, `points` | `"1"`, `"2"` …, int | `bands` mode only; absent while `on_hold` |
 | `on_hold` | bool | `bands` mode: the place is under review (`docs/holds.json`); the site shows its record and "Under review", no band or points |
 
@@ -90,6 +91,14 @@ Everything in the index entry, plus:
   average routine score, a count). The points of met items sum to `points`.
 - **`band_stability`** (`bands` mode only): the share of refits of the card in which the place
   stayed in its band.
+- **`scores_used`** (`bands` mode, scored places): `[{ date, score, closure }]`, oldest first: the
+  routine scores the averages read, the two years before the list; a routine that ended in a closure
+  order has `closure: true` and is read as 70. `avg_deficit` on the worksheet is 100 minus their mean
+  rounded half up, and `last_deficit` is 100 minus the last; `check-export.mjs` checks both, so every
+  worksheet can be checked by hand.
+- **`estimate`** (`bands` mode, scored places): `{ rate, low, high }`, what places with about this
+  many points did in the backtest, read from `meta.card.curve` (or, outside the City, from
+  `meta.card.outside.curve`). `0 <= low <= rate <= high <= 1`.
 
 Themes come from the County's item text (`export_site.THEME_RULES`; all 100 texts in the pull are
 pinned in `tests/fixtures/item_themes.json`):
@@ -133,12 +142,30 @@ pinned in `tests/fixtures/item_themes.json`):
 - **`card`:**
   - `items`: `[{ item, label, points, feature, threshold }]`, plus `max_points`, `window`,
     `trained_on` and `eligibility`.
-  - `bands`: `[{ band, min_points, max_points, share, places_now, labelled, positives, rate,
-    interval, baseline_rate, kept_in_refits }]`, with the rates from the confirmation origin,
-    under the card that is published.
-  - `rest`.
+  - `bands`: `[{ band, min_points, max_points, share, places_now, places_now_county, labelled,
+    positives, rate, interval, baseline_rate, vs_baseline, kept_in_refits }]`, with the rates from
+    the confirmation origin, under the rule that is shown. `places_now` counts City places;
+    `places_now_county` every listed place.
+  - `rest`, and `base_rate`: the rate among all scored places (the comparison the site states).
+  - `proposed_cuts`, `band_rule`: the cuts at fixed shares of the list, and the rule that kept or
+    merged them (a split survives only if it holds at every backtest origin).
+  - `by_origin`: `[{ as_of, "1": {positives, labelled, rate}, …, rest }]`, the kept bands at every
+    backtest origin, not only the one reported.
+  - `curve`: `{ model, rate[], low[], high[], bins[], labelled, positives }`: the rate by points
+    (index = points), smoothed, with a 95% interval, and the raw rates in bins.
+  - `outside`: `{ bands_shown, candidates, eligible, labelled, base_rate, bands, rest, curve, auc }`:
+    the same rule and cuts checked on restaurants outside the City. Places outside the City get a
+    band only when `bands_shown`.
 - **`catch`, `catch_run`, `selection`, `named_bands`, `cost_ratio`, `utility`, `fairness`,
   `measurement`:** as described in MODEL_CARD.md.
+
+**The staff copy** (`publish_city_site.py` rewrites `meta.json` in the private repository only):
+`audience: "staff"`, `operator { name, role, email }`, `contact { name, email }`, `sunset`,
+`review_status` (every public-release gate this list does not pass) and `staff_release { at, by }`.
+The site then shows the staff banner, the contact, the review status and the staff terms.
+
+`run` names its content: `forward_<list date>-<8 hex>`, a hash of the rule, the cuts and the list, so
+two different lists never share a run id. The downloaded CSV carries it on every row (`list_run`).
 
 `sample: true` puts a notice on every page. It must never be set on a real export, and the check
 refuses a non-sample export that contains a place named "Sample …".

@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from "react";
 import { useReactTable, getCoreRowModel, getSortedRowModel, getPaginationRowModel, flexRender } from "@tanstack/react-table";
-import { facilitiesToCsv } from "./lib/format";
+import { facilitiesToCsv, csvFilename } from "./lib/format";
 import { useAdvanced } from "./useAdvanced";
 import { useMeta, useMode } from "./useMeta";
 import { passesFilters, sortPlaces, shownPoints } from "./lib/filters";
@@ -120,13 +120,15 @@ export default function PlaceTable({ facilities, filters, onSelect, initialOpen 
     },
   });
 
+  // Exactly what the list shows: its filters, its search and its order, every page.
   function downloadCsv() {
     if (!facilities) return;
-    const blob = new Blob([facilitiesToCsv(sortPlaces(facilities.features, { mode }), { meta, mode })], { type: "text/csv" });
+    const shown = table.getSortedRowModel().rows.map((r) => r.original);
+    const blob = new Blob([facilitiesToCsv(shown, { meta, mode })], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `food-inspection-record-${meta?.generated ?? "export"}.csv`;
+    a.download = csvFilename(meta, filters);
     a.click();
     URL.revokeObjectURL(url);
   }
@@ -173,7 +175,7 @@ export default function PlaceTable({ facilities, filters, onSelect, initialOpen 
           </div>
           <span className="tnum ml-auto text-[13px] text-ink-2" role="status">{total.toLocaleString()} {total === 1 ? "place" : "places"}</span>
           <button onClick={downloadCsv} className="border border-ink bg-ink px-3 py-1.5 text-[13px] font-semibold text-paper hover:border-ink-2 hover:bg-ink-2">
-            Download CSV
+            Download {total === 1 ? "this place" : `these ${total.toLocaleString()} places`} (CSV)
           </button>
         </div>
 

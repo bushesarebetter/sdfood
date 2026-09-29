@@ -28,7 +28,7 @@ const RECORD_COLUMNS = [
   "flags", "lon", "lat",
 ];
 const BAND_COLUMNS = ["band", "points", "under_review"];
-const DATE_COLUMNS = ["list_date", "inspections_through", "expires"];
+const DATE_COLUMNS = ["list_date", "inspections_through", "expires", "list_run"];
 
 export function csvColumns({ mode = "record" } = {}) {
   return mode === "bands"
@@ -50,8 +50,24 @@ export function facilitiesToCsv(features, { meta = null, mode = "record" } = {})
       ...g,
       flags: (p.flags ?? []).join("; "), lon, lat,
       list_date: meta?.generated ?? "", inspections_through: meta?.inspections_through ?? "", expires: meta?.expires ?? "",
+      list_run: meta?.run ?? "",
     };
     return cols.map((c) => cell(values[c])).join(",");
   });
   return [cols.join(","), ...rows].join("\n");
+}
+
+/**
+ * The download's name says what is in it: food-inspection-record[-county][-district-3][-band-1]-<list date>.csv.
+ * A file passed around a City office then carries its own scope and date.
+ */
+export function csvFilename(meta, filters = {}) {
+  const parts = ["food-inspection-record"];
+  if (filters?.county) parts.push("county");
+  const d = filters?.districts ?? [];
+  if (d.length) parts.push(`district-${[...d].sort((a, b) => a - b).join("-")}`);
+  if (filters?.band && filters.band !== "all") parts.push(`band-${filters.band === "1" ? "1" : `1-to-${filters.band}`}`);
+  if (filters?.flag) parts.push(String(filters.flag).replace(/[^a-z0-9]+/gi, "-").toLowerCase());
+  parts.push(meta?.generated ?? "export");
+  return `${parts.join("-")}.csv`;
 }

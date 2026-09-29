@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import MessageBox from "./MessageBox";
 import InspectionChart from "./InspectionChart";
 import ScoreCard from "./ScoreCard";
+import StaffActions from "./StaffActions";
 import RecordSummary from "./RecordSummary";
 import VisitList from "./VisitList";
 import StreetViewPanel from "./StreetViewPanel";
@@ -144,6 +145,8 @@ export default function PlacePanel({ feature, onClose, facilities = null, onSele
                 <ScoreCard p={place} meta={meta} advanced={advanced} />
               </Block>
             )}
+
+            <div className="border-b border-rule px-6 py-5 empty:hidden"><StaffActions /></div>
           </>
         )}
 

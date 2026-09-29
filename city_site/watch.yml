@@ -1,0 +1,28 @@
+# The City staff site's daily check, run in the PRIVATE deploy repository (publish_city_site.py copies it
+# to .github/workflows/watch.yml there). It fails, and opens an issue that notifies everyone watching the
+# repository, when Render is not serving the latest commit (a deploy failed) or the export expires in
+# under 4 days (refresh now). /healthz is open and carries no data, so no secret is needed.
+name: watch
+on:
+  schedule: [{ cron: "23 14 * * *" }]     # about 07:23 in San Diego
+  workflow_dispatch: {}
+permissions: { contents: read, issues: write }
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: the live site serves main, and its export is not about to expire
+        env: { SITE: "https://sdfood-city.onrender.com" }
+        run: |
+          set -euo pipefail
+          h=$(curl -fsS --retry 6 --retry-all-errors --retry-delay 20 --max-time 90 "$SITE/healthz")   # also wakes a free instance
+          got=$(jq -r .source <<<"$h"); exp=$(jq -r .expires <<<"$h"); want=$(git rev-parse HEAD)
+          left=$(( ($(date -ud "$exp" +%s) - $(date -u +%s)) / 86400 ))
+          echo "live ${got:0:7} (main ${want:0:7}); export expires $exp; $left days left" >> "$GITHUB_STEP_SUMMARY"
+          [ "$got" = "$want" ] || { echo "::error::Render is not serving main: the last deploy failed or is stuck"; exit 1; }
+          [ "$left" -ge 4 ]    || { echo "::error::the export expires $exp: refresh it now (docs/RUNBOOK.md)"; exit 1; }
+      - if: failure()
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: gh issue create -R "$GITHUB_REPOSITORY" --title "staff site check failed $(date -u +%F)" --body "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"

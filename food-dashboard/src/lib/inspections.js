@@ -61,7 +61,7 @@ export const VISIT_TYPES = ["routine", "reinspection", "followup", "complaint"];
 export const SEVERITIES = ["major", "minor", "grp"];
 export const CLOSURES = ["health", "permit", "other"];
 export const GRADES = ["A", "B", "C"];
-export const RECORD_FLAGS = ["major", "closed", "bc", "repeat"];
+export const RECORD_FLAGS = ["major", "closed", "bc", "repeat", "closures2", "repeat_item"];
 export const FLAG_KEYS = [...RECORD_FLAGS, ...Object.keys(THEMES)];
 
 /** The index's record flags, as filter labels. Every one is our reading of the record. */
@@ -70,6 +70,8 @@ export const FLAG_LABELS = {
   closed: "Ordered closed, health hazard",
   bc: "A B or C grade",
   repeat: "Two or more reinspections",
+  closures2: "Closed twice or more in two years",
+  repeat_item: "Same major item at 2 of the last 3 routine inspections",
   ...Object.fromEntries(Object.entries(THEMES).map(([k, v]) => [k, `Major: ${v.toLowerCase()}`])),
 };
 

@@ -61,3 +61,24 @@ test("a name that a spreadsheet would run as a formula is neutralised; numbers a
   assert.equal(get("address"), "'@SUM(A1)");
   assert.equal(get("lon"), "-117.13", "a negative longitude stays a number");
 });
+
+test("the CSV's file name says what is in it", async () => {
+  const { csvFilename } = await import("../src/lib/format.js");
+  const meta = { generated: "2026-09-29" };
+  assert.equal(csvFilename(meta, {}), "food-inspection-record-2026-09-29.csv");
+  assert.equal(csvFilename(meta, { band: "all", districts: [3] }), "food-inspection-record-district-3-2026-09-29.csv");
+  assert.equal(csvFilename(meta, { county: true, band: "2", districts: [9, 3], flag: "major" }),
+    "food-inspection-record-county-district-3-9-band-1-to-2-major-2026-09-29.csv");
+  assert.equal(csvFilename(meta, { band: "1" }), "food-inspection-record-band-1-2026-09-29.csv");
+  assert.equal(csvFilename(null, {}), "food-inspection-record-export.csv");
+});
+
+
+test("every CSV row names the list it came from", async () => {
+  const { facilitiesToCsv, csvColumns } = await import("../src/lib/format.js");
+  assert.ok(csvColumns().includes("list_run") && csvColumns({ mode: "bands" }).includes("list_run"));
+  const csv = facilitiesToCsv([{ properties: { facility_id: "X", name: "N" }, geometry: { coordinates: [0, 0] } }],
+    { meta: { run: "forward_2026-09-20-abcd1234", generated: "2026-09-29" } });
+  const [head, row] = csv.split("\n");
+  assert.equal(row.split(",")[head.split(",").indexOf("list_run")], "forward_2026-09-20-abcd1234");
+});

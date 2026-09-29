@@ -4,7 +4,7 @@ import { useMeta, useMode } from "./useMeta";
 import { flagChips, typesFor, bandCounts } from "./lib/filters";
 import { bandPoints } from "./lib/bands";
 import { BAND_FILTERS, ALL_PLACES } from "./constants";
-import AreaToggle from "./AreaToggle";
+import AreaToggle, { outsideNote } from "./AreaToggle";
 
 const chip = (on) =>
   `min-h-[32px] border px-2.5 py-1 text-[13px] leading-none ${
@@ -41,7 +41,7 @@ export default function FilterBar({ filters, onFiltersChange, facilities, hasCou
       {hasCounty && (
         <div className="mb-6">
           <p className="label mb-3">Area</p>
-          <AreaToggle county={Boolean(filters.county)} onChange={(county) => set({ county })} />
+          <AreaToggle county={Boolean(filters.county)} onChange={(county) => set({ county })} note={mode === "bands" ? outsideNote(meta) : null} />
         </div>
       )}
       {mode === "bands" && bandChoices.length > 1 && (

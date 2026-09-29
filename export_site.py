@@ -54,6 +54,7 @@ import argparse
 import bisect
 import csv
 import gzip
+import hashlib
 import json
 import math
 import re
@@ -357,6 +358,11 @@ def _d(s):
     return date.fromisoformat(s)
 
 
+def run_date(run):
+    """The list date in a run id: forward_2026-09-20-1a2b3c4d (or an older forward_2026-09-20) -> 2026-09-20."""
+    return run.split("_", 1)[1][:10]
+
+
 def history(place, T):
     """Visits strictly before T (an ISO date)."""
     return place["visits"][:bisect.bisect_left(place["dates"], T)]
@@ -385,26 +391,30 @@ def features_at(place, T):
     def prompted(v):
         d = _d(v["date"])
         return any(0 <= (d - c).days <= COMPLAINT_DAYS for c in complaints)
+    # Nothing found on a reinspection that followed a complaint counts: not its citations, majors or
+    # closures, and not the visit itself (as MODEL_CARD.md says). Only the County's own schedule does.
+    counted = [v for v in rec if not (v["type"] == "reinspection" and prompted(v))]
     lo2 = (_d(T) - timedelta(days=ELIGIBLE_DAYS)).isoformat()
     avg = float(np.mean(scored)) if scored else math.nan
     last = float(scored[-1]) if scored else math.nan
     f = {
         "avg_score": avg,
         "last_score": last,
-        "avg_deficit": float(100 - round(float(np.mean(rated)))) if rated else 0.0,
+        # rounded half up, as a person checking the worksheet by hand would (Python's round() rounds half to even)
+        "avg_deficit": float(100 - math.floor(float(np.mean(rated)) + 0.5)) if rated else 0.0,
         "last_deficit": float(100 - rated[-1]) if rated else 0.0,
         "no_score": 0.0 if rated else 1.0,
         "routines": len(routine),
         "routines_major": sum(v["major"] > 0 for v in routine),
-        "majors": sum(v["major"] for v in rec),
-        "health_closures": sum(v["closure"] == "health" for v in rec),
-        "reinspections": sum(v["type"] == "reinspection" and not prompted(v) for v in rec),
+        "majors": sum(v["major"] for v in counted),
+        "health_closures": sum(v["closure"] == "health" for v in counted),
+        "reinspections": sum(v["type"] == "reinspection" for v in counted),
         "grp": sum(v["grp"] for v in routine),
         "rated_2y": sum(v["type"] == "routine" and (v["score"] is not None or v["closure"] == "health")
                         and v["date"] >= lo2 for v in h),
     }
     for t in RISK_THEMES:
-        f[f"theme_{t}"] = sum(it["theme"] == t and it["severity"] != "grp" for v in rec for it in v["_items"])
+        f[f"theme_{t}"] = sum(it["theme"] == t and it["severity"] != "grp" for v in counted for it in v["_items"])
     for k in MODEL_KINDS:
         f[f"kind_{k}"] = float(place["kind"] == k)
     return f
@@ -434,6 +444,7 @@ SCOPES = {
     "train": lambda p: p["kind"] in BAND_KINDS,                                           # county-wide restaurants
     "county": lambda p: p["kind"] in PUBLIC_KINDS,                                        # the record, county-wide
     "county_bands": lambda p: p["kind"] in BAND_KINDS,                                    # the rule, county-wide
+    "outside_bands": lambda p: p["kind"] in BAND_KINDS and p.get("district") is None,     # the rule, outside the City
 }
 
 
@@ -789,19 +800,41 @@ def run_origin(places, snap_first, T, cache, log=print):
     return res
 
 
+def area_origin(places, T, scope, rule, cache):
+    """The frozen rule on one area's restaurants at a backtest origin: (points, positive, labelled,
+    eligible, clusters), for checking that bands and rates measured on the City hold elsewhere."""
+    te = frame(places, [T], scope=scope, labelled=False, cache=cache)
+    labelled = ~np.isnan(te.y)
+    return (rule.score(te.F), np.nan_to_num(te.y, nan=0.0), labelled,
+            np.array([eligible(f) for f in te.feats]), clusters(places, te.idx))
+
+
 def select_rule(validation):
-    """The rule, fixed here: the sparsest publishable candidate whose AUC is within EPSILON of the best
-    model's at every validation origin. If none is, the most accurate publishable one, flagged."""
+    """The rule, fixed here, sparsest first:
+    1. the sparsest publishable candidate within EPSILON AUC of the best model (black boxes included)
+       at every validation origin; else
+    2. the sparsest publishable candidate within EPSILON AUC of the best PUBLISHABLE candidate at every
+       validation origin, flagged (within_epsilon False: no rule matched the black boxes). A denser
+       rule is never chosen on a difference smaller than EPSILON, the tolerance declared in advance;
+    3. only if no candidate is within EPSILON of the others everywhere, the most accurate on average."""
     table = [{"as_of": r["as_of"], **{m: v["auc_eligible"] for m, v in r["models"].items()}} for r in validation]
+
+    def within(m, pool):
+        return all(row[m] is not None and row[m] >= max(row[k] for k in pool if row.get(k) is not None) - EPSILON
+                   for row in table)
+    every = [k for k in table[0] if k != "as_of"]
     for m in PUBLISHABLE:
-        if all(row[m] is not None and row[m] >= max(v for k, v in row.items() if k != "as_of" and v is not None) - EPSILON
-               for row in table):
+        if within(m, every):
             return m, {"rule": f"the sparsest of {', '.join(PUBLISHABLE)} within {EPSILON} AUC of the best model at "
                                "every validation origin", "within_epsilon": True, "validation": table}
+    for m in PUBLISHABLE:
+        if within(m, PUBLISHABLE):
+            return m, {"rule": f"no publishable rule was within {EPSILON} AUC of the best model at every validation "
+                               f"origin; the sparsest within {EPSILON} of the best publishable rule is shown, flagged",
+                       "within_epsilon": False, "validation": table}
     best = max(PUBLISHABLE, key=lambda m: np.mean([row[m] for row in table]))
-    return best, {"rule": f"the sparsest of {', '.join(PUBLISHABLE)} within {EPSILON} AUC of the best model at every "
-                          "validation origin (none was: the most accurate publishable rule is shown, flagged)",
-                  "within_epsilon": False, "validation": table}
+    return best, {"rule": f"no publishable rule was within {EPSILON} AUC of the others at every validation origin; "
+                          "the most accurate on average is shown, flagged", "within_epsilon": False, "validation": table}
 
 
 # ── bands, stability, utility, fairness ────────────────────────────────────────────────
@@ -862,19 +895,107 @@ def band_rows(bands, points, positive, labelled, elig, baseline_order=None, cl=N
     return rows, rest_row
 
 
-def merge_overlapping(cuts, points, positive, labelled, elig):
-    """Merge adjacent bands until each band's rate is above the band below it: a higher band must
-    mean a higher rate. (Their intervals may overlap: three ordered bands are more useful to staff
-    than one.) Merging bands k and k+1 removes the cut between them (band k's)."""
-    cuts = list(cuts)
-    while len(cuts) > 1:
-        rows, _ = band_rows(assign_bands(points, elig, cuts), points, positive, labelled, elig)
-        pair = next((i for i, (a, b) in enumerate(zip(rows, rows[1:]))
-                     if a["rate"] is not None and b["rate"] is not None and a["rate"] <= b["rate"]), None)
-        if pair is None:
-            break
-        del cuts[pair]
+BAND_Z = 1.645        # one-sided 5%: a split must be this clear on the pooled backtest to survive
+
+
+def _counts(points, positive, labelled, elig, cuts):
+    """(positives, labelled) per band key and for the rest ("rest"), among the eligible."""
+    bands = assign_bands(points, elig, cuts)
+    out = defaultdict(lambda: [0, 0])
+    for j, b in enumerate(bands):
+        if not elig[j] or not labelled[j]:
+            continue
+        c = out[b if b is not None else "rest"]
+        c[0] += int(positive[j])
+        c[1] += 1
+    return out
+
+
+def validate_bands(cuts, origins, z=BAND_Z):
+    """Keep a split between two adjacent bands (or between the last band and the rest) only when it
+    is real, not a pattern in one backtest: at EVERY origin the higher band's rate is above the lower
+    one's, AND on the origins pooled the difference is at least `z` standard errors. Origins overlap
+    (neighbouring origins share most of their labels), so the pooled standard error uses one origin's
+    worth of places, not the sum. Merging bands k and k+1 removes cut k; failing against the rest
+    removes the last cut. The cuts are chosen before any of this (shares of the list), so the test
+    is not fitted to the outcomes it reports. `origins` is [(points, positive, labelled, elig), ...]."""
+    cuts, k = list(cuts), len(origins)
+    while cuts:
+        counts = [_counts(*o, cuts) for o in origins]
+        keys = [str(i + 1) for i in range(len(cuts))] + ["rest"]
+        bad = None
+        for i, (hi, lo) in enumerate(zip(keys, keys[1:])):
+            rates = [(c[hi][0] / c[hi][1], c[lo][0] / c[lo][1]) if c[hi][1] and c[lo][1] else None for c in counts]
+            ph_n = sum(c[hi][1] for c in counts) / k
+            pl_n = sum(c[lo][1] for c in counts) / k
+            ok = all(r is not None and r[0] > r[1] for r in rates) and ph_n > 0 and pl_n > 0
+            if ok:
+                ph = sum(c[hi][0] for c in counts) / sum(c[hi][1] for c in counts)
+                pl = sum(c[lo][0] for c in counts) / sum(c[lo][1] for c in counts)
+                se = math.sqrt(ph * (1 - ph) / ph_n + pl * (1 - pl) / pl_n)
+                ok = se > 0 and (ph - pl) / se >= z
+            if not ok:
+                bad = i
+                break
+        if bad is None:
+            return cuts
+        del cuts[bad]
     return cuts
+
+
+def merge_overlapping(cuts, points, positive, labelled, elig):
+    """validate_bands at a single origin (kept for callers with one backtest)."""
+    return validate_bands(cuts, [(points, positive, labelled, elig)])
+
+
+def _logit_fit(x, y):
+    """(a, b) of P = 1 / (1 + exp(-(a + b x))), b >= 0, unweighted."""
+    a, b = _nonneg_logistic(x[:, None], y.astype(float), np.ones(len(y)), 0.0, np.array([0]))
+    return float(a), float(b[0])
+
+
+def risk_curve(points, positive, labelled, elig, cl, n_boot=200, seed=SEED, bins=8):
+    """What a place's points say, as a rate: at the backtest origin, among eligible places with a
+    routine inspection in the year after, the share with a major, smoothed as a logistic curve in
+    log(1 + points) (one slope: more points never means a lower rate), with a 95% interval from an
+    address-cluster bootstrap. Also the raw rates in `bins` groups of about equal size, so the curve
+    can be checked against the counts it smooths. Points above the backtest's largest are read at
+    that largest value (no extrapolation)."""
+    m = elig & labelled
+    x, y, c = np.log1p(points[m].astype(float)), positive[m].astype(float), cl[m]
+    top = int(points[m].max()) if m.any() else 0
+    grid = np.arange(top + 1)
+    a, b = _logit_fit(x, y)
+    fit = 1 / (1 + np.exp(-(a + b * np.log1p(grid))))
+    draws = []
+    for pick in _cluster_draws(c, n_boot, seed):
+        if len(set(y[pick])) == 2:
+            aa, bb = _logit_fit(x[pick], y[pick])
+            draws.append(1 / (1 + np.exp(-(aa + bb * np.log1p(grid)))))
+    lo, hi = (np.percentile(draws, 2.5, axis=0), np.percentile(draws, 97.5, axis=0)) if draws else (fit, fit)
+    pm = points[m]
+    edges = sorted(set(int(v) for v in np.quantile(pm, np.linspace(0, 1, bins + 1)))) if m.any() else [0]
+    if len(edges) == 1:
+        edges = edges * 2
+    table = []
+    for i in range(len(edges) - 1):                  # [edge, next edge), the last one closed
+        last = i == len(edges) - 2
+        inb = (pm >= edges[i]) & ((pm <= edges[i + 1]) if last else (pm < edges[i + 1]))
+        n, k = int(inb.sum()), int(y[inb].sum())
+        if n:
+            table.append({"min_points": int(pm[inb].min()), "max_points": int(pm[inb].max()), "labelled": n,
+                          "positives": k, "rate": round(k / n, 4), "interval": wilson(k, n)})
+    return {"model": "logistic in log(1 + points), fitted at the backtest origin; 95% interval by address-cluster bootstrap",
+            "rate": [round(float(v), 4) for v in fit], "low": [round(float(v), 4) for v in lo],
+            "high": [round(float(v), 4) for v in hi], "bins": table, "labelled": int(m.sum()), "positives": int(y.sum())}
+
+
+def estimate(curve, pts):
+    """The curve read at a place's points: {rate, low, high}."""
+    if not curve or not curve.get("rate"):
+        return None
+    j = int(min(max(pts, 0), len(curve["rate"]) - 1))
+    return {"rate": curve["rate"][j], "low": curve["low"][j], "high": curve["high"][j]}
 
 
 def named_bands(rows, cost_ratio):
@@ -1071,6 +1192,15 @@ def flags(records, visits):
         out.append("bc")
     if sum(v["type"] == "reinspection" for v in visits if v["date"] >= lo) >= 2:
         out.append("repeat")
+    # Escalation facts, the County's own criteria for a closer look ("recurring major violations ...
+    # or recurring facility closures", Retail Food Facility Operator's Guide p. 8). Not predictions.
+    lo2 = (_d(records[-1]["date"]) - timedelta(days=ELIGIBLE_DAYS)).isoformat()
+    if sum(bool(r["closed"]) and r["closure"] == "health" for r in records if r["date"] >= lo2) >= 2:
+        out.append("closures2")
+    last3 = [r for r in records if r["type"] == "routine" and r["date"] >= lo2][-3:]
+    per_visit = [{i["code"] for i in r["_items"] if i["severity"] == "major" and i.get("code")} for r in last3]
+    if any(n >= 2 for n in Counter(c for codes in per_visit for c in codes).values()):
+        out.append("repeat_item")
     out += sorted({i["theme"] for r in rec for i in r["_items"] if i["severity"] == "major" and i["theme"] != "other"})
     return out
 
@@ -1104,6 +1234,16 @@ def entry(place, extra=None):
     return feature, detail
 
 
+def scores_used(place, T):
+    """The routine scores the averages read (the two years before T), oldest first; a routine
+    inspection that ended in a closure order has no score and is read as CLOSURE_SCORE."""
+    lo = (_d(T) - timedelta(days=SCORE_WINDOW_DAYS)).isoformat()
+    return [{"date": v["date"], "score": v["score"] if v["score"] is not None else CLOSURE_SCORE,
+             "closure": v["score"] is None}
+            for v in history(place, T) if v["type"] == "routine" and v["date"] >= lo
+            and (v["score"] is not None or v["closure"] == "health")]
+
+
 def worksheet(rule, f):
     return [{"item": c, "weight": w, "value": f[c], "points": w * f[c], "met": w * f[c] > 0}
             for c, w in zip(rule.features, rule.weights)]
@@ -1125,12 +1265,40 @@ def dedupe(order, places, idx):
 # ── provenance, approval, holds, notices ───────────────────────────────────────────────
 
 def sha256_file(path: Path):
-    import hashlib
     h = hashlib.sha256()
     with open(path, "rb") as fh:
         for chunk in iter(lambda: fh.read(1 << 20), b""):
             h.update(chunk)
     return h.hexdigest()
+
+
+def _open_pull(path):
+    return gzip.open(path, "rb") if str(path).endswith(".gz") else open(path, "rb")
+
+
+def sha256_pull(path):
+    """sha256 of a pull's JSON (a gzipped backup is hashed as its content, so it matches the original)."""
+    h = hashlib.sha256()
+    with _open_pull(path) as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def read_pull(path):
+    with _open_pull(path) as fh:
+        return json.load(fh)
+
+
+def pull_meta_for(path):
+    """The meta that describes a pull: data/pull_meta.json for data/sd_businesses.json; for a saved
+    copy data/pulls/sd_businesses.<stamp>.json[.gz], data/pulls/pull_meta.<stamp>.json when there is one."""
+    path = Path(path)
+    if path.resolve() == RAW.resolve():
+        return PULL
+    stamp = re.sub(r"\.json(\.gz)?$", "", path.name).removeprefix("sd_businesses.")
+    own = path.parent / f"pull_meta.{stamp}.json"
+    return own if own.exists() else None
 
 
 def provenance(raw_path=None):
@@ -1142,14 +1310,14 @@ def provenance(raw_path=None):
         except Exception:
             return ""
     sha = git("rev-parse", "HEAD") or "unknown"
-    dirty = bool(git("status", "--porcelain", "--", "export_site.py"))
+    dirty = bool(git("status", "--porcelain", "--untracked-files=no"))    # any uncommitted change to tracked code
     pkgs = {}
     for m in ("numpy", "scipy", "sklearn", "shapely"):
         try:
             pkgs[m] = __import__(m).__version__
         except Exception:
             pkgs[m] = None
-    return {"code_sha": sha + ("-dirty" if dirty else ""), "pull_sha256": sha256_file(raw_path) if Path(raw_path).exists() else None,
+    return {"code_sha": sha + ("-dirty" if dirty else ""), "pull_sha256": sha256_pull(raw_path) if Path(raw_path).exists() else None,
             "python": sys.version.split()[0], "packages": pkgs}
 
 
@@ -1343,20 +1511,48 @@ def build(raw, districts_geojson, *, pull=None, approval=None, today=None, refit
     pts_c = rule.score(te.F)
     cl = clusters(places, te.idx)
     best_base = max(BASELINE_NAMES, key=lambda b: conf["models"][b]["auc_eligible"] or 0)
-    cuts = merge_overlapping(band_thresholds(pts_c[elig]), pts_c, pos, lab, elig)
+    # Bands: cut at fixed shares of the list (chosen before looking at any outcome), then kept only
+    # where the split holds at the confirmation origin AND at every validation origin (validate_bands).
+    city_origins = [(pts_c, pos, lab, elig)] + [(rule.score(v["_te"].F), v["_positive"], v["_labelled"], v["_eligible"])
+                                                for v in validation]
+    proposed = band_thresholds(pts_c[elig])
+    cuts = validate_bands(proposed, city_origins)
     bands_c = assign_bands(pts_c, elig, cuts)
+    curve = risk_curve(pts_c, pos, lab, elig, cl)
+    base_lab = int((lab & elig).sum())
+    base_rate = round(float(pos[lab & elig].sum()) / base_lab, 4) if base_lab else None
+    by_origin = []                             # the kept bands' rates at every origin, not only the one reported
+    for T, (pts_o, pos_o, lab_o, el_o) in zip([confirm] + validate, city_origins):
+        c = _counts(pts_o, pos_o, lab_o, el_o, cuts)
+        by_origin.append({"as_of": T, **{k: {"positives": v[0], "labelled": v[1], "rate": round(v[0] / v[1], 4) if v[1] else None}
+                                         for k, v in sorted(c.items())}})
     rows, rest = band_rows(bands_c, pts_c, pos, lab, elig, conf["_orders"][best_base], cl)
     for k, row in enumerate(rows):            # a band is its cut-offs; the top band has no upper limit
         row["min_points"] = int(cuts[k])
         row["max_points"] = int(cuts[k - 1]) - 1 if k else None
     cost_ratio = float((approval or {}).get("cost_ratio")) if (approval or {}).get("cost_ratio") is not None else None
     named_keys = named_bands(rows, cost_ratio) if cost_ratio is not None else []
-    review_keys = named_keys or (["1"] if rows else [])
+    review_keys = named_keys or [r["band"] for r in rows]      # unnamed: audit every band the site shows
     named_c = np.array([b in review_keys for b in bands_c])
     fair = district_fairness(places, te.idx, pos, lab, named_c)
     rest_eligible_auc = {m: conf["models"][m]["auc_eligible"] for m in conf["models"]}
     vs_avg = paired_auc(np.nan_to_num(te.y), pts_c, AVERAGE_RULE.score(te.F), lab & elig, cl) if chosen != "average score" else None
     vs_base = paired_auc(np.nan_to_num(te.y), pts_c, conf["_scores"][best_base], lab & elig, cl)
+
+    # Outside the City: the same frozen rule and cuts, checked on restaurants outside the City at the
+    # same origins. The ranking carries over; the rates need not. Places outside the City get a band
+    # only if every band holds there too (validate_bands keeps every cut), and always get their
+    # points and an estimate read from a curve measured outside the City.
+    out_origins = [area_origin(places, T, "outside_bands", rule, cache) for T in [confirm] + validate]
+    o_pts, o_pos, o_lab, o_el, o_cl = out_origins[0]
+    outside_ok = bool(cuts) and validate_bands(cuts, [o[:4] for o in out_origins]) == cuts
+    o_rows, o_rest = band_rows(assign_bands(o_pts, o_el, cuts), o_pts, o_pos, o_lab, o_el)
+    o_curve = risk_curve(o_pts, o_pos, o_lab, o_el, o_cl) if (o_el & o_lab).any() else None
+    o_base_lab = int((o_lab & o_el).sum())
+    outside = {"bands_shown": outside_ok, "candidates": int(len(o_pts)), "eligible": int(o_el.sum()),
+               "labelled": o_base_lab, "base_rate": round(float(o_pos[o_lab & o_el].sum()) / o_base_lab, 4) if o_base_lab else None,
+               "bands": o_rows, "rest": o_rest, "curve": o_curve,
+               "auc": {"rule": auc(o_pos[o_lab & o_el], o_pts[o_lab & o_el]) if o_base_lab else None}}
 
     # Today's list: the frozen rule on today's restaurants, county-wide. Places outside the City carry
     # no council district; the site shows them when its area toggle is on. Band counts stay the City's.
@@ -1365,6 +1561,9 @@ def build(raw, districts_geojson, *, pull=None, approval=None, today=None, refit
     elig_now = np.array([eligible(f) for f in now.feats])
     pts_now = rule.score(now.F)
     bands_now = assign_bands(pts_now, elig_now, cuts)
+    in_city_now = np.array([places[now.idx[j][0]].get("district") is not None for j in range(len(pts_now))])
+    if not outside_ok:                        # bands not validated outside the City: none shown there
+        bands_now = np.array([b if in_city_now[j] else None for j, b in enumerate(bands_now)], dtype=object)
     holds = load_holds()
     stab, _ = stability(rule, conf["_tr"], now, elig_now, bands_now, refits=refits)
     keep = {r["band"]: (round(float(np.mean(stab[np.array([b == r["band"] for b in bands_now])])), 3)
@@ -1389,6 +1588,8 @@ def build(raw, districts_geojson, *, pull=None, approval=None, today=None, refit
                 extra = {"on_hold": True}
             else:
                 extra = {"points": int(pts_now[j]), "score_card": worksheet(rule, now.feats[j]),
+                         "scores_used": scores_used(p, t_now),
+                         "estimate": estimate(curve if in_city_now[j] else o_curve, int(pts_now[j])),
                          "band_stability": None if np.isnan(stab[j]) else round(float(stab[j]), 2)}
                 if bands_now[j] is not None:
                     extra["band"] = bands_now[j]
@@ -1400,8 +1601,14 @@ def build(raw, districts_geojson, *, pull=None, approval=None, today=None, refit
     log(f"forward as of {t_now}: {len(pts_now):,} restaurants county-wide, {int(elig_now.sum()):,} eligible; "
         + ", ".join(f"band {r['band']} >= {r['min_points']} points: {sum(1 for b in bands_now if b == r['band'])}" for r in rows))
 
-    in_city = lambda j: places[now.idx[j][0]].get("district") is not None
-    run = f"forward_{t_now}"
+    in_city = lambda j: bool(in_city_now[j])
+    # The run names its content: two different lists never share a run id, so the archive, the
+    # registration and the monitor always describe the list staff actually saw.
+    fingerprint = hashlib.sha256(json.dumps(
+        {"rule": [rule.name, rule.features, rule.weights], "cuts": cuts, "outside": outside_ok,
+         "list": [[f["properties"]["facility_id"], f["properties"].get("points"), f["properties"].get("band")] for f in features]},
+        sort_keys=True).encode()).hexdigest()[:8]
+    run = f"forward_{t_now}-{fingerprint}"
     m_ = measurement([p for p in places if p["kind"] in PUBLIC_KINDS])
     meta = _common_meta("bands", run, today, through, pull, len(features), m_, stats, unknown, approval, load_corrections())
     k_gate = min(K_GATE, conf["candidates"])
@@ -1422,7 +1629,15 @@ def build(raw, districts_geojson, *, pull=None, approval=None, today=None, refit
                        "places_now_county": sum(1 for b in bands_now if b == r["band"]), "kept_in_refits": keep.get(r["band"])}
                       for r in rows],
             "rest": rest,
+            "base_rate": base_rate,
             "baseline_name": best_base,
+            "curve": curve,
+            "proposed_cuts": [int(c) for c in proposed],
+            "band_rule": (f"cut at {', '.join(f'{int(s * 100 * 10) / 10}%' for s, _ in BANDS)} of the list, then a split is kept "
+                          f"only if the higher band's rate is above the lower one's at every backtest origin and the pooled "
+                          f"difference is at least {BAND_Z} standard errors"),
+            "by_origin": by_origin,
+            "outside": outside,
         },
         "catch": conf["models"][chosen]["catch"],
         "catch_run": {
@@ -1606,7 +1821,7 @@ def monitor(out: Path, places, today=None, log=print):
     rows, results = [], []
     for d in sorted((out / "archive").glob("forward_*")):
         meta = json.loads((d / "meta.json").read_text(encoding="utf-8"))
-        t = meta["run"].split("_", 1)[1]
+        t = run_date(meta["run"])
         with gzip.open(d / "ranking.csv.gz", "rt", encoding="utf-8") as fh:
             ranked = [r for r in csv.DictReader(fh) if r.get("eligible") in ("1", None)]
         ys, pts, avg, addr, bands = [], [], [], [], []
@@ -1763,14 +1978,27 @@ def main(argv=None):
     ap.add_argument("--monitor", action="store_true", help="score archived runs against the inspections made since")
     ap.add_argument("--out", type=Path, default=OUT)
     ap.add_argument("--refits", type=int, default=REFITS)
+    ap.add_argument("--pull", type=Path, default=None,
+                    help="a saved pull to build from, e.g. data/pulls/sd_businesses.2026-09-24.json[.gz] (default: data/sd_businesses.json)")
+    ap.add_argument("--allow-partial", action="store_true",
+                    help="build from a pull not recorded as complete: for a local look only, never for staff or the public")
     args = ap.parse_args(argv)
-    if not RAW.exists():
-        sys.exit(f"{RAW} is missing: run fetch_sdfood.py first")
-    raw = json.loads(RAW.read_text())
+    global RAW
+    raw_path = args.pull or RAW
+    if not Path(raw_path).exists():
+        sys.exit(f"{raw_path} is missing: run fetch_sdfood.py first")
+    meta_path = PULL if args.pull is None else pull_meta_for(args.pull)
+    pull = _json(meta_path, None) if meta_path else None
+    if not (pull or {}).get("complete") and not args.allow_partial:
+        sys.exit(f"{raw_path}: its pull is not recorded as complete ({meta_path or 'no pull meta'}). Finish it with "
+                 "fetch_sdfood.py --resume, or build from the last complete pull: --pull data/pulls/sd_businesses.<date>.json.gz")
+    if (pull or {}).get("sha256") and pull["sha256"] != sha256_pull(raw_path):
+        sys.exit(f"{raw_path} does not match the sha256 its pull meta records: it changed after the pull")
+    RAW = Path(raw_path)                      # provenance hashes the pull actually read
+    raw = read_pull(raw_path)
     if args.monitor:
         monitor(args.out, load_places(raw))
         return 0
-    pull = _json(PULL, None)
     approval = _json(APPROVAL, None)
     if args.mode == "record":
         fc, details, meta, extra = build_record(raw, load_districts(), pull=pull, approval=approval)
