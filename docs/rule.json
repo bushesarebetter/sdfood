@@ -1,0 +1,1737 @@
+{
+ "version": "2026-09-29-63c8fc7f",
+ "frozen_on": "2026-09-29",
+ "from_run": "forward_2026-09-29-91e1bb95",
+ "chosen": "average score",
+ "rule": {
+  "name": "average score",
+  "features": [
+   "avg_deficit"
+  ],
+  "weights": [
+   1
+  ],
+  "intercept": 0.0,
+  "slope": 0.0
+ },
+ "cuts": [
+  8.0
+ ],
+ "outside_ok": true,
+ "confirm": "2025-09-01",
+ "validate": [
+  "2025-03-01",
+  "2025-06-01"
+ ],
+ "label_quarters": [
+  "2025Q3",
+  "2025Q4",
+  "2026Q1",
+  "2026Q2",
+  "2026Q3"
+ ],
+ "card": {
+  "trained_on": "2024-02-01 to 2024-09-01 (8 monthly snapshots, 50,683 labelled rows, county-wide restaurants)",
+  "rows": [
+   {
+    "band": "1",
+    "min_points": 8,
+    "max_points": null,
+    "places": 684,
+    "labelled": 653,
+    "positives": 239,
+    "rate": 0.366,
+    "interval": [
+     0.3299,
+     0.4036
+    ],
+    "baseline_rate": 0.3653,
+    "baseline_interval": [
+     0.3291,
+     0.4032
+    ],
+    "vs_baseline": [
+     -21.0,
+     29.02
+    ],
+    "share": 0.1967
+   }
+  ],
+  "rest": {
+   "band": "rest",
+   "places": 2793,
+   "labelled": 2659,
+   "positives": 463,
+   "rate": 0.1741,
+   "interval": [
+    0.1602,
+    0.189
+   ]
+  },
+  "base_rate": 0.212,
+  "baseline_name": "persistence",
+  "curve": {
+   "model": "isotonic (monotone) rate by points at the backtest origin, point values pooled into groups of at least 200 places; 95% interval by address-cluster bootstrap",
+   "groups": [
+    [
+     0,
+     0
+    ],
+    [
+     1,
+     1
+    ],
+    [
+     2,
+     2
+    ],
+    [
+     3,
+     3
+    ],
+    [
+     4,
+     4
+    ],
+    [
+     5,
+     5
+    ],
+    [
+     6,
+     6
+    ],
+    [
+     7,
+     8
+    ],
+    [
+     9,
+     12
+    ],
+    [
+     13,
+     25
+    ]
+   ],
+   "rate": [
+    0.0704,
+    0.0704,
+    0.1256,
+    0.158,
+    0.2107,
+    0.2107,
+    0.3037,
+    0.3291,
+    0.3291,
+    0.375,
+    0.375,
+    0.375,
+    0.375,
+    0.375,
+    0.375,
+    0.375,
+    0.375,
+    0.375,
+    0.375,
+    0.375,
+    0.375,
+    0.375,
+    0.375,
+    0.375,
+    0.375,
+    0.375
+   ],
+   "low": [
+    0.0397,
+    0.056,
+    0.0972,
+    0.1244,
+    0.1729,
+    0.1871,
+    0.2517,
+    0.2922,
+    0.2922,
+    0.3341,
+    0.3341,
+    0.3341,
+    0.3341,
+    0.3372,
+    0.3372,
+    0.3372,
+    0.3372,
+    0.3372,
+    0.3372,
+    0.3372,
+    0.3372,
+    0.3372,
+    0.3372,
+    0.3372,
+    0.3372,
+    0.3372
+   ],
+   "high": [
+    0.0896,
+    0.0997,
+    0.1542,
+    0.1953,
+    0.2395,
+    0.2534,
+    0.341,
+    0.3781,
+    0.3781,
+    0.4104,
+    0.4104,
+    0.4104,
+    0.4104,
+    0.4349,
+    0.4349,
+    0.4349,
+    0.4349,
+    0.4349,
+    0.4349,
+    0.4349,
+    0.4349,
+    0.4349,
+    0.4349,
+    0.4349,
+    0.4349,
+    0.4349
+   ],
+   "bins": [
+    {
+     "min_points": 0,
+     "max_points": 0,
+     "labelled": 255,
+     "positives": 18,
+     "rate": 0.0706,
+     "interval": [
+      0.0451,
+      0.1088
+     ]
+    },
+    {
+     "min_points": 1,
+     "max_points": 1,
+     "labelled": 370,
+     "positives": 26,
+     "rate": 0.0703,
+     "interval": [
+      0.0484,
+      0.101
+     ]
+    },
+    {
+     "min_points": 2,
+     "max_points": 2,
+     "labelled": 430,
+     "positives": 54,
+     "rate": 0.1256,
+     "interval": [
+      0.0975,
+      0.1603
+     ]
+    },
+    {
+     "min_points": 3,
+     "max_points": 3,
+     "labelled": 405,
+     "positives": 64,
+     "rate": 0.158,
+     "interval": [
+      0.1257,
+      0.1967
+     ]
+    },
+    {
+     "min_points": 4,
+     "max_points": 4,
+     "labelled": 368,
+     "positives": 78,
+     "rate": 0.212,
+     "interval": [
+      0.1733,
+      0.2566
+     ]
+    },
+    {
+     "min_points": 5,
+     "max_points": 6,
+     "labelled": 614,
+     "positives": 154,
+     "rate": 0.2508,
+     "interval": [
+      0.2181,
+      0.2866
+     ]
+    },
+    {
+     "min_points": 7,
+     "max_points": 8,
+     "labelled": 398,
+     "positives": 131,
+     "rate": 0.3291,
+     "interval": [
+      0.2848,
+      0.3768
+     ]
+    },
+    {
+     "min_points": 9,
+     "max_points": 25,
+     "labelled": 472,
+     "positives": 177,
+     "rate": 0.375,
+     "interval": [
+      0.3325,
+      0.4195
+     ]
+    }
+   ],
+   "labelled": 3312,
+   "positives": 702
+  },
+  "proposed_cuts": [
+   17,
+   12,
+   8
+  ],
+  "by_origin": [
+   {
+    "as_of": "2025-09-01",
+    "1": {
+     "positives": 239,
+     "labelled": 653,
+     "rate": 0.366
+    },
+    "rest": {
+     "positives": 463,
+     "labelled": 2659,
+     "rate": 0.1741
+    }
+   },
+   {
+    "as_of": "2025-03-01",
+    "1": {
+     "positives": 191,
+     "labelled": 524,
+     "rate": 0.3645
+    },
+    "rest": {
+     "positives": 401,
+     "labelled": 2528,
+     "rate": 0.1586
+    }
+   },
+   {
+    "as_of": "2025-06-01",
+    "1": {
+     "positives": 240,
+     "labelled": 615,
+     "rate": 0.3902
+    },
+    "rest": {
+     "positives": 460,
+     "labelled": 2687,
+     "rate": 0.1712
+    }
+   }
+  ],
+  "outside": {
+   "bands_shown": true,
+   "candidates": 3734,
+   "eligible": 3412,
+   "labelled": 3315,
+   "base_rate": 0.1719,
+   "bands": [
+    {
+     "band": "1",
+     "min_points": 8,
+     "max_points": 30,
+     "places": 563,
+     "labelled": 547,
+     "positives": 176,
+     "rate": 0.3218,
+     "interval": [
+      0.284,
+      0.362
+     ],
+     "baseline_rate": null,
+     "baseline_interval": null,
+     "vs_baseline": null
+    }
+   ],
+   "rest": {
+    "band": "rest",
+    "places": 2849,
+    "labelled": 2768,
+    "positives": 394,
+    "rate": 0.1423,
+    "interval": [
+     0.1298,
+     0.1559
+    ]
+   },
+   "curve": {
+    "model": "isotonic (monotone) rate by points at the backtest origin, point values pooled into groups of at least 200 places; 95% interval by address-cluster bootstrap",
+    "groups": [
+     [
+      0,
+      0
+     ],
+     [
+      1,
+      1
+     ],
+     [
+      2,
+      2
+     ],
+     [
+      3,
+      3
+     ],
+     [
+      4,
+      4
+     ],
+     [
+      5,
+      5
+     ],
+     [
+      6,
+      6
+     ],
+     [
+      7,
+      7
+     ],
+     [
+      8,
+      10
+     ],
+     [
+      11,
+      30
+     ]
+    ],
+    "rate": [
+     0.0442,
+     0.0484,
+     0.0859,
+     0.0991,
+     0.1671,
+     0.1766,
+     0.2932,
+     0.3214,
+     0.3218,
+     0.3218,
+     0.3218,
+     0.3218,
+     0.3218,
+     0.3218,
+     0.3218,
+     0.3218,
+     0.3218,
+     0.3218,
+     0.3218,
+     0.3218,
+     0.3218,
+     0.3218,
+     0.3218,
+     0.3218,
+     0.3218,
+     0.3218,
+     0.3218,
+     0.3218,
+     0.3218,
+     0.3218,
+     0.3218
+    ],
+    "low": [
+     0.0202,
+     0.0331,
+     0.0611,
+     0.0766,
+     0.138,
+     0.1531,
+     0.2459,
+     0.2749,
+     0.2909,
+     0.2909,
+     0.2909,
+     0.294,
+     0.294,
+     0.294,
+     0.294,
+     0.294,
+     0.294,
+     0.294,
+     0.294,
+     0.294,
+     0.294,
+     0.294,
+     0.294,
+     0.294,
+     0.294,
+     0.294,
+     0.294,
+     0.294,
+     0.294,
+     0.294,
+     0.294
+    ],
+    "high": [
+     0.0592,
+     0.0688,
+     0.1044,
+     0.1279,
+     0.1958,
+     0.2226,
+     0.3339,
+     0.3525,
+     0.3642,
+     0.3642,
+     0.3642,
+     0.366,
+     0.366,
+     0.366,
+     0.366,
+     0.366,
+     0.366,
+     0.366,
+     0.366,
+     0.366,
+     0.366,
+     0.366,
+     0.366,
+     0.366,
+     0.366,
+     0.366,
+     0.366,
+     0.366,
+     0.366,
+     0.366,
+     0.366
+    ],
+    "bins": [
+     {
+      "min_points": 0,
+      "max_points": 0,
+      "labelled": 249,
+      "positives": 11,
+      "rate": 0.0442,
+      "interval": [
+       0.0248,
+       0.0774
+      ]
+     },
+     {
+      "min_points": 1,
+      "max_points": 1,
+      "labelled": 434,
+      "positives": 21,
+      "rate": 0.0484,
+      "interval": [
+       0.0319,
+       0.0728
+      ]
+     },
+     {
+      "min_points": 2,
+      "max_points": 2,
+      "labelled": 419,
+      "positives": 36,
+      "rate": 0.0859,
+      "interval": [
+       0.0627,
+       0.1167
+      ]
+     },
+     {
+      "min_points": 3,
+      "max_points": 3,
+      "labelled": 424,
+      "positives": 42,
+      "rate": 0.0991,
+      "interval": [
+       0.0741,
+       0.1312
+      ]
+     },
+     {
+      "min_points": 4,
+      "max_points": 4,
+      "labelled": 377,
+      "positives": 63,
+      "rate": 0.1671,
+      "interval": [
+       0.1328,
+       0.2081
+      ]
+     },
+     {
+      "min_points": 5,
+      "max_points": 5,
+      "labelled": 334,
+      "positives": 59,
+      "rate": 0.1766,
+      "interval": [
+       0.1395,
+       0.2212
+      ]
+     },
+     {
+      "min_points": 6,
+      "max_points": 7,
+      "labelled": 531,
+      "positives": 162,
+      "rate": 0.3051,
+      "interval": [
+       0.2674,
+       0.3455
+      ]
+     },
+     {
+      "min_points": 8,
+      "max_points": 30,
+      "labelled": 547,
+      "positives": 176,
+      "rate": 0.3218,
+      "interval": [
+       0.284,
+       0.362
+      ]
+     }
+    ],
+    "labelled": 3315,
+    "positives": 570
+   },
+   "auc": {
+    "rule": 0.7088975170165853
+   }
+  },
+  "closure_score": 70,
+  "band_1_by_route": {
+   "closure": {
+    "labelled": 215,
+    "positives": 59,
+    "rate": 0.2744,
+    "interval": [
+     0.2191,
+     0.3376
+    ]
+   },
+   "scores": {
+    "labelled": 438,
+    "positives": 180,
+    "rate": 0.411,
+    "interval": [
+     0.3658,
+     0.4576
+    ]
+   }
+  }
+ },
+ "catch": {
+  "50": {
+   "caught": 25,
+   "total": 761
+  },
+  "100": {
+   "caught": 39,
+   "total": 761
+  },
+  "200": {
+   "caught": 76,
+   "total": 761
+  },
+  "500": {
+   "caught": 184,
+   "total": 761
+  },
+  "800": {
+   "caught": 279,
+   "total": 761
+  },
+  "1000": {
+   "caught": 340,
+   "total": 761
+  }
+ },
+ "catch_run": {
+  "as_of": "2025-09-01",
+  "candidates": 3739,
+  "eligible": 3477,
+  "positives": 761,
+  "labelled": 3563,
+  "unlabelled": 176,
+  "label_window": "2025-09-01 to 2026-08-31",
+  "trained_on": "2024-02-01 to 2024-09-01 (8 monthly snapshots, 50,683 labelled rows, county-wide restaurants)",
+  "baseline_name": "persistence",
+  "baseline": {
+   "50": {
+    "caught": 15,
+    "total": 761
+   },
+   "100": {
+    "caught": 38,
+    "total": 761
+   },
+   "200": {
+    "caught": 87,
+    "total": 761
+   },
+   "500": {
+    "caught": 190,
+    "total": 761
+   },
+   "800": {
+    "caught": 271,
+    "total": 761
+   },
+   "1000": {
+    "caught": 324,
+    "total": 761
+   }
+  },
+  "interval": {
+   "50": [
+    16,
+    35
+   ],
+   "100": [
+    27,
+    53
+   ],
+   "200": [
+    60,
+    93
+   ],
+   "500": [
+    160,
+    209
+   ],
+   "800": [
+    249,
+    311
+   ],
+   "1000": [
+    306,
+    376
+   ]
+  },
+  "vs_baseline": {
+   "baseline": "persistence",
+   "auc": [
+    -0.0108,
+    0.0182
+   ],
+   "k": 500
+  },
+  "vs_average_rule": null,
+  "models": {
+   "average score": {
+    "auc": 0.6750554090798669,
+    "auc_eligible": 0.6797406970778619,
+    "caught": 184
+   },
+   "count score": {
+    "auc": 0.6730519593194649,
+    "auc_eligible": 0.6774838720241019,
+    "caught": 182
+   },
+   "logistic": {
+    "auc": 0.6849263385173534,
+    "auc_eligible": 0.6899687264629792,
+    "caught": 200
+   },
+   "boosted": {
+    "auc": 0.6804640668717012,
+    "auc_eligible": 0.6857983757409044,
+    "caught": 191
+   },
+   "additive": {
+    "auc": 0.6838221431847535,
+    "auc_eligible": 0.6892919518398446,
+    "caught": 192
+   },
+   "persistence": {
+    "auc": 0.6707528225099211,
+    "auc_eligible": 0.6762654048094662,
+    "caught": 190
+   },
+   "last score": {
+    "auc": 0.6667309158748069,
+    "auc_eligible": 0.6712679154250036,
+    "caught": 187
+   }
+  },
+  "count_rule_at_origin": {
+   "features": [
+    "theme_health",
+    "theme_supplier",
+    "theme_temperature",
+    "theme_handsink",
+    "avg_deficit",
+    "last_deficit"
+   ],
+   "weights": [
+    19,
+    17,
+    12,
+    5,
+    2,
+    1
+   ]
+  }
+ },
+ "selection": {
+  "rule": "no publishable rule was within 0.01 AUC of the best model at every validation origin; the sparsest within 0.01 of the best publishable rule is shown, flagged",
+  "within_epsilon": false,
+  "validation": [
+   {
+    "as_of": "2025-03-01",
+    "average score": 0.6967081410678971,
+    "count score": 0.7041457234673698,
+    "logistic": 0.7111397220391122,
+    "boosted": 0.7130692430235113,
+    "additive": 0.7125799961546913,
+    "persistence": 0.6901693995825093,
+    "last score": 0.6965735552625796
+   },
+   {
+    "as_of": "2025-06-01",
+    "average score": 0.694684034259361,
+    "count score": 0.6940501811793127,
+    "logistic": 0.7064606895794443,
+    "boosted": 0.7074231360491929,
+    "additive": 0.7079194575601186,
+    "persistence": 0.6869210497419567,
+    "last score": 0.6894592072032503
+   }
+  ],
+  "chosen": "average score",
+  "confirm": "2025-09-01"
+ },
+ "named_bands": [],
+ "cost_ratio": null,
+ "utility": [
+  {
+   "cost_ratio": 0.25,
+   "bar": 0.2,
+   "named": [
+    "1"
+   ]
+  },
+  {
+   "cost_ratio": 0.5,
+   "bar": 0.3333,
+   "named": []
+  },
+  {
+   "cost_ratio": 1,
+   "bar": 0.5,
+   "named": []
+  },
+  {
+   "cost_ratio": 2,
+   "bar": 0.6667,
+   "named": []
+  },
+  {
+   "cost_ratio": 3,
+   "bar": 0.75,
+   "named": []
+  }
+ ],
+ "fairness": {
+  "by_district": {
+   "1": {
+    "candidates": 509,
+    "labelled": 486,
+    "named": 96,
+    "named_positive": 37,
+    "false_named": 55,
+    "precision": 0.402,
+    "precision_interval": [
+     0.3078,
+     0.5043
+    ],
+    "fpr_ratio": 1.02,
+    "false_share_ratio": 0.97,
+    "interval": [
+     0.75,
+     1.21
+    ],
+    "interval_family": [
+     0.65,
+     1.34
+    ]
+   },
+   "2": {
+    "candidates": 555,
+    "labelled": 537,
+    "named": 96,
+    "named_positive": 34,
+    "false_named": 58,
+    "precision": 0.37,
+    "precision_interval": [
+     0.278,
+     0.4716
+    ],
+    "fpr_ratio": 0.96,
+    "false_share_ratio": 0.93,
+    "interval": [
+     0.73,
+     1.15
+    ],
+    "interval_family": [
+     0.65,
+     1.25
+    ]
+   },
+   "3": {
+    "candidates": 956,
+    "labelled": 913,
+    "named": 110,
+    "named_positive": 49,
+    "false_named": 55,
+    "precision": 0.471,
+    "precision_interval": [
+     0.378,
+     0.5664
+    ],
+    "fpr_ratio": 0.53,
+    "false_share_ratio": 0.52,
+    "interval": [
+     0.4,
+     0.64
+    ],
+    "interval_family": [
+     0.35,
+     0.7
+    ]
+   },
+   "4": {
+    "candidates": 87,
+    "labelled": 82,
+    "named": 27,
+    "named_positive": 7,
+    "false_named": 19,
+    "precision": 0.269,
+    "precision_interval": [
+     0.137,
+     0.4608
+    ],
+    "fpr_ratio": 1.89,
+    "false_share_ratio": 1.99,
+    "interval": [
+     1.25,
+     2.76
+    ],
+    "interval_family": [
+     1.01,
+     3.24
+    ]
+   },
+   "5": {
+    "candidates": 238,
+    "labelled": 224,
+    "named": 52,
+    "named_positive": 15,
+    "false_named": 33,
+    "precision": 0.312,
+    "precision_interval": [
+     0.1995,
+     0.4533
+    ],
+    "fpr_ratio": 1.19,
+    "false_share_ratio": 1.27,
+    "interval": [
+     0.87,
+     1.69
+    ],
+    "interval_family": [
+     0.71,
+     1.84
+    ]
+   },
+   "6": {
+    "candidates": 630,
+    "labelled": 593,
+    "named": 147,
+    "named_positive": 48,
+    "false_named": 93,
+    "precision": 0.34,
+    "precision_interval": [
+     0.2674,
+     0.4219
+    ],
+    "fpr_ratio": 1.33,
+    "false_share_ratio": 1.35,
+    "interval": [
+     1.13,
+     1.57
+    ],
+    "interval_family": [
+     1.05,
+     1.67
+    ]
+   },
+   "7": {
+    "candidates": 229,
+    "labelled": 226,
+    "named": 20,
+    "named_positive": 6,
+    "false_named": 13,
+    "precision": 0.316,
+    "precision_interval": [
+     0.1536,
+     0.5399
+    ],
+    "fpr_ratio": 0.44,
+    "false_share_ratio": 0.5,
+    "interval": [
+     0.26,
+     0.77
+    ],
+    "interval_family": [
+     0.18,
+     0.89
+    ]
+   },
+   "8": {
+    "candidates": 246,
+    "labelled": 222,
+    "named": 54,
+    "named_positive": 22,
+    "false_named": 28,
+    "precision": 0.44,
+    "precision_interval": [
+     0.3116,
+     0.5769
+    ],
+    "fpr_ratio": 1.14,
+    "false_share_ratio": 1.09,
+    "interval": [
+     0.76,
+     1.47
+    ],
+    "interval_family": [
+     0.61,
+     1.67
+    ]
+   },
+   "9": {
+    "candidates": 289,
+    "labelled": 280,
+    "named": 82,
+    "named_positive": 21,
+    "false_named": 60,
+    "precision": 0.259,
+    "precision_interval": [
+     0.1763,
+     0.364
+    ],
+    "fpr_ratio": 1.77,
+    "false_share_ratio": 1.84,
+    "interval": [
+     1.43,
+     2.24
+    ],
+    "interval_family": [
+     1.32,
+     2.43
+    ]
+   }
+  },
+  "bands_used": [
+   "1"
+  ],
+  "problems": [
+   "district 4: 1.99x its share of wrongly named places (27 named)",
+   "district 4: false-positive rate 1.89x the City's",
+   "district 4: the share of wrongly named places could be up to 2.76x even",
+   "district 5: 1.27x its share of wrongly named places (52 named)",
+   "district 6: 1.35x its share of wrongly named places (147 named)",
+   "district 9: 1.84x its share of wrongly named places (82 named)",
+   "district 9: false-positive rate 1.77x the City's",
+   "district 9: the share of wrongly named places could be up to 2.24x even"
+  ]
+ },
+ "survivorship_bound": {
+  "by_permit_status": {
+   "Permit Renewed": {
+    "labelled": 3520,
+    "rate": 0.214
+   },
+   "Expired": {
+    "labelled": 38,
+    "rate": 0.211
+   },
+   "Issued": {
+    "labelled": 5,
+    "rate": 0.0
+   }
+  },
+  "band_1_rate_if": {
+   "5% missing": 0.358,
+   "10% missing": 0.351
+  }
+ },
+ "origins": [
+  {
+   "as_of": "2025-03-01",
+   "candidates": 3502,
+   "positives": 650,
+   "models": {
+    "average score": {
+     "auc": 0.6854890788224121,
+     "auc_eligible": 0.6967081410678971,
+     "catch": {
+      "50": {
+       "caught": 13,
+       "total": 650
+      },
+      "100": {
+       "caught": 31,
+       "total": 650
+      },
+      "200": {
+       "caught": 61,
+       "total": 650
+      },
+      "500": {
+       "caught": 174,
+       "total": 650
+      },
+      "800": {
+       "caught": 255,
+       "total": 650
+      },
+      "1000": {
+       "caught": 319,
+       "total": 650
+      }
+     }
+    },
+    "count score": {
+     "auc": 0.6941440041440041,
+     "auc_eligible": 0.7041457234673698,
+     "catch": {
+      "50": {
+       "caught": 20,
+       "total": 650
+      },
+      "100": {
+       "caught": 43,
+       "total": 650
+      },
+      "200": {
+       "caught": 78,
+       "total": 650
+      },
+      "500": {
+       "caught": 180,
+       "total": 650
+      },
+      "800": {
+       "caught": 275,
+       "total": 650
+      },
+      "1000": {
+       "caught": 331,
+       "total": 650
+      }
+     }
+    },
+    "logistic": {
+     "auc": 0.7008570030792253,
+     "auc_eligible": 0.7111397220391122,
+     "catch": {
+      "50": {
+       "caught": 29,
+       "total": 650
+      },
+      "100": {
+       "caught": 49,
+       "total": 650
+      },
+      "200": {
+       "caught": 89,
+       "total": 650
+      },
+      "500": {
+       "caught": 194,
+       "total": 650
+      },
+      "800": {
+       "caught": 286,
+       "total": 650
+      },
+      "1000": {
+       "caught": 343,
+       "total": 650
+      }
+     }
+    },
+    "boosted": {
+     "auc": 0.7029367751589974,
+     "auc_eligible": 0.7130692430235113,
+     "catch": {
+      "50": {
+       "caught": 20,
+       "total": 650
+      },
+      "100": {
+       "caught": 41,
+       "total": 650
+      },
+      "200": {
+       "caught": 86,
+       "total": 650
+      },
+      "500": {
+       "caught": 202,
+       "total": 650
+      },
+      "800": {
+       "caught": 286,
+       "total": 650
+      },
+      "1000": {
+       "caught": 333,
+       "total": 650
+      }
+     }
+    },
+    "additive": {
+     "auc": 0.7023387723387723,
+     "auc_eligible": 0.7125799961546913,
+     "catch": {
+      "50": {
+       "caught": 27,
+       "total": 650
+      },
+      "100": {
+       "caught": 54,
+       "total": 650
+      },
+      "200": {
+       "caught": 91,
+       "total": 650
+      },
+      "500": {
+       "caught": 192,
+       "total": 650
+      },
+      "800": {
+       "caught": 280,
+       "total": 650
+      },
+      "1000": {
+       "caught": 333,
+       "total": 650
+      }
+     }
+    },
+    "persistence": {
+     "auc": 0.6812843535065757,
+     "auc_eligible": 0.6901693995825093,
+     "catch": {
+      "50": {
+       "caught": 17,
+       "total": 650
+      },
+      "100": {
+       "caught": 37,
+       "total": 650
+      },
+      "200": {
+       "caught": 73,
+       "total": 650
+      },
+      "500": {
+       "caught": 169,
+       "total": 650
+      },
+      "800": {
+       "caught": 246,
+       "total": 650
+      },
+      "1000": {
+       "caught": 301,
+       "total": 650
+      }
+     }
+    },
+    "last score": {
+     "auc": 0.6878082822527267,
+     "auc_eligible": 0.6965735552625796,
+     "catch": {
+      "50": {
+       "caught": 19,
+       "total": 650
+      },
+      "100": {
+       "caught": 46,
+       "total": 650
+      },
+      "200": {
+       "caught": 80,
+       "total": 650
+      },
+      "500": {
+       "caught": 190,
+       "total": 650
+      },
+      "800": {
+       "caught": 272,
+       "total": 650
+      },
+      "1000": {
+       "caught": 324,
+       "total": 650
+      }
+     }
+    }
+   }
+  },
+  {
+   "as_of": "2025-06-01",
+   "candidates": 3637,
+   "positives": 751,
+   "models": {
+    "average score": {
+     "auc": 0.6903524534708846,
+     "auc_eligible": 0.694684034259361,
+     "catch": {
+      "50": {
+       "caught": 19,
+       "total": 751
+      },
+      "100": {
+       "caught": 38,
+       "total": 751
+      },
+      "200": {
+       "caught": 74,
+       "total": 751
+      },
+      "500": {
+       "caught": 189,
+       "total": 751
+      },
+      "800": {
+       "caught": 293,
+       "total": 751
+      },
+      "1000": {
+       "caught": 357,
+       "total": 751
+      }
+     }
+    },
+    "count score": {
+     "auc": 0.6898377376251537,
+     "auc_eligible": 0.6940501811793127,
+     "catch": {
+      "50": {
+       "caught": 24,
+       "total": 751
+      },
+      "100": {
+       "caught": 46,
+       "total": 751
+      },
+      "200": {
+       "caught": 86,
+       "total": 751
+      },
+      "500": {
+       "caught": 195,
+       "total": 751
+      },
+      "800": {
+       "caught": 305,
+       "total": 751
+      },
+      "1000": {
+       "caught": 359,
+       "total": 751
+      }
+     }
+    },
+    "logistic": {
+     "auc": 0.7016220970624807,
+     "auc_eligible": 0.7064606895794443,
+     "catch": {
+      "50": {
+       "caught": 30,
+       "total": 751
+      },
+      "100": {
+       "caught": 56,
+       "total": 751
+      },
+      "200": {
+       "caught": 103,
+       "total": 751
+      },
+      "500": {
+       "caught": 210,
+       "total": 751
+      },
+      "800": {
+       "caught": 310,
+       "total": 751
+      },
+      "1000": {
+       "caught": 367,
+       "total": 751
+      }
+     }
+    },
+    "boosted": {
+     "auc": 0.701616590799945,
+     "auc_eligible": 0.7074231360491929,
+     "catch": {
+      "50": {
+       "caught": 26,
+       "total": 751
+      },
+      "100": {
+       "caught": 47,
+       "total": 751
+      },
+      "200": {
+       "caught": 90,
+       "total": 751
+      },
+      "500": {
+       "caught": 208,
+       "total": 751
+      },
+      "800": {
+       "caught": 299,
+       "total": 751
+      },
+      "1000": {
+       "caught": 366,
+       "total": 751
+      }
+     }
+    },
+    "additive": {
+     "auc": 0.7030767079827878,
+     "auc_eligible": 0.7079194575601186,
+     "catch": {
+      "50": {
+       "caught": 29,
+       "total": 751
+      },
+      "100": {
+       "caught": 55,
+       "total": 751
+      },
+      "200": {
+       "caught": 91,
+       "total": 751
+      },
+      "500": {
+       "caught": 210,
+       "total": 751
+      },
+      "800": {
+       "caught": 313,
+       "total": 751
+      },
+      "1000": {
+       "caught": 370,
+       "total": 751
+      }
+     }
+    },
+    "persistence": {
+     "auc": 0.6820605008975207,
+     "auc_eligible": 0.6869210497419567,
+     "catch": {
+      "50": {
+       "caught": 14,
+       "total": 751
+      },
+      "100": {
+       "caught": 36,
+       "total": 751
+      },
+      "200": {
+       "caught": 89,
+       "total": 751
+      },
+      "500": {
+       "caught": 197,
+       "total": 751
+      },
+      "800": {
+       "caught": 280,
+       "total": 751
+      },
+      "1000": {
+       "caught": 334,
+       "total": 751
+      }
+     }
+    },
+    "last score": {
+     "auc": 0.6862258688044371,
+     "auc_eligible": 0.6894592072032503,
+     "catch": {
+      "50": {
+       "caught": 29,
+       "total": 751
+      },
+      "100": {
+       "caught": 54,
+       "total": 751
+      },
+      "200": {
+       "caught": 94,
+       "total": 751
+      },
+      "500": {
+       "caught": 198,
+       "total": 751
+      },
+      "800": {
+       "caught": 293,
+       "total": 751
+      },
+      "1000": {
+       "caught": 355,
+       "total": 751
+      }
+     }
+    }
+   }
+  },
+  {
+   "as_of": "2025-09-01",
+   "candidates": 3739,
+   "positives": 761,
+   "models": {
+    "average score": {
+     "auc": 0.6750554090798669,
+     "auc_eligible": 0.6797406970778619,
+     "catch": {
+      "50": {
+       "caught": 25,
+       "total": 761
+      },
+      "100": {
+       "caught": 39,
+       "total": 761
+      },
+      "200": {
+       "caught": 76,
+       "total": 761
+      },
+      "500": {
+       "caught": 184,
+       "total": 761
+      },
+      "800": {
+       "caught": 279,
+       "total": 761
+      },
+      "1000": {
+       "caught": 340,
+       "total": 761
+      }
+     }
+    },
+    "count score": {
+     "auc": 0.6730519593194649,
+     "auc_eligible": 0.6774838720241019,
+     "catch": {
+      "50": {
+       "caught": 26,
+       "total": 761
+      },
+      "100": {
+       "caught": 45,
+       "total": 761
+      },
+      "200": {
+       "caught": 89,
+       "total": 761
+      },
+      "500": {
+       "caught": 182,
+       "total": 761
+      },
+      "800": {
+       "caught": 274,
+       "total": 761
+      },
+      "1000": {
+       "caught": 332,
+       "total": 761
+      }
+     }
+    },
+    "logistic": {
+     "auc": 0.6849263385173534,
+     "auc_eligible": 0.6899687264629792,
+     "catch": {
+      "50": {
+       "caught": 25,
+       "total": 761
+      },
+      "100": {
+       "caught": 53,
+       "total": 761
+      },
+      "200": {
+       "caught": 92,
+       "total": 761
+      },
+      "500": {
+       "caught": 200,
+       "total": 761
+      },
+      "800": {
+       "caught": 289,
+       "total": 761
+      },
+      "1000": {
+       "caught": 346,
+       "total": 761
+      }
+     }
+    },
+    "boosted": {
+     "auc": 0.6804640668717012,
+     "auc_eligible": 0.6857983757409044,
+     "catch": {
+      "50": {
+       "caught": 24,
+       "total": 761
+      },
+      "100": {
+       "caught": 45,
+       "total": 761
+      },
+      "200": {
+       "caught": 87,
+       "total": 761
+      },
+      "500": {
+       "caught": 191,
+       "total": 761
+      },
+      "800": {
+       "caught": 277,
+       "total": 761
+      },
+      "1000": {
+       "caught": 336,
+       "total": 761
+      }
+     }
+    },
+    "additive": {
+     "auc": 0.6838221431847535,
+     "auc_eligible": 0.6892919518398446,
+     "catch": {
+      "50": {
+       "caught": 24,
+       "total": 761
+      },
+      "100": {
+       "caught": 44,
+       "total": 761
+      },
+      "200": {
+       "caught": 93,
+       "total": 761
+      },
+      "500": {
+       "caught": 192,
+       "total": 761
+      },
+      "800": {
+       "caught": 287,
+       "total": 761
+      },
+      "1000": {
+       "caught": 339,
+       "total": 761
+      }
+     }
+    },
+    "persistence": {
+     "auc": 0.6707528225099211,
+     "auc_eligible": 0.6762654048094662,
+     "catch": {
+      "50": {
+       "caught": 15,
+       "total": 761
+      },
+      "100": {
+       "caught": 38,
+       "total": 761
+      },
+      "200": {
+       "caught": 87,
+       "total": 761
+      },
+      "500": {
+       "caught": 190,
+       "total": 761
+      },
+      "800": {
+       "caught": 271,
+       "total": 761
+      },
+      "1000": {
+       "caught": 324,
+       "total": 761
+      }
+     }
+    },
+    "last score": {
+     "auc": 0.6667309158748069,
+     "auc_eligible": 0.6712679154250036,
+     "catch": {
+      "50": {
+       "caught": 28,
+       "total": 761
+      },
+      "100": {
+       "caught": 51,
+       "total": 761
+      },
+      "200": {
+       "caught": 91,
+       "total": 761
+      },
+      "500": {
+       "caught": 187,
+       "total": 761
+      },
+      "800": {
+       "caught": 277,
+       "total": 761
+      },
+      "1000": {
+       "caught": 330,
+       "total": 761
+      }
+     }
+    }
+   }
+  }
+ ]
+}

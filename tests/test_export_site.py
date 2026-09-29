@@ -123,17 +123,34 @@ def test_every_item_text_in_the_countys_data_maps_to_its_reviewed_theme():
     assert {t: es.theme_of(t) for t in fixture if es.theme_of(t) != fixture[t]} == {}
 
 
-def test_themes_on_the_two_report_forms():
+def test_themes_are_the_countys_report_sections_on_both_forms():
+    """The mobile-unit form numbers items differently (22 is pests there, sewage on the fixed form):
+    the theme follows the item, not its number."""
     th = es.theme_of
-    assert th("22. No rodents, insects, birds or animals") == "vermin"
-    assert th("22. Sewage & wastewater properly disposed") == "plumbing"
-    assert th("19. Potable hot and cold water available") == "plumbing"
-    assert th("30. Warewashing facilities - installed, maintained, used; Test strips available") == "sanitizing"
+    assert th("22. No rodents, insects, birds or animals") == "vermin"          # mobile 22
+    assert th("22. Sewage & wastewater properly disposed") == "sewage"          # fixed 22
+    assert th("21. No waste water discharge to the ground; sewage system and connections") == "sewage"
+    assert th("19. Potable hot and cold water available") == "water"            # mobile 19
+    assert th("19. Consumer advisory provided for raw or undercooked foods") == "advisory"
+    assert th("5. Hands clean & properly washed; gloves used properly") == "hands"
+    assert th("6. Adequate handwashing facilities supplied & accessible") == "handsink"
+    assert th("20. Toilet and handwashing sink facility readily available") == "handsink"
+    assert th("14. Food contact surfaces clean & sanitized") == "sanitizing"
+    assert th("34. Warewashing facilities -installed, maintained, used; test strips") == "grp_equipment"
+    assert th("40. Wiping cloths -properly used, stored") == "grp_equipment"
+    assert th("41. Plumbing -proper backflow devices") == "grp_facility"
+    assert th("38. Plumbing - proper backflow devices / water tank design and adequate capacity") == "grp_facility"
+    assert th("44. Premises, personal / cleaning items, vermin-proofing") == "grp_facility"
+    assert th("1a. Food Safety Certification & Exp. Date") == "knowledge"
+    assert th("20. Licensed health care facilities / public & private schools - prohibited foods not offered") == "hsp"
     assert th("16. Compliance with shell stock tags, condition, display") == "supplier"
     assert th("13. Food in good condition, safe & unadulterated") == "condition"
     assert th("18. Compliance with:") == "process"
-    assert th("39. Compliance with fire safety requirements - first aid kit") == "other"
-    assert th("20. Toilet and handwashing sink facility readily available") == "handwashing"
+    assert th("39. Compliance with fire safety requirements - first aid kit") == "grp_other"
+    assert th("47. Grade card, signs, last inspection report available") == "grp_signs"
+    assert es.RISK_THEMES == ("health", "hands", "handsink", "temperature", "condition", "sanitizing", "supplier", "process",
+                              "hsp", "water", "sewage", "vermin")
+    assert not any(t.startswith("grp_") for t in es.RISK_THEMES) and set(es.RISK_THEMES) <= set(es.THEMES)
 
 
 def test_business_kinds():
@@ -356,7 +373,8 @@ def test_district_fairness_blocks_on_the_point_estimate():
 def good_approval(meta, sha):
     return {"approver": "A B", "date": "2026-10-01", "run": meta["run"], "facilities_sha256": sha,
             "contact": "owners@example.org", "reason": "because", "insurance": "policy 1", "cost_ratio": 1,
-            "responsible_adult": {"name": "C D", "contact": "cd@example.org"},
+            "responsible_adult": {"name": "C D", "contact": "cd@example.org", "relationship": "teacher advisor",
+                                  "attests_18_or_older": True},
             "legal_review": {"reviewer": "E", "organization": "F", "date": "2026-09-01", "scope": "all"},
             "county_informed": {"date": "2026-08-01", "person": "G", "method": "email", "what_was_shown": "report",
                                 "response": "no objection"}}
@@ -375,6 +393,9 @@ def test_the_approval_binds_one_run_and_one_file():
     assert "30 days" in probs(county_informed={**a["county_informed"], "date": "2026-09-25"})
     assert "legal_review" in probs(legal_review={})
     assert "not an email" in probs(contact="nobody")
+    assert "not an author" in probs(responsible_adult={**a["responsible_adult"], "name": "Chenhao Zhang"})
+    assert "not an author" in probs(responsible_adult={**a["responsible_adult"], "relationship": "author"})
+    assert "attests_18_or_older" in probs(responsible_adult={**a["responsible_adult"], "attests_18_or_older": False})
     assert es.check_approval(None, "bands", meta, "abc")
     example = json.loads((ROOT / "docs" / "PUBLISH_APPROVAL.example.json").read_text(encoding="utf-8"))
     assert es.check_approval(example, "bands", meta, "abc"), "the template, unedited, approves nothing"
@@ -687,17 +708,85 @@ def _place(raw_visits, btype="Restaurant Food Facility"):
     return es.load_places([business("7", raw_visits, btype=btype)], st)[0]
 
 
+def _closed(day, kind="Routine"):
+    return inspection(day, kind=kind, score="0", grade="", status="Ordered Closed", violations=[violation(VERMIN, "major")])
+
+
+def _reopen(day, **kw):
+    return inspection(day, kind="Re-inspection", score="0", grade="", status="Approved to Reopen", **kw)
+
+
 def test_escalation_flags_follow_the_countys_own_criteria():
-    closed = lambda day: inspection(day, score="0", grade="", status="Ordered Closed", violations=[violation(VERMIN, "major")])
-    p = _place([inspection("2025-01-10", violations=[violation(VERMIN, "major")]), closed("2025-06-02"),
-                inspection("2025-06-05", kind="Re-inspection", score="0", grade="", status="Approved to Reopen"),
-                inspection("2025-11-03", violations=[violation(VERMIN, "major")]), closed("2026-05-04")])
-    recs = es.display_records(p)
-    f = es.flags(recs, p["visits"])
-    assert "closures2" in f, "two closure orders in two years"
-    assert "repeat_item" in f, "item 23 major at 2 of the last 3 routine inspections"
+    p = _place([inspection("2025-01-10", violations=[violation(VERMIN, "major")]), _closed("2025-06-02"), _reopen("2025-06-05"),
+                inspection("2025-11-03", violations=[violation(VERMIN, "major")]), _closed("2026-05-04")])
+    f = es.flags(es.display_records(p), p["visits"], "2026-09-29")
+    assert "closures2" in f, "two closure episodes in two years"
+    assert "repeat_item" in f, "item 23 major at two routine inspection days"
     q = _place([inspection("2025-01-10", violations=[violation(VERMIN, "major")]), inspection("2025-11-03")])
-    assert not {"closures2", "repeat_item"} & set(es.flags(es.display_records(q), q["visits"]))
+    assert not set(es.ESCALATION_FLAGS) & set(es.flags(es.display_records(q), q["visits"], "2026-09-29"))
+
+
+def test_one_closure_is_one_episode_until_the_county_reopens_it():
+    """A complaint visit, a second order or an ungraded reinspection while a place is closed does not
+    end the episode; the County's reopening does, and the day it came is kept."""
+    p = _place([_closed("2025-06-06"),
+                inspection("2025-06-07", kind="Site Investigation", score="0", grade=""),
+                _closed("2025-06-07", kind="Re-inspection"),
+                inspection("2025-06-08", kind="Re-inspection", score="0", grade="", iid="b-rescore"),
+                _reopen("2025-06-08", iid="a-reopen")])
+    recs = es.display_records(p)
+    episodes = [r for r in recs if r["closed"]]
+    assert len(episodes) == 1 and episodes[0]["date"] == "2025-06-06"
+    assert episodes[0]["reopened"] is True and episodes[0]["reopened_on"] == "2025-06-08",         "a same-day record merged with the reopening must not hide it"
+    assert "closures2" not in es.flags(recs, p["visits"], "2025-09-01")
+
+
+def test_a_graded_inspection_or_a_long_gap_ends_an_episode():
+    graded = _place([_closed("2025-03-03"), inspection("2025-03-20", score="96"), _closed("2025-05-01")])
+    assert sum(r["closed"] for r in es.display_records(graded)) == 2, "graded again on a later day: open"
+    assert [r["reopened"] for r in es.display_records(graded) if r["closed"]] == [False, False], "no reopening was recorded"
+    gap = _place([_closed("2025-03-03"), inspection("2025-03-10", kind="Site Investigation", score="0", grade=""),
+                  _closed("2025-05-01", kind="Re-inspection")])
+    assert sum(r["closed"] for r in es.display_records(gap)) == 2, f"orders {es.EPISODE_GAP_DAYS}+ days apart are two episodes"
+    rec = es.display_records(gap)
+    assert "closures2" in es.flags(rec, gap["visits"], "2025-09-01")
+
+
+def test_escalation_flags_are_measured_from_the_list_date():
+    """Two years back from the list, not from the place's last visit: closures older than that do
+    not count, however long ago the last visit was."""
+    p = _place([_closed("2024-03-01"), _reopen("2024-03-04"), _closed("2024-08-01"), _reopen("2024-08-03"),
+                inspection("2025-02-01", score="96")])
+    rec = es.display_records(p)
+    assert "closures2" in es.flags(rec, p["visits"], "2025-06-01")
+    assert "closures2" not in es.flags(rec, p["visits"], "2026-09-29"), "both closures are over two years before the list"
+    assert "closed" not in es.flags(rec, p["visits"], "2026-09-29")
+
+
+def test_repeat_item_and_scores_below_90_count_inspection_days_not_records():
+    twice_one_day = [inspection("2026-05-18", score="85", grade="B", violations=[violation(VERMIN, "major")], iid="x1"),
+                     inspection("2026-05-18", score="85", grade="B", violations=[violation(VERMIN, "major")], iid="x2")]
+    p = _place(twice_one_day + [inspection("2026-08-01", score="95")])
+    f = es.flags(es.display_records(p), p["visits"], "2026-09-29")
+    assert "repeat_item" not in f and "lt90_2" not in f, "one inspection the County recorded twice counts once"
+    q = _place([inspection("2025-03-07", score="88", grade="B", violations=[violation(VERMIN, "major")]),
+                inspection("2025-09-01", score="97"), inspection("2026-01-10", score="96"),
+                inspection("2026-04-28", score="86", grade="B", violations=[violation(VERMIN, "major")])])
+    f = es.flags(es.display_records(q), q["visits"], "2026-09-29")
+    assert "repeat_item" in f, "the same major item at two routine inspection days in two years, clean ones between"
+    assert "lt90_2" in f, "two routine scores below 90 in two years (the Guide's middle criterion)"
+
+
+def test_every_routine_health_closure_counts_as_70_and_keeps_the_countys_score():
+    """A closure order the County also scored that day counts as 70 like any other: one rule for
+    every closure. The worksheet keeps the County's own score beside it."""
+    p = _place([inspection("2025-02-01", score="95"),
+                inspection("2025-11-06", score="94", grade="A", iid="c1"),
+                inspection("2025-11-06", score="0", grade="", status="Ordered Closed", violations=[violation(VERMIN, "major")], iid="c2"),
+                _reopen("2025-11-08")])
+    used = es.scores_used(p, "2026-09-20")
+    assert [(u["score"], u["closure"], u["county_score"]) for u in used] == [(95, False, 95), (70, True, 94)]
+    assert es.features_at(p, "2026-09-20")["avg_deficit"] == 100 - int((95 + 70) / 2 + 0.5)
 
 
 def test_the_worksheet_lists_the_scores_it_averages_and_rounds_half_up():
@@ -705,6 +794,7 @@ def test_the_worksheet_lists_the_scores_it_averages_and_rounds_half_up():
                 inspection("2026-01-15", score="0", grade="", status="Ordered Closed", violations=[violation(VERMIN, "major")])])
     used = es.scores_used(p, "2026-09-20")
     assert [u["score"] for u in used] == [95, 94, es.CLOSURE_SCORE] and [u["closure"] for u in used] == [False, False, True]
+    assert [u["county_score"] for u in used] == [95, 94, None], "the County gave no score the day it closed the place"
     f = es.features_at(p, "2026-09-20")
     mean = sum(u["score"] for u in used) / len(used)             # 86.33
     assert f["avg_deficit"] == 100 - int(mean + 0.5) and f["last_deficit"] == 100 - es.CLOSURE_SCORE
@@ -777,3 +867,42 @@ def test_the_risk_curve_covers_every_point_value_even_without_places_at_zero():
     c = es.risk_curve(pts, pos, ones, ones, np.arange(len(pts)), n_boot=20)
     assert len(c["rate"]) == 10 and all(0 <= lo <= r <= hi <= 1 for lo, r, hi in zip(c["low"], c["rate"], c["high"]))
     assert c["rate"][0] == c["rate"][3], "below the lowest group, a place reads that group's rate"
+
+
+def test_band_1_is_split_by_route_and_districts_carry_precision_intervals(built):
+    fc, details, meta, extra = built
+    c = meta["card"]
+    assert c["closure_score"] == es.CLOSURE_SCORE
+    if meta["selection"]["chosen"] == "average score" and c["bands"]:
+        r = c["band_1_by_route"]
+        assert set(r) == {"closure", "scores"}
+        assert r["closure"]["labelled"] + r["scores"]["labelled"] == c["bands"][0]["labelled"]
+    for d, e in meta["fairness"]["by_district"].items():
+        assert "labelled" in e and "interval_family" in e
+        if e["precision"] is not None:
+            lo, hi = e["precision_interval"]
+            assert lo <= e["precision"] <= hi
+        if e["interval"] and e["interval_family"]:
+            assert e["interval_family"][0] <= e["interval"][0] and e["interval"][1] <= e["interval_family"][1],                 "the family-wise interval is the wider one"
+
+
+def test_the_countys_point_formula_for_a_closure(monkeypatch):
+    v = {"closure_order": "health", "score": None,
+         "_items": [{"severity": "major"}, {"severity": "major"}, {"severity": "minor"}, {"severity": "grp"}]}
+    assert es.rated_score(v) == es.CLOSURE_SCORE
+    monkeypatch.setattr(es, "CLOSURE_VALUE", "county")
+    assert es.rated_score(v) == 100 - 8 - 2 - 1
+    monkeypatch.setattr(es, "CLOSURE_VALUE", 90)
+    assert es.rated_score(v) == 90
+    assert es.rated_score({"closure_order": None, "score": 93, "_items": []}) == 93
+
+
+def test_the_band_rule_rarely_keeps_a_band_that_is_not_there():
+    """No gradient, three overlapping origins as in the real backtest: a band survives rarely."""
+    import sys
+    sys.path.insert(0, str(ROOT / "tools"))
+    import band_null_sim as sim
+    rng = np.random.default_rng(7)
+    kept = sum(bool(sim.one(rng, 3300, 0.21, 0.6)) for _ in range(300))
+    assert kept / 300 < 0.02, f"{kept} of 300 null simulations kept a band"
+

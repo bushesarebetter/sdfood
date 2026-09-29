@@ -1,0 +1,195 @@
+{
+ "cut": 8.0,
+ "share": 0.025,
+ "results": {
+  "70": {
+   "origins": [
+    {
+     "as_of": "2025-03-01",
+     "auc": 0.6967081410678971,
+     "labelled": 3052,
+     "band_1": {
+      "labelled": 524,
+      "rate": 0.3645
+     },
+     "same_share": {
+      "labelled": 72,
+      "rate": 0.3472
+     }
+    },
+    {
+     "as_of": "2025-06-01",
+     "auc": 0.694684034259361,
+     "labelled": 3302,
+     "band_1": {
+      "labelled": 615,
+      "rate": 0.3902
+     },
+     "same_share": {
+      "labelled": 84,
+      "rate": 0.3571
+     }
+    },
+    {
+     "as_of": "2025-09-01",
+     "auc": 0.6797406970778619,
+     "labelled": 3312,
+     "band_1": {
+      "labelled": 653,
+      "rate": 0.366
+     },
+     "same_share": {
+      "labelled": 85,
+      "rate": 0.4
+     }
+    }
+   ],
+   "carried_by_closure": [
+    225,
+    684
+   ]
+  },
+  "80": {
+   "origins": [
+    {
+     "as_of": "2025-03-01",
+     "auc": 0.6986496786420566,
+     "labelled": 3052,
+     "band_1": {
+      "labelled": 509,
+      "rate": 0.3694
+     },
+     "same_share": {
+      "labelled": 73,
+      "rate": 0.3973
+     }
+    },
+    {
+     "as_of": "2025-06-01",
+     "auc": 0.6972485450752169,
+     "labelled": 3302,
+     "band_1": {
+      "labelled": 596,
+      "rate": 0.3977
+     },
+     "same_share": {
+      "labelled": 84,
+      "rate": 0.4286
+     }
+    },
+    {
+     "as_of": "2025-09-01",
+     "auc": 0.6822745085197193,
+     "labelled": 3312,
+     "band_1": {
+      "labelled": 634,
+      "rate": 0.3722
+     },
+     "same_share": {
+      "labelled": 85,
+      "rate": 0.4353
+     }
+    }
+   ],
+   "carried_by_closure": [
+    205,
+    664
+   ]
+  },
+  "90": {
+   "origins": [
+    {
+     "as_of": "2025-03-01",
+     "auc": 0.7048547022632388,
+     "labelled": 3052,
+     "band_1": {
+      "labelled": 391,
+      "rate": 0.399
+     },
+     "same_share": {
+      "labelled": 75,
+      "rate": 0.3733
+     }
+    },
+    {
+     "as_of": "2025-06-01",
+     "auc": 0.7039864939057868,
+     "labelled": 3302,
+     "band_1": {
+      "labelled": 471,
+      "rate": 0.431
+     },
+     "same_share": {
+      "labelled": 85,
+      "rate": 0.4941
+     }
+    },
+    {
+     "as_of": "2025-09-01",
+     "auc": 0.6868233618233619,
+     "labelled": 3312,
+     "band_1": {
+      "labelled": 498,
+      "rate": 0.3936
+     },
+     "same_share": {
+      "labelled": 87,
+      "rate": 0.5057
+     }
+    }
+   ],
+   "carried_by_closure": [
+    64,
+    523
+   ]
+  },
+  "county": {
+   "origins": [
+    {
+     "as_of": "2025-03-01",
+     "auc": 0.7046744534168314,
+     "labelled": 3052,
+     "band_1": {
+      "labelled": 410,
+      "rate": 0.3951
+     },
+     "same_share": {
+      "labelled": 73,
+      "rate": 0.3699
+     }
+    },
+    {
+     "as_of": "2025-06-01",
+     "auc": 0.7053409465246514,
+     "labelled": 3302,
+     "band_1": {
+      "labelled": 490,
+      "rate": 0.4204
+     },
+     "same_share": {
+      "labelled": 85,
+      "rate": 0.5294
+     }
+    },
+    {
+     "as_of": "2025-09-01",
+     "auc": 0.6880374627501065,
+     "labelled": 3312,
+     "band_1": {
+      "labelled": 516,
+      "rate": 0.3895
+     },
+     "same_share": {
+      "labelled": 86,
+      "rate": 0.5116
+     }
+    }
+   ],
+   "carried_by_closure": [
+    86,
+    542
+   ]
+  }
+ },
+ "verdict": "keep 70: no other reading beats it by more than 0.01 AUC at every origin"
+}

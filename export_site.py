@@ -2,29 +2,40 @@
 
   record  The County's inspection record for every listed City of San Diego restaurant and market,
           with no model and no ordering. The default publishable product.
-  bands   The same, plus a published rule that puts some places in bands, with each band's backtest
-          hit rate. Gated (docs/PUBLISHING.md); docs/MODEL_CARD.md says what it is and is not for.
+  bands   The same, plus the students' point rule, which puts some places in bands, with each band's
+          backtest hit rate and each scored place's estimate. Shown to City staff behind a sign-in
+          (docs/STAFF_SITE.md); published only through docs/PUBLISHING.md's gates. docs/MODEL_CARD.md
+          says what it is and is not for.
 
 What the rule predicts: at least one major ("Out of Compliance - Major") violation at a place's next
 routine inspection within a year. Most such inspections still end with an A; the site says so.
 
 Formulation (bands)
-  * Snapshots. On the first of each month T every active facility is described by its record in the
-    year before T and labelled by its first routine inspection in the year after T. Features mean the
-    same thing at every snapshot (a 12-month window; the public record starts in January 2023).
+  * Snapshots. On the first of each month T every active facility is described by its record before
+    T (routine scores from the two years before T, citations and closures from the year before) and
+    labelled by its first routine inspection in the year after T. Features mean the same thing at
+    every snapshot (the public record starts in January 2023).
   * Interpretable candidates only, sparsest first: the one-line average-score rule (points = how far
-    the average routine score of the last year fell below 100), then a count-based integer score
-    (whole points per point below 100 and per citation, fitted with non-negative weights and
-    rounded). Logistic regression, monotone gradient boosting and a monotone additive model are
-    fitted as the yardstick. The public rule is the sparsest candidate within EPSILON AUC of the best
-    model at both validation origins (declared here; the confirmation origin was looked at while the
-    pipeline was built, so the prospective test is the one that counts).
+    the average routine score of the two years before T fell below 100, rounded half up; a routine
+    that ended in a health closure order counts as 70), then a count-based integer score (whole
+    points per point below 100 and per citation, fitted with non-negative weights and rounded).
+    Logistic regression, monotone gradient boosting and a monotone additive model are fitted as the
+    yardstick. select_rule: the sparsest candidate within EPSILON AUC of the best model at both
+    validation origins; if none is, the sparsest within EPSILON of the best interpretable candidate,
+    flagged (selection.within_epsilon false). That second step was added after the first full run
+    found no interpretable rule within EPSILON of the black boxes: a post-hoc fallback, disclosed as
+    one. The confirmation origin was looked at while the pipeline was built, so the prospective test
+    is the one that counts.
   * No ZIP, no neighbourhood, no kind of place, nothing from complaint visits (and a reinspection
     that follows a complaint visit does not count): the score reads only a place's own record.
     Fitted on the listed kinds (restaurants, limited-preparation food service, markets), county-wide.
-  * The rule published is the rule tested: frozen at the confirmation origin. Bands are cut at whole
-    point values (a tie is never split); adjacent bands whose intervals overlap are merged. Only
-    places with two scored routine inspections in the last two years are banded.
+  * The rule shown is the rule tested, and it is frozen: docs/rule.json holds the rule, its cuts, its
+    estimates and the backtest behind them, every export applies it unchanged, and only --refit
+    chooses again (a new, content-named version). Bands are cut at fixed shares of the list at whole
+    point values (a tie is never split), and a split survives only if the higher band's rate is above
+    the lower one's at every backtest origin (the origins overlap: neighbouring ones share most of
+    their labels) and the pooled difference is at least BAND_Z standard errors. Only places with two
+    scored routine inspections in the last two years are banded.
   * Naming needs a signed approval bound to this run and this file, a cost ratio (C/B >= 1 unless an
     independent reviewer co-signs), notice to every named place, a band whose hit rate clears
     C/(B+C) and beats the best other baseline's same-size group, district parity, and a registered
@@ -38,13 +49,18 @@ Data rules (checked against the pull; counts in report.md)
     shown as published, with the County's own status text.
   * 0 is "not scored". Grades are the County's letters, never derived. Tiers come from the status
     text; themes from the item text (the mobile-unit report numbers its items differently).
-  * A closure is an episode with a reason (a major that day, or a permit note), and `reopened` says
-    whether the County's "Approved to Reopen" visit ended it.
+  * A closure is an episode with a reason (a major that day, or a permit note). It ends only at the
+    County's "Approved to Reopen" (`reopened`, `reopened_on`), a graded routine or re-grade on a
+    later day, or a gap of more than 30 days before the next order, so one closure counts once.
+  * Themes are the County's inspection-report sections (THEME_RULES), read from the item text.
+  * Flags are measured back from the list date; the escalation facts (closures2, repeat_item, lt90_2)
+    are the County's own criteria for a closer look, counted by distinct day or episode.
 
-  python export_site.py                  # bands review export -> data/site/ (with report.md, archive/)
+  python export_site.py                  # bands review export with the frozen rule -> data/site/ (report.md, archive/)
+  python export_site.py --refit          # choose and check the rule afresh: a new docs/rule.json to review and commit
   python export_site.py --mode record    # the record-only export -> data/site/
   python export_site.py --publish        # ...then, if every gate passes, into data/site-publish/ (outside git)
-  python export_site.py --register       # register this run as the frozen prospective test (commit the file)
+  python export_site.py --register       # register this run for its rule version's prospective test (commit the file)
   python export_site.py --monitor        # score archived runs against the inspections made since
 Needs data/sd_businesses.json (fetch_sdfood.py). Council districts come from SANDAG and are cached
 in data/council_districts.geojson on first run."""
@@ -113,30 +129,41 @@ VISIT_TYPES = {"Routine": "routine", "Re-inspection": "reinspection", "Site Inve
                "Environmental": "complaint"}
 RECORD_TYPES = ("routine", "reinspection", "followup")   # the visits features read; complaint visits are shown, not used
 
-# Themes from the County's item text (lower case, number stripped), first match wins. Grouped by the
-# CDC's foodborne-illness risk factors, then water and pests, then records; the rest is "other".
+# Themes are the sections of the County's own inspection report (Retail Food Facility Operator's Guide,
+# pp. 8-28): items 1-23 are the foodborne-illness items that can be major, 24 and up good retail
+# practice (grp_*). They are read from the item's text (lower case, number stripped; first match
+# wins), not its number: the mobile-unit form numbers the same items differently (22 is pests there
+# and sewage on the fixed form), and the text is the same on both. Unmatched text is "other".
 THEME_RULES = [
-    ("temperature", r"hot (&|and) cold holding|time as a public health control|cooling method|cooking time|reheating"),
-    ("handwashing", r"hands clean|handwashing facilit|hand washing station|toilet and handwashing sink"),
-    ("hygiene", r"communicable disease|discharge from eyes|eating, tasting|personal cleanliness"),
-    ("sanitizing", r"^food contact surfaces|warewashing|wiping cloth"),
-    ("supplier", r"approved source|shell ?stock|gulf oyster"),
-    ("condition", r"good condition, safe|returned and reservice"),
+    ("knowledge", r"food safety certification|food handler|processor course"),                         # 1a, 1b
+    ("health", r"communicable disease|discharge from eyes|eating, tasting"),                             # 2-4
+    ("hands", r"^hands clean"),                                                                          # 5
+    ("handsink", r"handwashing facilit|hand washing station|toilet and handwashing sink"),              # 6 (mobile 20)
+    ("temperature", r"hot (&|and) cold holding|time as a public health control|cooling method|cooking time|reheating"),  # 7-11
+    ("condition", r"returned and reservice|good condition, safe"),                                       # 12, 13
+    ("sanitizing", r"^food contact surfaces"),                                                           # 14
+    ("supplier", r"approved source|shell ?stock|gulf oyster"),                                           # 15-17
     # "18. Compliance with:" is the variance / specialized-process / HACCP item; "39. Compliance with
     # fire safety requirements" on the mobile-unit form is not.
-    ("process", r"^compliance with:?$"),
-    ("vermin", r"rodents, insects"),
-    ("plumbing", r"hot (&|and) cold water|potable|sewage|waste ?water|backflow|water tank"),
-    ("storage", r"thawing|food separated|food storage|vegetables washed|toxic substances"),
-    ("equipment", r"equipment ?/ ?utensils|thermometers|ventilation|commissary"),
-    ("labeling", r"food safety certification|food handler|processor course|consumer advisory|labeled|grade card|"
-                 r"identification on vehicle|home kitchen|name of cfo|ingredients listed|permit number|common name|"
-                 r"person in charge|local agency"),
+    ("process", r"^compliance with:?$"),                                                                 # 18
+    ("advisory", r"consumer advisory"),                                                                  # 19 (mobile 18)
+    ("hsp", r"licensed health care facilit|highly susceptible"),                                         # 20
+    ("grp_facility", r"backflow|water tank|garbage|toilet facilities|vermin-proofing|floors?,? walls|private homes|commissary"),  # 41-46
+    ("water", r"hot (&|and) cold water|potable"),                                                        # 21 (mobile 19)
+    ("sewage", r"sewage|waste ?water"),                                                                  # 22 (mobile 21)
+    ("vermin", r"rodents, insects"),                                                                     # 23 (mobile 22)
+    ("grp_staff", r"person in charge|personal cleanliness"),                                             # 24, 25
+    ("grp_food", r"thawing|food separated|vegetables washed|toxic substances"),                          # 26-29
+    ("grp_storage", r"food storage|consumer self-service|labeled (&|and) honestly"),                     # 30-32
+    ("grp_equipment", r"non-?food contact|warewashing|equipment ?/ ?utensils|equipment and utensils|vending machines|ventilation|thermometers|wiping cloth"),  # 33-40
+    ("grp_signs", r"grade card|identification on vehicle"),                                              # 47 (mobile 41, 42)
+    ("grp_other", r"fire safety"),                                                                       # mobile 39
 ]
 THEME_RES = [(t, re.compile(p)) for t, p in THEME_RULES]
-THEMES = [t for t, _ in THEME_RULES]
-RISK_THEMES = ("temperature", "handwashing", "hygiene", "sanitizing", "supplier", "condition", "process", "vermin",
-               "plumbing", "storage")
+THEMES = [t for t, _ in THEME_RULES] + ["other"]
+# The items that can be cited as major: the model's theme features count these (never good retail practice).
+RISK_THEMES = ("health", "hands", "handsink", "temperature", "condition", "sanitizing", "supplier", "process", "hsp",
+               "water", "sewage", "vermin")
 
 # The County's business types as kinds. PUBLIC_KINDS may appear on the public list; the model is
 # fitted on every kind here, county-wide. Private homes and places nobody eats at are not scored.
@@ -252,11 +279,16 @@ def load_places(raw: list[dict], stats: Stats | None = None) -> list[dict]:
                 scores = [s for s in (w["score"], visit["score"]) if s is not None]
                 w["score"] = min(scores) if scores else None
                 w["grade"] = max((g for g in (w["grade"], visit["grade"]) if g), default=None)
-                if status == "Ordered Closed":
+                if status == "Ordered Closed" or (status == "Approved to Reopen" and w["status"] == "Complete"):
                     w["status"] = status
+                w["_reopen"] = w.get("_reopen") or status == "Approved to Reopen"
             else:
+                visit["_reopen"] = status == "Approved to Reopen"
                 by_key[key] = visit
-        visits = sorted(by_key.values(), key=lambda v: (v["date"], v["_id"]))
+        # On one day: the closure order first, then the reopening, then the rest (a re-score on the
+        # reopening day must not end the episode before the County's reopening does).
+        visits = sorted(by_key.values(), key=lambda v: (v["date"], 0 if v["status"] == "Ordered Closed" else
+                                                        1 if v["_reopen"] else 2, v["_id"]))
         _followups_and_closures(visits, stats)
         for v in visits:
             v["major"] = sum(it["severity"] == "major" for it in v["_items"])
@@ -280,31 +312,50 @@ def load_places(raw: list[dict], stats: Stats | None = None) -> list[dict]:
     return places
 
 
+EPISODE_GAP_DAYS = 30   # a closure order this long after the last one, with no reopening between, starts a new episode
+
+
 def _followups_and_closures(visits, stats):
-    """Retype re-grade and reopening visits; mark each closure episode once, with its reason, and
-    whether the County's "Approved to Reopen" visit ended it (`reopened`)."""
+    """Retype re-grade visits, and read closure episodes. Every visit that ended in a closure order
+    carries its reason (`closure_order`: health, permit or other). An episode starts at a closure
+    order and ends only at the County's "Approved to Reopen" (`reopened`, `reopened_on`), at a graded
+    routine or re-grade on a later day, or when the next order comes more than EPISODE_GAP_DAYS after
+    the last: a complaint visit or an ungraded reinspection while a place is closed does not end it,
+    so one closure is never counted twice. The visit that starts an episode is marked `closed`."""
     trigger = None          # date of the last B/C routine or closure order
-    closed = False
-    episode = None          # the visit that started the current closure episode
+    episode = None          # the visit that started the open closure episode
+    last_order = None       # the date of the open episode's latest closure order
     for v in visits:
         d = date.fromisoformat(v["date"])
         if v["type"] == "routine" and trigger and (d - trigger).days <= FOLLOWUP_DAYS:
             v["type"] = "followup"
             stats.followups += 1
-        v["closed"], v["closure"], v["reopened"] = False, None, None
+        v["closed"], v["closure"], v["reopened"], v["reopened_on"], v["closure_order"] = False, None, None, None, None
         if v["status"] == "Ordered Closed":
-            if not closed:
-                majors = any(it["severity"] == "major" for it in v["_items"])
-                permit = any("permit" in n for n in v["_notes"])
-                v["closed"], v["closure"], v["reopened"] = True, "health" if majors else "permit" if permit else "other", False
-                stats.closures[v["closure"]] += 1
+            majors = any(it["severity"] == "major" for it in v["_items"])
+            permit = any("permit" in n for n in v["_notes"])
+            reason = "health" if majors else "permit" if permit else "other"
+            v["closure_order"] = reason
+            if episode is None or (d - last_order).days > EPISODE_GAP_DAYS:
+                v["closed"], v["closure"], v["reopened"] = True, reason, False
+                stats.closures[reason] += 1
                 episode = v
-            closed = True
+            elif reason == "health" and episode["closure"] != "health":
+                stats.closures[episode["closure"]] -= 1       # a later order in the episode cited a major
+                stats.closures["health"] += 1
+                episode["closure"] = "health"
+            last_order = d
             trigger = d
+            if v["_reopen"]:                                   # closed and reopened the same day
+                episode["reopened"], episode["reopened_on"] = True, v["date"]
+                episode = None
         else:
-            if closed and episode is not None and v["status"] == "Approved to Reopen":
-                episode["reopened"] = True
-            closed = False
+            if episode is not None:
+                if v["_reopen"]:
+                    episode["reopened"], episode["reopened_on"] = True, v["date"]
+                    episode = None
+                elif v["type"] in ("routine", "followup") and v["grade"] and d > last_order:
+                    episode = None      # graded again on a later day: open, whether or not a reopening was recorded
             if v["type"] == "routine" and ((v["score"] is not None and v["score"] < 90) or v["grade"] in ("B", "C")):
                 trigger = d
 
@@ -349,7 +400,8 @@ def load_districts(path: Path = DISTRICTS) -> dict:
 # ── a place as of a date ───────────────────────────────────────────────────────────────
 
 BAND_KINDS = {"restaurant"}   # bands and the rule are for restaurants; the record covers every PUBLIC_KIND
-CLOSURE_SCORE = 70            # for the model only: a routine that ended in a closure order counts as a failing C
+CLOSURE_SCORE = 70            # the rule's reading of a routine inspection that ended in a health closure order:
+                              # a failing C, whether or not the County also recorded a score that day
 EPSILON = 0.01                # the public rule must be within this AUC of the best model at every validation origin
 MAX_FEATURES = 6
 MAX_WEIGHT = 20       # whole points per unit; one point below 100 is the unit
@@ -370,11 +422,33 @@ def history(place, T):
     return place["visits"][:bisect.bisect_left(place["dates"], T)]
 
 
+CLOSURE_VALUE = None   # tools/closure_sensitivity.py only: a number, or "county" for the County's point formula
+
+
+def county_formula(v):
+    """The County's own point formula on the items cited that day: 100 less 4 per major, 2 per minor
+    and 1 per good-retail-practice item (the Food Program page), never below 0."""
+    items = v["_items"]
+    return max(0, 100 - 4 * sum(i["severity"] == "major" for i in items) - 2 * sum(i["severity"] == "minor" for i in items)
+               - sum(i["severity"] == "grp" for i in items))
+
+
+def rated_score(v):
+    """The score the rule reads for a routine visit: CLOSURE_SCORE if it ended in a health closure
+    order, else the County's score; None when there is neither."""
+    if v.get("closure_order") == "health":
+        if CLOSURE_VALUE is None:
+            return CLOSURE_SCORE
+        return county_formula(v) if CLOSURE_VALUE == "county" else CLOSURE_VALUE
+    return v["score"]
+
+
 def features_at(place, T):
     """The record in the year before T, as numbers. None when there is no visit in that year.
 
-    Scores are real routine scores; a routine visit that ended in a closure order has none, and
-    counts as CLOSURE_SCORE in the averages the rule reads (never shown). A reinspection within
+    Scores are real routine scores; a routine visit that ended in a health closure order counts as
+    CLOSURE_SCORE in the averages the rule reads, every time (the County usually records no score
+    then, and sometimes a same-day one; the worksheet shows both). A reinspection within
     COMPLAINT_DAYS after a complaint visit does not count: the site must not feed its own rule."""
     h = history(place, T)
     lo = (_d(T) - timedelta(days=WINDOW_DAYS)).isoformat()
@@ -386,8 +460,7 @@ def features_at(place, T):
     lo_s = (_d(T) - timedelta(days=SCORE_WINDOW_DAYS)).isoformat()
     routine_s = [v for v in h if v["type"] == "routine" and v["date"] >= lo_s]
     scored = [v["score"] for v in routine_s if v["score"] is not None]
-    rated = [v["score"] if v["score"] is not None else CLOSURE_SCORE for v in routine_s
-             if v["score"] is not None or v["closure"] == "health"]
+    rated = [rated_score(v) for v in routine_s if rated_score(v) is not None]
     complaints = [_d(v["date"]) for v in h if v["type"] == "complaint"]
 
     def prompted(v):
@@ -412,8 +485,7 @@ def features_at(place, T):
         "health_closures": sum(v["closure"] == "health" for v in counted),
         "reinspections": sum(v["type"] == "reinspection" for v in counted),
         "grp": sum(v["grp"] for v in routine),
-        "rated_2y": sum(v["type"] == "routine" and (v["score"] is not None or v["closure"] == "health")
-                        and v["date"] >= lo2 for v in h),
+        "rated_2y": sum(v["type"] == "routine" and rated_score(v) is not None and v["date"] >= lo2 for v in h),
     }
     for t in RISK_THEMES:
         f[f"theme_{t}"] = sum(it["theme"] == t and it["severity"] != "grp" for v in counted for it in v["_items"])
@@ -520,10 +592,11 @@ def event_weights(keys):
 
 # ── the rules ──────────────────────────────────────────────────────────────────────────
 
-THEME_WORDS = {"temperature": "food-temperature", "handwashing": "hand-washing", "hygiene": "employee-hygiene",
-               "sanitizing": "cleaning and sanitizing", "supplier": "food-source", "condition": "food-condition",
-               "process": "special-process (HACCP)", "vermin": "pest", "plumbing": "plumbing and water",
-               "storage": "food-storage"}
+THEME_WORDS = {"health": "employee-health", "hands": "hand-washing", "handsink": "hand-sink",
+               "temperature": "food-temperature", "condition": "food-condition", "sanitizing": "food-contact-surface",
+               "supplier": "food-source", "process": "special-process (HACCP)",
+               "hsp": "highly-susceptible-population", "water": "hot-and-cold-water", "sewage": "sewage",
+               "vermin": "pest"}
 COUNT_FEATURES = (["avg_deficit", "last_deficit", "routines_major", "majors", "health_closures",
                    "reinspections", "grp"] + [f"theme_{t}" for t in RISK_THEMES])
 FEATURE_TEXT = {
@@ -547,7 +620,7 @@ RULE_TEXT = {
 
 @dataclass
 class Score:
-    """A published rule: points = sum of weight x value over its features, weights whole and >= 0."""
+    """A point rule anyone can check: points = sum of weight x value over its features, weights whole and >= 0."""
     name: str
     features: list
     weights: list
@@ -897,7 +970,9 @@ def band_rows(bands, points, positive, labelled, elig, baseline_order=None, cl=N
     return rows, rest_row
 
 
-BAND_Z = 1.645        # one-sided 5%: a split must be this clear on the pooled backtest to survive
+BAND_Z = 2.326        # one-sided 1%: a split must be this clear on the pooled backtest to survive. It was 1.645
+                      # until tools/band_null_sim.py showed that, with origins that share most of their labels,
+                      # 1.645 kept a band with no real gradient 2-7% of the time (2.326: 0.2-1.2%)
 
 
 def _counts(points, positive, labelled, elig, cuts):
@@ -950,7 +1025,8 @@ def merge_overlapping(cuts, points, positive, labelled, elig):
     return validate_bands(cuts, [(points, positive, labelled, elig)])
 
 
-CURVE_MIN = 100       # labelled places per step of the risk curve; sparser point values are pooled
+CURVE_MIN = 200       # labelled places per step of the risk curve; sparser point values are pooled (at 100 the
+                      # top steps rested on a handful of positives and moved from run to run)
 
 
 def _curve_groups(pm, min_n=CURVE_MIN):
@@ -1085,34 +1161,44 @@ def stability(rule, fr_train, fr_now, elig_now, band_now, refits=REFITS, seed=SE
 
 def district_fairness(places, idx, positive, labelled, named, n_boot=2000, seed=SEED):
     """For a named list the harm is a place named that turns out clean. By council district: named,
-    precision, the false-positive rate against the City's, and the district's share of the wrongly
-    named over its share of candidates, with an address-cluster bootstrap interval."""
+    precision (with a Wilson interval), the false-positive rate against the City's, and the
+    district's share of the wrongly named over its share of the labelled places (only a labelled
+    place can be wrongly named), with an address-cluster bootstrap interval, both at 95% and
+    family-wise over all the districts compared (Bonferroni), since one of nine can look high by chance."""
     g = np.array([str(places[i]["district"]) for i, _ in idx])
     fp = named & labelled & (positive == 0)
     neg = labelled & (positive == 0)
     fpr_all = fp.sum() / max(1, neg.sum())
+    n_lab = max(1, int(labelled.sum()))
     out = {}
     for name in sorted(set(g), key=lambda x: int(x) if x.isdigit() else 99):
         m = g == name
         nm = int((named & m).sum())
-        out[name] = {"candidates": int(m.sum()), "named": nm, "named_positive": int((named & m & (positive == 1)).sum()),
+        nl, npos = int((named & m & labelled).sum()), int((named & m & (positive == 1)).sum())
+        share = (labelled & m).sum() / n_lab
+        out[name] = {"candidates": int(m.sum()), "labelled": int((labelled & m).sum()), "named": nm, "named_positive": npos,
                      "false_named": int((fp & m).sum()),
-                     "precision": round(float((named & m & (positive == 1)).sum() / max(1, (named & m & labelled).sum())), 3) if nm else None,
+                     "precision": round(npos / max(1, nl), 3) if nm else None,
+                     "precision_interval": list(wilson(npos, nl)) if nl else None,
                      "fpr_ratio": round(float((fp & m).sum() / max(1, (neg & m).sum()) / fpr_all), 2) if fpr_all else None,
-                     "false_share_ratio": round(float(((fp & m).sum() / max(1, fp.sum())) / (m.sum() / len(g))), 2) if fp.sum() else None,
-                     "interval": None}
+                     "false_share_ratio": round(float(((fp & m).sum() / max(1, fp.sum())) / share), 2) if fp.sum() and share else None,
+                     "interval": None, "interval_family": None}
+    alpha = 0.05 / max(1, len(out))
     cl = clusters(places, idx)
     draws = defaultdict(list)
     for p in _cluster_draws(cl, n_boot, seed):
         tot = fp[p].sum()
-        if not tot:
+        lab_p = labelled[p].sum()
+        if not tot or not lab_p:
             continue
         for name in out:
             m = g[p] == name
-            if m.sum():
-                draws[name].append((fp[p][m].sum() / tot) / (m.sum() / len(p)))
+            if (labelled[p] & m).sum():
+                draws[name].append((fp[p][m].sum() / tot) / ((labelled[p] & m).sum() / lab_p))
     for name, v in draws.items():
         out[name]["interval"] = [round(float(np.percentile(v, 2.5)), 2), round(float(np.percentile(v, 97.5)), 2)]
+        out[name]["interval_family"] = [round(float(np.percentile(v, 100 * alpha / 2)), 2),
+                                        round(float(np.percentile(v, 100 * (1 - alpha / 2))), 2)]
     return out
 
 
@@ -1206,7 +1292,8 @@ def display_records(place):
                         "minor": sum(i["severity"] == "minor" for i in items),
                         "grp": sum(i["severity"] == "grp" for i in items),
                         "closed": closed, "closure": v["closure"] if closed else None,
-                        "reopened": v["reopened"] if closed else None, "_items": items})
+                        "reopened": v["reopened"] if closed else None,
+                        "reopened_on": v["reopened_on"] if closed else None, "_items": items})
     return out
 
 
@@ -1224,12 +1311,17 @@ def posted_grade(records):
     return {"grade": g["grade"], "score": g["score"], "date": g["date"], "replaced": replaced}
 
 
-def flags(records, visits):
-    """Record facts from the 12 months before the last visit, for the site's filters."""
+ESCALATION_FLAGS = ("closures2", "repeat_item", "lt90_2")
+
+
+def flags(records, visits, as_of=None):
+    """Record facts for the site's filters, measured back from the list date `as_of` (by default the
+    day after the last record): the 12 months before it, and 24 for the escalation facts."""
     if not records:
         return []
-    lo = (_d(records[-1]["date"]) - timedelta(days=WINDOW_DAYS)).isoformat()
-    rec = [r for r in records if r["date"] >= lo]
+    as_of = as_of or (_d(records[-1]["date"]) + timedelta(days=1)).isoformat()
+    lo = (_d(as_of) - timedelta(days=WINDOW_DAYS)).isoformat()
+    rec = [r for r in records if lo <= r["date"] < as_of]
     out = []
     if any(r["major"] for r in rec):
         out.append("major")
@@ -1237,17 +1329,26 @@ def flags(records, visits):
         out.append("closed")
     if any(r["type"] == "routine" and r["grade"] in ("B", "C") for r in rec):
         out.append("bc")
-    if sum(v["type"] == "reinspection" for v in visits if v["date"] >= lo) >= 2:
+    if sum(v["type"] == "reinspection" for v in visits if lo <= v["date"] < as_of) >= 2:
         out.append("repeat")
-    # Escalation facts, the County's own criteria for a closer look ("recurring major violations ...
-    # or recurring facility closures", Retail Food Facility Operator's Guide p. 8). Not predictions.
-    lo2 = (_d(records[-1]["date"]) - timedelta(days=ELIGIBLE_DAYS)).isoformat()
-    if sum(bool(r["closed"]) and r["closure"] == "health" for r in records if r["date"] >= lo2) >= 2:
+    # Escalation facts: the County's own criteria for a closer look, "recurring major violations,
+    # recurring scores of less than 90%, or recurring facility closures" (Retail Food Facility
+    # Operator's Guide p. 8), each counted by distinct routine inspection day or closure episode, so a
+    # day the County recorded twice counts once. Facts about the record, not predictions.
+    lo2 = (_d(as_of) - timedelta(days=ELIGIBLE_DAYS)).isoformat()
+    rec2 = [r for r in records if lo2 <= r["date"] < as_of]
+    if sum(bool(r["closed"]) and r["closure"] == "health" for r in rec2) >= 2:
         out.append("closures2")
-    last3 = [r for r in records if r["type"] == "routine" and r["date"] >= lo2][-3:]
-    per_visit = [{i["code"] for i in r["_items"] if i["severity"] == "major" and i.get("code")} for r in last3]
-    if any(n >= 2 for n in Counter(c for codes in per_visit for c in codes).values()):
+    days_by_code = defaultdict(set)
+    for r in rec2:
+        if r["type"] == "routine":
+            for i in r["_items"]:
+                if i["severity"] == "major" and i.get("code"):
+                    days_by_code[i["code"]].add(r["date"])
+    if any(len(days) >= 2 for days in days_by_code.values()):
         out.append("repeat_item")
+    if len({r["date"] for r in rec2 if r["type"] == "routine" and r["score"] is not None and r["score"] < 90}) >= 2:
+        out.append("lt90_2")
     out += sorted({i["theme"] for r in rec for i in r["_items"] if i["severity"] == "major" and i["theme"] != "other"})
     return out
 
@@ -1262,14 +1363,14 @@ def violations_shown(records):
     return (majors + rest)[:MAX_VIOLATIONS]
 
 
-def entry(place, extra=None):
-    """(index feature, detail) for one place."""
+def entry(place, extra=None, as_of=None):
+    """(index feature, detail) for one place; its flags are measured back from the list date `as_of`."""
     recs = display_records(place)
     last = recs[-1] if recs else None
     idx_props = {"facility_id": place["facility_id"], "name": place["name"], "address": place["address"],
                  "facility_type": place["kind"], "council_district": place["district"],
                  "last_visit": {"date": last["date"], "type": last["type"]} if last else None,
-                 "grade": posted_grade(recs), "flags": flags(recs, place["visits"])}
+                 "grade": posted_grade(recs), "flags": flags(recs, place["visits"], as_of)}
     detail_only = {}
     for k, v in (extra or {}).items():
         (idx_props if k in ("band", "points", "on_hold") else detail_only).__setitem__(k, v)
@@ -1282,13 +1383,13 @@ def entry(place, extra=None):
 
 
 def scores_used(place, T):
-    """The routine scores the averages read (the two years before T), oldest first; a routine
-    inspection that ended in a closure order has no score and is read as CLOSURE_SCORE."""
+    """The routine scores the averages read (the two years before T), oldest first. A routine
+    inspection that ended in a health closure order is read as CLOSURE_SCORE (`closure`), and
+    `county_score` is the County's own score that day (usually none)."""
     lo = (_d(T) - timedelta(days=SCORE_WINDOW_DAYS)).isoformat()
-    return [{"date": v["date"], "score": v["score"] if v["score"] is not None else CLOSURE_SCORE,
-             "closure": v["score"] is None}
-            for v in history(place, T) if v["type"] == "routine" and v["date"] >= lo
-            and (v["score"] is not None or v["closure"] == "health")]
+    return [{"date": v["date"], "score": rated_score(v), "closure": v.get("closure_order") == "health",
+             "county_score": v["score"]}
+            for v in history(place, T) if v["type"] == "routine" and v["date"] >= lo and rated_score(v) is not None]
 
 
 def worksheet(rule, f):
@@ -1381,6 +1482,7 @@ def load_corrections(path=CORRECTIONS):
 
 
 APPROVAL_FIELDS = ("approver", "date", "run", "facilities_sha256", "contact", "reason", "insurance")
+AUTHORS = {"chenhao zhang", "ayan pendharkar"}      # the students who built the list
 
 
 def _date_or_none(v):
@@ -1412,6 +1514,13 @@ def check_approval(a, mode, meta, facilities_sha, today=None):
     ra = a.get("responsible_adult") if isinstance(a.get("responsible_adult"), dict) else {}
     if ra.get("contact") and not EMAIL.fullmatch(str(ra["contact"]).strip()):
         p.append("approval `responsible_adult.contact` is not an email address")
+    # PUBLISHING.md: "18 or older, not an author". A minor can disaffirm a contract (Fam. Code 6710),
+    # so an author signing as the adult of record gives the City no one to hold to the terms.
+    if ra and (str(ra.get("name", "")).strip().lower() in AUTHORS
+               or str(ra.get("relationship", "")).strip().lower() in ("author", "student", "self")):
+        p.append("approval `responsible_adult` must be an adult who is not an author of the list")
+    if ra and ra.get("attests_18_or_older") is not True:
+        p.append("approval `responsible_adult.attests_18_or_older` must be true")
     if a.get("run") != meta["run"]:
         p.append(f"the approval is for run {a.get('run')}, not {meta['run']}: an approval covers one list")
     if a.get("facilities_sha256") != facilities_sha:
@@ -1530,7 +1639,7 @@ def build_record(raw, districts_geojson, *, pull=None, approval=None, today=None
             listed.append(i)
     features, details = [], {}
     for i in listed:
-        f, d = entry(places[i])
+        f, d = entry(places[i], as_of=t_now)
         features.append(f)
         details[f["properties"]["facility_id"]] = d
     meta = _common_meta("record", f"record_{t_now}", today, through, pull, len(features),
@@ -1616,7 +1725,9 @@ def fit_rule(places, *, approval=None, log=print):
         "confirm": confirm, "validate": list(validate), "label_quarters": label_q,
         "card": {"trained_on": conf["trained_on"], "rows": rows, "rest": rest, "base_rate": base_rate,
                  "baseline_name": best_base, "curve": curve, "proposed_cuts": [int(c) for c in proposed],
-                 "by_origin": by_origin, "outside": outside},
+                 "by_origin": by_origin, "outside": outside, "closure_score": CLOSURE_SCORE,
+                 "band_1_by_route": (band_1_by_route(places, te, bands_c, pos, lab, cuts[0])
+                                     if cuts and list(rule.features) == ["avg_deficit"] else None)},
         "catch": conf["models"][chosen]["catch"],
         "catch_run": {
             "as_of": confirm, "candidates": conf["candidates"], "eligible": conf["eligible"], "positives": conf["positives"],
@@ -1638,6 +1749,26 @@ def fit_rule(places, *, approval=None, log=print):
         "origins": [_origin_summary(v) for v in validation] + [_origin_summary(conf)],
         "_train": conf["_tr"],
     }
+
+
+def band_1_by_route(places, te, bands_c, pos, lab, cut):
+    """Band 1 at the confirmation origin, split by how a place got there: on its routine scores
+    alone, or only because a closure counted as CLOSURE_SCORE (without its closures, its average
+    would be under the band's cut). Whether closures carry the band, or scores do."""
+    out = {"closure": [0, 0], "scores": [0, 0]}
+    for j, b in enumerate(bands_c):
+        if b != "1" or not lab[j]:
+            continue
+        i, T = te.idx[j]
+        used = scores_used(places[i], T)
+        rest = [u["score"] for u in used if not u["closure"]]
+        by_closure = any(u["closure"] for u in used) and (
+            not rest or 100 - math.floor(float(np.mean(rest)) + 0.5) < cut)
+        k = out["closure" if by_closure else "scores"]
+        k[0] += 1
+        k[1] += int(pos[j])
+    return {r: {"labelled": n, "positives": p, "rate": round(p / n, 4) if n else None, "interval": list(wilson(p, n))}
+            for r, (n, p) in out.items()}
 
 
 def quarters_between(a, b):
@@ -1752,7 +1883,7 @@ def build(raw, districts_geojson, *, pull=None, approval=None, today=None, refit
                          "band_stability": None if np.isnan(stab[j]) else round(float(stab[j]), 2)}
                 if bands_now[j] is not None:
                     extra["band"] = bands_now[j]
-        f, d = entry(p, extra)
+        f, d = entry(p, extra, as_of=t_now)
         features.append(f)
         details[p["facility_id"]] = d
     features.sort(key=lambda f: (int(f["properties"].get("band") or 99), -(f["properties"].get("points") or -1),
@@ -1799,6 +1930,8 @@ def build(raw, districts_geojson, *, pull=None, approval=None, today=None, refit
                           f"difference is at least {BAND_Z} standard errors"),
             "by_origin": card_bt["by_origin"],
             "outside": card_bt["outside"],
+            "closure_score": card_bt.get("closure_score", CLOSURE_SCORE),
+            "band_1_by_route": card_bt.get("band_1_by_route"),
         },
         "catch": fitted["catch"],
         "catch_run": fitted["catch_run"],
@@ -1975,7 +2108,7 @@ PROSPECTIVE_MIN = 300
 
 def monitor(out: Path, places, today=None, log=print):
     """Score every archived run on the routine inspections made after it: by band, the hit rate
-    against the backtest's; and the published rule against the average-score rule on the same
+    against the backtest's; and the rule shown against the average-score rule on the same
     places. Writes monitor.md and monitor.json (the prospective gate reads the registered run)."""
     today = today or date.today()
     by_fid = {p["facility_id"]: p for p in places}

@@ -8,7 +8,7 @@
   "contact": "an address that answers business owners within five business days",
   "reason": "Full names: why the benefit outweighs the cost to places named that turn out clean, at this cost ratio",
   "insurance": "Full names: media-liability cover, or confirmation of personal-liability cover",
-  "responsible_adult": {"name": "Full names (18 or older, not an author)", "contact": ""},
+  "responsible_adult": {"name": "Full names (18 or older, not an author)", "contact": "", "relationship": "parent, teacher advisor or mentor", "attests_18_or_older": false},
   "legal_review": {"reviewer": "", "organization": "", "date": "YYYY-MM-DD", "scope": ""},
   "county_informed": {"date": "YYYY-MM-DD", "person": "", "method": "", "what_was_shown": "", "response": ""}
 }

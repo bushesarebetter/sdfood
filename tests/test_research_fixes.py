@@ -213,3 +213,14 @@ def test_within_window_spearman_sees_an_order_that_follows_x_and_none_that_does_
     assert r > 0.99 and n == 40
     r0, (lo0, hi0), _ = ss.within_window_spearman(rng.random(1000), [win], day, boot=300)
     assert lo0 < 0 < hi0                                   # an unrelated x: no ordering
+
+
+def test_every_routine_health_closure_reads_as_70_even_with_a_same_day_score(tmp_path):
+    """The CSV's closure_order marks every visit that ended in a closure order (closure marks only an
+    episode's first): the research rules read each routine health closure as 70, like the card."""
+    rows = [dict(_row(1, "2025-11-06", "Routine", 94, 1, "Ordered Closed", "health"), closure_order="health"),
+            dict(_row(2, "2025-11-06", "Routine", 94, 0), closure_order=None)]
+    insp = _load(rows, tmp_path)
+    assert insp.loc[insp["business_id"] == 1, "rated_score"].tolist() == [float(es.CLOSURE_SCORE)]
+    assert insp.loc[insp["business_id"] == 1, "score"].tolist() == [94], "the County's own score is kept"
+    assert insp.loc[insp["business_id"] == 2, "rated_score"].tolist() == [94.0]

@@ -66,7 +66,7 @@ def write_csv(biz, out=DATA / "sd_inspections.csv"):
                          "opened_date": b.get("opened_date"), "inspection_id": v["_id"], "insp_type": kind[v["type"]],
                          "status": v["status"], "score": v["score"], "grade": v["grade"], "completed_date": v["date"],
                          "n_violations": v["major"] + v["minor"] + v["grp"], "n_major": v["major"], "n_minor": v["minor"],
-                         "n_grp": v["grp"], "closure": v["closure"]})
+                         "n_grp": v["grp"], "closure": v["closure"], "closure_order": v["closure_order"]})
     df = pd.DataFrame(rows); df.to_csv(out, index=False)
     print(f"saved {out}: {len(df):,} inspections, {df['business_id'].nunique():,} businesses "
           f"(dropped {sum(st.dropped.values()):,} non-inspections, {st.followups:,} re-grade/reopening visits "
