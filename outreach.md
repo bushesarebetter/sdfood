@@ -36,7 +36,9 @@ The site exists, behind a sign-in (https://sdfood-city.onrender.com), but no one
 access yet, and no one will until:
 
 1. someone at the City asks for it in writing and names the office that would own it;
-2. the City tells us whether its TRUST Ordinance (surveillance technology) applies; and
+2. the City tells us whether its TRUST Ordinance (SDMC §§ 210.0101–210.0112) applies. If it does,
+   the City needs Privacy Advisory Board review (§ 210.0104) and a Council vote (§ 210.0106) before
+   any staff use, even though the site is free; and
 3. our adult point of contact, [NAME, ROLE], has agreed a one-page data-use note with you.
 
 What it shows, checked on inspections it had never seen:
@@ -60,9 +62,11 @@ What we are asking for:
   and whether this helps answer them.
 - **The TRUST Ordinance answer,** before anyone signs in.
 
-Please treat anything downloaded or printed from the site as a City record: it may be released under
-the Public Records Act. Brief each council office separately; for the Council as a body, we would
-share only the counts-only summary: [dashboard link].
+Please treat anything downloaded, printed or sent from the site, and messages about it on any
+account, as likely City public records under the Public Records Act; nothing on the site makes them
+confidential. We brief council offices one at a time and never tell one office what another said or
+thinks (Gov. Code § 54952.2(b)). Anything given to a majority of the Council about an agenda item is
+public (§ 54957.5), so the Council as a body gets only the counts-only summary: [dashboard link].
 
 Thank you,
 Chenhao Zhang and Ayan Pendharkar, Canyon Crest Academy
@@ -185,8 +189,9 @@ brackets.
 >    facility record id, name, address, business type, permit status, and the dates the permit was
 >    issued and closed.
 > 2. For every inspection of those facilities in that period: the facility record id, inspection
->    date, inspection type, status, score, grade, each violation cited with its severity (major or
->    minor), and any closure order.
+>    date, inspection type, status, score, grade, each violation cited with its severity (major,
+>    minor or good retail practice), and any closure order with its reason and the date the
+>    facility was approved to reopen.
 > 3. For each inspection in item 2, if the Department holds or can extract such a field, the
 >    **inspector or inspection territory** that performed it. A consistent anonymized id in place of
 >    an inspector's name is acceptable.

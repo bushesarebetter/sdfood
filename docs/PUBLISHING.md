@@ -32,17 +32,30 @@ real export is ever published, deploy the built site from a private build.
 | gate | why |
 |---|---|
 | `docs/STAFF_APPROVAL.json` names a responsible adult (name and email) and a corrections contact (email) | The students are minors, who can disaffirm what they agree to; the City needs an adult it can hold to the site's terms, and owners need someone to write to |
-| Its `sunset` date has not passed | The site comes down unless a City owner takes it over |
+| Its `sunset` date has not passed and is at most a year away | The site comes down unless a City owner takes it over, and a release is renewed at least yearly |
 | The export is real, from a complete pull, and at least 2 days from expiry | A partial pull would quietly drop places; an expiring list would close within days |
 | The export is not older than the live one, and not more than 10% smaller unless `--force` | A refresh never quietly replaces a fuller list |
 | The code that built it was committed (its provenance is not `-dirty`) | Any list staff saw can be rebuilt from a commit |
+| It applies the committed frozen rule (`docs/rule.json`, the version in `meta.frozen`) | The rule is not re-chosen with each export, and each version has a public date |
 | The push goes only to the private repository named, and it is private | The real export never reaches a public repository |
 
-Two things are shipped rather than gated. **Every public-release gate the list does not pass** (the
-table below, run on this export) goes into the staff copy of `meta.json` as `review_status`, and the
-site shows it on every page. **Holds** (`docs/holds.json`) take effect at publish without a rebuild.
-Every publish is appended to `data/staff_deploys.jsonl`, and the server logs each record opened with
-the sign-in's name, so it can always be said which list someone saw.
+Some things are shipped rather than gated, and the site shows them on every page as instructions
+(`review_status`): **what has not been done**, in plain words (no City request for access, no TRUST
+Ordinance determination, no lawyer's review, no County comment, no owner told; until the first two are
+on record the site calls itself a demonstration), **whether the rule needs a refit** (`meta.drift`),
+and **every public-release gate the list does not pass** (the table below, run on this export). An
+adult of record who is a student author is shown, not refused: that was the operator's decision, and
+the site says so. **Holds** (`docs/holds.json`) take effect with `publish_city_site.py --holds-only`,
+which changes nothing else and goes out even when a full export could not; the worklists apply them
+too. Every publish is appended to `DEPLOYS.jsonl` in the private repository and to
+`data/staff_deploys.jsonl`, and writes `ops/` there (the source, the frozen rule, the pull's meta, the
+approval, the holds). The server logs every data file fetched and every CSV download and print with
+the sign-in's id, so it can always be said which list someone saw.
+
+**Gates that hold after publishing.** The server closes the site's data after the sunset date, or if
+the deployed `meta.json` is not a staff copy, whatever was deployed. The build refuses a staff export
+past its sunset. Never roll back on Render instead of publishing: a rollback serves a build no gate
+checked today and undoes every hold since ([RUNBOOK.md](RUNBOOK.md)).
 
 **The staff channel is not confidential.** What City staff download, print or send is a City public
 record under the California Public Records Act, and anyone may request it. The staff site says so on
@@ -54,6 +67,9 @@ every page, and nothing in this project promises a list will stay private.
 - Ship it with `python deploy_api.py`: it builds the image (`api/Dockerfile`), checks it, pushes it
   to a private registry and deploys it on Render, where `SDFOOD_API_KEYS` is set as a secret
   ([HOSTING.md](HOSTING.md)).
+- `deploy_api.py` refuses without the staff site's own approval (`docs/STAFF_APPROVAL.json`: an
+  adult of record, a corrections contact, a sunset date), and refuses an export in which a place now
+  on hold still carries points or a band: the API serves the same named list, so it has the same gates.
 - Give each office its own key, so access can be withdrawn one office at a time.
 - Refresh at least every two weeks. After 14 days without a refresh, every response carries
   `X-Data-Stale: true`, and `deploy_api.py` refuses to ship the expired export.
@@ -66,7 +82,7 @@ every page, and nothing in this project promises a list will stay private.
 | The approval names a responsible adult (18 or older, not an author), a legal review, insurance, and a contact that answers owners within five business days | Publishing named businesses has legal consequences that someone must be prepared for. |
 | `county_informed` records the date, the person, the method, what was shown and the County's response, at least 30 days before | The County hears about it before the public does. |
 | The pull is complete and at most 14 days old | Places reinspected since would otherwise be misdescribed. |
-| The published rule is within 0.01 AUC of the best model at both validation origins, and a fitted rule beats the average-score rule | The simplest rule that works is the one published. |
+| The rule shown is within 0.01 AUC of the best model at both validation origins, and a fitted rule beats the average-score rule | The simplest rule that works is the one shown. |
 | A named band's interval clears the cost ratio, and it catches more than the baseline's same-size group | See the cost ratio, below. |
 | A cost ratio C/B below 1 is co-signed by an independent reviewer | The people who built the list do not set their own threshold. |
 | Every named band keeps at least 80% of its places across refits | A band that reshuffles is not a fact about the places in it. |

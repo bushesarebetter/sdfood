@@ -41,7 +41,7 @@ curl -H "X-API-Key: key-for-staff" "http://localhost:8000/v1/districts"
 | `GET /v1/districts` | every council district: places, places in each band, and places with a major violation, a closure for a health hazard, or a B or C in the last year |
 | `GET /v1/districts/{n}` | one district's summary and its places in bands, highest points first |
 | `GET /v1/worklists` | the months that have worklists |
-| `GET /v1/worklists/{month}/districts/{n}` | one district's worklist for a month, in the rule's order; add `format=csv` for a spreadsheet |
+| `GET /v1/worklists/{month}/districts/{n}` | one district's worklist for a month, in the rule's order; add `format=csv` for a spreadsheet. First the places meeting the County's own criteria for a closer look (`escalation`), then everything on one scale (`rule_points`: the point rule's points, or 100 minus the mean routine score where it does not score a place). Columns: `export_worklist.COLUMNS`, including `rule_mean`, `closures_24m`, `last_closure`, `reopened_on` and `posted_grade`; a worklist written before `rule_mean` has `mean_routine_score_12m` instead |
 | `POST /v1/admin/reload` | reload the data from disk after a refresh |
 
 Examples:

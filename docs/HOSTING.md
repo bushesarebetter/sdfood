@@ -42,23 +42,46 @@ New, Web Service, from the private repository (Render's GitHub App needs access 
 |---|---|
 | Name | `sdfood-city` |
 | Region | Oregon (US West) |
-| Instance type | Starter ($7 a month) stays awake; Free sleeps after 15 idle minutes, and Render says Free is not for production |
+| Instance type | Free today (`render.yaml` says so): it sleeps after 15 idle minutes, takes up to a minute to wake, and every sleep signs everyone out and resets the failure counters and caches; Render says Free is not for production. Starter ($7 a month) stays awake |
 | Build command | `npm ci && npx vite build` |
 | Start command | `node server.mjs` |
 | Health check path | `/healthz` (a new deploy that does not answer never replaces the live one) |
-| Environment | `NODE_VERSION` = `24`; `SITE_USERS` = `name:token,...` (one per person, tokens 16+ characters); `SITE_CONTACT` = who to ask for access; `VITE_GOOGLE_MAPS_API_KEY` and `VITE_GOOGLE_MAPS_MAP_ID` (section 4; add `https://sdfood-city.onrender.com/*` to the key's allowed websites) |
+| Environment | `NODE_VERSION` = `24`; `SITE_USERS` = `id:token,...` (one per person, pseudonymous ids such as `u01`, tokens 16+ characters); `SITE_CONTACT` = who to ask for access (a role address, shown on the sign-in page); `VITE_GOOGLE_MAPS_API_KEY` and `VITE_GOOGLE_MAPS_MAP_ID` (section 4; add `https://sdfood-city.onrender.com/*` to the key's allowed websites). Never set `SESSION_IDLE_MS`, `SESSION_MAX_MS`, `GEOCODE_UPSTREAM` or `GEOCODE_FAIL_MS` on Render: they exist for the tests |
 
 The build checks the export it ships (`scripts/exportGate.mjs`, in review mode because of the staff
-marker file) and turns off the offline cache (`vite.config.js`). `SITE_PASSWORD` (one shared sign-in,
-user `city`) still works while people move to their own sign-ins; the server refuses to start if any
-sign-in is shorter than 16 characters. Turn on two-factor sign-in for the Render and GitHub accounts:
-anyone who can open the Render dashboard can read the sign-ins.
+marker file; a staff export past its sunset fails the build) and turns off the offline cache
+(`vite.config.js`; the staff build also removes any service worker and cache an earlier version left).
+
+**Signing in.** The server shows its own sign-in page (`/login`) and keeps a session in memory: a
+random id in an `HttpOnly; Secure; SameSite=Strict` cookie, ended by "Sign out" (`/logout`), 30 idle
+minutes, 10 hours, or any restart (a redeploy, a free-plan sleep, a change to the environment: removing
+someone from `SITE_USERS` takes effect then). Because the cookie is `SameSite=Strict`, a link opened
+from email or Teams shows the sign-in page even to someone signed in. After 10 failed sign-ins in 15
+minutes, one name is locked out from one address (not the whole office); past 300 failures in 15
+minutes, every sign-in reply waits 2 seconds. `SITE_PASSWORD` (one shared sign-in, user `city`) still
+works while people move to their own; remove it once they have. The server refuses to start if any
+sign-in is shorter than 16 characters, and closes the site's data after the sunset date in the
+deployed `meta.json`. Turn on two-factor sign-in for the Render and GitHub accounts: anyone who can
+open the Render dashboard can read the sign-ins. To keep the access log, add a log stream (RUNBOOK.md).
+
+From a terminal (Basic auth, `curl -u`, no longer works):
+
+```bash
+curl -c jar -b jar -d user=u01 --data-urlencode password@- https://sdfood-city.onrender.com/login   # type the token, then Ctrl-D; 303 = signed in
+curl -b jar https://sdfood-city.onrender.com/data/meta.json
+curl -b jar -c jar -X POST https://sdfood-city.onrender.com/logout
+```
 
 ### Checks
 
-- `https://sdfood-city.onrender.com/healthz` answers `{"ok": true, "run": ..., "expires": ..., "source": ...}`.
-- The site asks for a sign-in; your sign-in opens it; `/logout` signs you out.
-- The banner at the top of every page names the contact and the checks the list has not passed.
+- `https://sdfood-city.onrender.com/healthz` answers `{"ok": true, "run": ..., "expires": ..., "source": ...,
+  "sunset": ..., "closed": null, "refit_needed": false, "rule_version": ..., "access_approved": ...}`.
+- The site shows its sign-in page; your sign-in opens it; "Sign out" signs you out, in every browser.
+- `curl -i https://sdfood-city.onrender.com/data/meta.json` without a sign-in answers 401.
+- The banner at the top of every page names the contact and says, as instructions, what the list has
+  not passed.
+- The watch workflow (`.github/workflows/watch.yml` in the private repository) runs daily; run it once
+  by hand after setup (`gh workflow run watch.yml -R ChenhaoZhang01/sdfood-city`).
 
 ## 1. The staff API
 

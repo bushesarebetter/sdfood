@@ -24,12 +24,18 @@ City of San Diego staff, each with their own sign-in (`SITE_USERS` on the servic
 1. after a responsible adult is named in `docs/STAFF_APPROVAL.json` (the students are minors: a minor
    can disaffirm an agreement, so the City needs an adult it can hold to these terms);
 2. after someone at the City has asked for access in writing (`city_requestor`); and
-3. after the City has said whether its TRUST Ordinance (San Diego Municipal Code ch. 2, art. 10,
-   div. 1, on surveillance technology) applies (`trust_determination`). Until then, the method and the
-   counts-only dashboard can be shown, but not the named list.
+3. after the City has said whether its TRUST Ordinance (San Diego Municipal Code §§ 210.0101–
+   210.0112, on surveillance technology) applies (`trust_determination`). If it does, the City needs
+   Privacy Advisory Board review (§ 210.0104) and a Council vote (§ 210.0106) before any staff use,
+   even of a free tool. Until then, the method and the counts-only dashboard can be shown, but not the
+   named list; the site itself says, on every page, that it is a demonstration until both are on
+   record (`access_approved` in the staff copy of meta.json).
 
-One sign-in per person, never shared. Remove a person's sign-in the day they leave. Every record
-opened is logged with the sign-in's name (the host's logs).
+One sign-in per person, never shared, under a pseudonymous id (`u01`, `u02`, ...) whose key the
+City's owner of the site keeps. Remove a person's sign-in the day they leave. A sign-in lasts until
+"Sign out", 30 idle minutes or 10 hours. The host's logs record, by id, every data file fetched and
+every CSV download and print; they cannot say which places a person looked at, because the list loads
+every name and band at once.
 
 ## What it is for
 
@@ -49,41 +55,60 @@ City has no role there.
 
 ## Public records
 
-"Internal" is not a legal category. Anything City staff download, print, paste or send from the site
-can be a City public record under the California Public Records Act (Gov. Code §7920.530), and anyone
-may request it. The site says so on every page. That is why every downloaded row carries its list's
-date, expiry and run, why a band is described as a statistic about a group, and why the students never
-promise a list will stay confidential.
+"Internal" is not a legal category. What City staff download, print, copy, screenshot or send from the
+site, and their messages about it on any account or device (*City of San Jose v. Superior Court*
+(2017) 2 Cal.5th 608), are likely City public records under the California Public Records Act (Gov.
+Code § 7920.530) and may have to be released on request. Nothing on the site makes them confidential:
+its use rules are use rules, not a promise of confidentiality, and a disclosure to any member of the
+public waives an exemption (§ 7921.505). The site says so on every page. That is why every downloaded
+row carries its list's date, expiry and run and what its band means, why a band is described as a
+statistic about a group, and why the students never promise a list will stay confidential.
 
 ## Corrections and disputes
 
 - **The County's record is wrong:** the County's Food & Housing duty specialist, (858) 505-6900.
 - **This site is wrong, or an owner disputes a place's points or band:** the corrections contact in
-  `docs/STAFF_APPROVAL.json`, shown on the site. The place goes on hold (`docs/holds.json`) within one
-  business day: at the next `publish_city_site.py`, which needs no rebuild, it keeps its County record
-  and loses its points and band until the review is done. The outcome goes in the corrections log.
+  `docs/STAFF_APPROVAL.json`, shown on the site. The place goes on hold (`docs/holds.json`) the same
+  business day the request arrives, with `publish_city_site.py --holds-only`, which changes nothing
+  else and needs no rebuild: it keeps its County record and loses its points and band until the
+  review is done. The worklists apply the same holds. The outcome goes in the corrections log.
+- **How an owner can find out.** The site is behind a sign-in and staff do not contact businesses
+  about bands, so the public site's privacy page says the staff version exists and how an owner or
+  manager can ask whether their business appears and see exactly what it shows; the answer comes
+  within five business days, and the place is held from the day the request arrives.
 
 ## What staff are told the list has not passed
 
-The staff site does not wait for the public-release gates ([PUBLISHING.md](PUBLISHING.md)); it shows
-which of them the list fails, on every page (the banner) and in full (About this site). Today these
-include that no rule is within 0.01 AUC of the best model, and that some council districts get more
-than their share of places in a band that then had no major (the district table). Part of a district's
-gap may be how its inspectors cite, not its restaurants: the record does not say which inspector made
-a visit.
+The staff site does not wait for the public-release gates ([PUBLISHING.md](PUBLISHING.md)); it says
+what has not been done, on every page (the banner, as instructions) and in full (About this site):
+
+- in plain words, from `docs/STAFF_APPROVAL.json`: no City request for access or TRUST Ordinance
+  determination on record (until both are, the banner calls the site a demonstration, not a City
+  tool), no lawyer has reviewed naming these businesses, the County has not commented, no business on
+  the list has been told, and whether the operator is a student author;
+- whether the County's record has moved since the rule was frozen (`meta.drift`), so the rates may be
+  out of date;
+- every public-release gate the list fails. Today these include that the points do no better than a
+  place's recent major violations, that no band clears an approved cost ratio, and that some council
+  districts get more than their share of places in a band that then had no major (the district table,
+  with intervals). Part of a district's gap may be how its inspectors cite, not its restaurants: the
+  record does not say which inspector made a visit.
 
 ## The pilot
 
 While a silent pilot runs ([PILOT.md](PILOT.md)), no band may reach an inspector or a County
 supervisor from this site: the pilot's result would then measure the list's influence, not its
-accuracy. The access log lets the analysis report the result with and without inspections at places
-staff had looked at.
+accuracy. The access log shows who fetched place files and downloaded lists, so the analysis can
+report the result with and without the districts whose lists staff downloaded; it cannot show which
+single places a person looked at.
 
 ## Sunset
 
-The staff site comes down on the `sunset` date in `docs/STAFF_APPROVAL.json`, unless a City owner has
-taken it over (a named office that will run the refresh, or the County's own data feed replaces the
-scraper). `publish_city_site.py` refuses to publish after that date.
+The staff site comes down on the `sunset` date in `docs/STAFF_APPROVAL.json` (at most a year ahead),
+unless a City owner has taken it over (a named office that will run the refresh, or the County's own
+data feed replaces the scraper). `publish_city_site.py` refuses to publish after that date, and the
+server itself closes the data the day after it, whatever was last deployed. How to hand it over or
+take it down: [RUNBOOK.md](RUNBOOK.md).
 
 ## Where the data lives
 

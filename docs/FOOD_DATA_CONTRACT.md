@@ -1,4 +1,4 @@
-# The food-safety site's export contract (version 3.3)
+# The food-safety site's export contract (version 3.4)
 
 `food-dashboard/` shows City of San Diego restaurants and markets with the County's inspection
 record. It has two modes, set by `meta.mode`:
@@ -42,9 +42,13 @@ invented sample (`food-dashboard/scripts/make_sample_export.py`) is in `bands` m
   - **Merges:** same-day records of one type are one visit.
   - **Scores and grades:** 0 means "not scored"; grades are never derived.
   - **Severity tiers:** taken from the status text.
-  - **Themes:** taken from the item text.
-  - **Closures:** one per episode, with a reason. `reopened` records whether the County's
-    "Approved to Reopen" visit ended it.
+  - **Themes:** the section of the County's own inspection report the item belongs to, read from
+    the item text (the mobile-unit form numbers the same items differently).
+  - **Closures:** one per episode, with a reason. An episode starts at a closure order and ends only
+    at the County's "Approved to Reopen" (`reopened`, `reopened_on`), at a graded routine or re-grade
+    on a later day, or when the next order comes more than 30 days after the last. A complaint visit
+    or an ungraded reinspection while a place is closed does not end it, so one closure is never
+    counted twice; on one day, a closure order sorts first and a reopening next.
 - **Listed places:** restaurants (`restaurant`), limited-preparation food service (`limited`) and
   markets with a deli or food processing (`market`), visited in the last 18 months, with a permit
   that has not expired. A `record` export lists the City's. A `bands` export for review or the
@@ -63,7 +67,7 @@ invented sample (`food-dashboard/scripts/make_sample_export.py`) is in `bands` m
 | `council_district` | int or null | 1 to 9; null outside the City (unpublished `bands` exports only) |
 | `last_visit` | `{ date, type }` | the most recent visit |
 | `grade` | `{ grade, score, date, replaced }` or null | the grade on the County's card in the window: the latest letter from a routine or re-grade visit; `replaced` is `{ grade, score, date }` of the routine grade a re-grade replaced, else null |
-| `flags` | array | record facts from the 12 months before the last visit: `major` (a major violation), `closed` (a health-hazard closure), `bc` (a B or C at a graded routine), `repeat` (two or more reinspections), and one theme key per theme with a major; and two escalation facts over the two years before the last visit, the County's own criteria for a closer look (Operator's Guide p. 8): `closures2` (two or more health-hazard closures, any visit type) and `repeat_item` (the same major item at 2 of the last 3 routine inspections) |
+| `flags` | array | record facts measured back from the list date (`inspections_through` + 1 day). From the 12 months before it: `major` (a major violation), `closed` (a health-hazard closure), `bc` (a B or C at a graded routine), `repeat` (two or more reinspections), and the theme key of every major's theme (never `other`). From the 24 months before it, the County's own criteria for a closer look ("recurring major violations, recurring scores of less than 90%, or recurring facility closures", Retail Food Facility Operator's Guide p. 8): `closures2` (two or more health-closure episodes), `repeat_item` (the same major item at two or more distinct routine inspection days) and `lt90_2` (two or more routine inspection days scored below 90). A day the County recorded twice counts once. theme with a major; and two escalation facts over the two years before the last visit, the County's own criteria for a closer look (Operator's Guide p. 8): `closures2` (two or more health-hazard closures, any visit type) and `repeat_item` (the same major item at 2 of the last 3 routine inspections) |
 | `band`, `points` | `"1"`, `"2"` …, int | `bands` mode only; absent while `on_hold` |
 | `on_hold` | bool | `bands` mode: the place is under review (`docs/holds.json`); the site shows its record and "Under review", no band or points |
 
@@ -78,11 +82,13 @@ Everything in the index entry, plus:
 - **`inspections`:** oldest first, **one entry per County record**. Same-day records are not
   merged for display, so every grade shown is a single County letter:
   `{ date, status, type: "routine" | "reinspection" | "followup" | "complaint", score, grade,
-  major, minor, grp, closed, closure: "health" | "permit" | "other" | null, reopened: bool | null }`.
+  major, minor, grp, closed, closure: "health" | "permit" | "other" | null, reopened: bool | null,
+  reopened_on: "YYYY-MM-DD" | null }`. `closed` marks the record that starts a closure episode;
+  `reopened_on` is the date of the County's "Approved to Reopen" that ended it.
   - `status` is the County's own text ("Complete", "Ordered Closed", "Approved to Reopen"), shown
     verbatim.
-  - `type: "followup"`, `closure` and `reopened` are the pipeline's readings, and the site labels
-    them "Our reading".
+  - `type: "followup"`, `closure`, `reopened` and `reopened_on` are the pipeline's readings, and
+    the site labels them "Our reading".
 - **`violations`:** items cited in the 36 months before the last visit, majors first, at most 60:
   `{ date, visit, code, theme, severity: "major" | "minor" | "grp", description }`. `visit` is
   the visit type, and findings at complaint visits are included.
@@ -90,34 +96,53 @@ Everything in the index entry, plus:
   `{ item, points, met, value }`, where `value` is the place's own number the item tests (its
   average routine score, a count). The points of met items sum to `points`.
 - **`band_stability`** (`bands` mode only): the share of refits of the card in which the place
-  stayed in its band.
-- **`scores_used`** (`bands` mode, scored places): `[{ date, score, closure }]`, oldest first: the
-  routine scores the averages read, the two years before the list; a routine that ended in a closure
-  order has `closure: true` and is read as 70. `avg_deficit` on the worksheet is 100 minus their mean
-  rounded half up, and `last_deficit` is 100 minus the last; `check-export.mjs` checks both, so every
-  worksheet can be checked by hand.
+  stayed in its band; null for a fixed rule (the average-score rule has nothing to refit).
+- **`scores_used`** (`bands` mode, scored places): `[{ date, score, closure, county_score }]`, oldest
+  first: the routine scores the averages read, the two years before the list. A routine that ended in
+  a health closure order has `closure: true` and `score: 70`, every time: the County usually gives
+  no score that day, and `county_score` is its own score when it gave one (else null). The site says
+  "this rule counts it as 70", never that the County scored it 70. `avg_deficit` on the worksheet is
+  100 minus their mean rounded half up, and `last_deficit` is 100 minus the last; `check-export.mjs`
+  checks both, so every worksheet can be checked by hand.
 - **`estimate`** (`bands` mode, scored places): `{ rate, low, high }`, what places with about this
   many points did in the backtest, read from `meta.card.curve` (or, outside the City, from
   `meta.card.outside.curve`). `0 <= low <= rate <= high <= 1`.
 
-Themes come from the County's item text (`export_site.THEME_RULES`; all 100 texts in the pull are
-pinned in `tests/fixtures/item_themes.json`):
+Themes are the sections of the County's own inspection report (Retail Food Facility Operator's
+Guide, pp. 8-28), read from the item text (`export_site.THEME_RULES`; all 100 texts in the pull are
+pinned in `tests/fixtures/item_themes.json`). Items 1-23 are the foodborne-illness items that can be
+cited as major; 24 and up are good retail practice (`grp_*`). Item numbers are the fixed-facility
+form's; the mobile-unit form numbers the same items differently (22 is pests there, sewage here), which
+is why the text, not the number, decides.
 
-| theme | the County's items |
-|---|---|
-| `temperature` | holding temperatures, time as a public health control, cooling, cooking, reheating |
-| `handwashing` | hands washed, hand sinks supplied and accessible, toilet and hand-sink facilities |
-| `hygiene` | illness and exclusion, discharges, eating or drinking at the line, personal cleanliness |
-| `sanitizing` | food-contact surfaces, warewashing, wiping cloths |
-| `supplier` | food from an approved source, shellstock tags, Gulf oyster rules |
-| `condition` | food in good condition, safe and unadulterated; no returned or re-served food |
-| `process` | "Compliance with:" variance, specialized process or HACCP plan |
-| `vermin` | rodents, insects, birds or animals |
-| `plumbing` | hot and cold water, potable water, sewage and wastewater, backflow |
-| `storage` | thawing, separation and protection, storage, washing produce, toxic substances |
-| `equipment` | equipment and utensils, thermometers, ventilation and lighting, commissary |
-| `labeling` | certificates and training, consumer advisory, labels, grade card and signs, person in charge |
-| `other` | premises, floors, toilets, garbage, and the rest |
+| theme | label | fixed form | mobile form |
+|---|---|---|---|
+| `knowledge` | Food safety certificate and food handler cards | 1a, 1b | 1a, 1b |
+| `health` | Employee health and hygiene | 2-4 | 2-4 |
+| `hands` | Hands washed, gloves used | 5 | 5 |
+| `handsink` | Hand sinks stocked and accessible | 6 | 6, 20 |
+| `temperature` | Food temperatures | 7-11 | 7-11 |
+| `condition` | Food condition | 12, 13 | 12, 13 |
+| `sanitizing` | Food-contact surfaces cleaned and sanitized | 14 | 14 |
+| `supplier` | Food source and shellfish tags | 15-17 | 15, 16 |
+| `process` | Special processes (HACCP) | 18 | |
+| `advisory` | Consumer advisory | 19 | 18 |
+| `hsp` | Foods not allowed for highly susceptible people | 20 | |
+| `water` | Hot and cold water | 21 | 19 |
+| `sewage` | Sewage and wastewater | 22 | 21 |
+| `vermin` | Pests | 23 | 22 |
+| `grp_staff` | Supervision and personal cleanliness (good retail practice) | 24, 25 | 23 |
+| `grp_food` | Food handling and chemicals (good retail practice) | 26-29 | 24-27 |
+| `grp_storage` | Food storage, display and labels (good retail practice) | 30-32 | 28, 29 |
+| `grp_equipment` | Equipment, utensils and dishwashing (good retail practice) | 33-40 | 30-32, 34-36 |
+| `grp_facility` | Building and premises (good retail practice) | 41-46 | 33, 37, 38, 40 |
+| `grp_signs` | Signs, grade card and permits (good retail practice) | 47 | 41, 42 |
+| `grp_other` | Other (good retail practice) | | 39 (fire safety) |
+| `other` | Other (home-kitchen and cottage-food labelling items, and anything unmatched) | | |
+
+The model's theme features count only the foodborne-illness sections (`RISK_THEMES`: `health`,
+`hands`, `handsink`, `temperature`, `condition`, `sanitizing`, `supplier`, `process`, `hsp`, `water`,
+`sewage`, `vermin`), never good retail practice.
 
 ## `meta.json`
 
@@ -152,18 +177,37 @@ pinned in `tests/fixtures/item_themes.json`):
   - `by_origin`: `[{ as_of, "1": {positives, labelled, rate}, …, rest }]`, the kept bands at every
     backtest origin, not only the one reported.
   - `curve`: `{ model, rate[], low[], high[], bins[], labelled, positives }`: the rate by points
-    (index = points), a monotone (isotonic) fit over point values pooled into groups of 100 or more
+    (index = points), a monotone (isotonic) fit over point values pooled into groups of 200 or more
     places, with a 95% interval, and the raw rates in bins.
+  - `closure_score`: 70, the rule's reading of a routine inspection that ended in a health closure.
+  - `band_1_by_route`: `{ closure, scores }`, each `{ labelled, positives, rate, interval }`: band 1
+    at the confirmation origin split into places there only because a closure counted as 70 (without
+    their closures their average would be under the cut) and places there on routine scores alone.
+    Null when the rule is not the average-score rule. How much the list leans on the 70:
+    [CLOSURE_SENSITIVITY.md](CLOSURE_SENSITIVITY.md).
   - `outside`: `{ bands_shown, candidates, eligible, labelled, base_rate, bands, rest, curve, auc }`:
     the same rule and cuts checked on restaurants outside the City. Places outside the City get a
     band only when `bands_shown`.
 - **`catch`, `catch_run`, `selection`, `named_bands`, `cost_ratio`, `utility`, `fairness`,
-  `measurement`:** as described in MODEL_CARD.md.
+  `measurement`:** as described in MODEL_CARD.md. Each `fairness.by_district[d]` carries `labelled`,
+  `precision` with a Wilson `precision_interval`, `fpr_ratio`, and `false_share_ratio` (its share of
+  the wrongly named over its share of the labelled places) with a 95% `interval` and a family-wise
+  `interval_family` over all the districts compared.
+- **`frozen`** `{ version, frozen_on, from_run }`: the frozen rule (`docs/rule.json`) the list
+  applies; every export applies it unchanged, and only `export_site.py --refit` writes a new version.
+- **`drift`** `{ major_rate_backtest, major_rate_recent, band_1_share_backtest, band_1_share_now,
+  refit_needed, reasons, thresholds }`: two weekly signals that need no new labels. `refit_needed`
+  is true when the routine major rate of the last two full quarters, or band 1's share of scored
+  City restaurants, has moved more than 5 points from the backtest's.
 
 **The staff copy** (`publish_city_site.py` rewrites `meta.json` in the private repository only):
 `audience: "staff"`, `operator { name, role, email }`, `contact { name, email }`, `sunset`,
-`review_status` (every public-release gate this list does not pass) and `staff_release { at, by }`.
-The site then shows the staff banner, the contact, the review status and the staff terms.
+`access_approved` (a City request for access and a TRUST Ordinance determination are on record),
+`review_status` and `staff_release { at, by }`. `review_status` lists, in plain words, what has not
+been done (no City request, no TRUST determination, no lawyer, no County comment, no owner told),
+whether the rule needs a refit, and every public-release gate this list does not pass. The site then
+shows the staff banner with that guidance, the contact and the staff terms; the server closes the
+site's data after `sunset` or without `audience: "staff"`.
 
 `run` names its content: `forward_<list date>-<8 hex>`, a hash of the rule, the cuts and the list, so
 two different lists never share a run id. The downloaded CSV carries it on every row (`list_run`).

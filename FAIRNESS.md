@@ -186,9 +186,14 @@ Coverage by group is still monitored in use.
 - Any deployment should re-run this audit on the County's internal records, on a schedule.
 - **The rule the staff site shows is audited by council district on every band it shows**
   (`export_site.district_fairness`, the About page's district table), not only on a named top band.
-  Some districts get more than their share of places in a band that then had no major (the export's
-  `fairness.problems`); the site shows them. Part of a district's gap may be how its inspectors cite:
-  the record does not say which inspector made a visit.
+  For each district: the band's precision with a Wilson interval, its false-positive rate against the
+  City's, and its share of the places in a band that then had no major over its share of the
+  *labelled* places (only a labelled place can be wrongly named; an earlier version divided by all
+  candidates), with an address-cluster bootstrap interval at 95% and a family-wise one over the nine
+  districts compared (Bonferroni), since one of nine can look high by chance. Districts 4, 9 and 6
+  stay above even on the family-wise interval (MODEL_CARD.md); the site shows the table, and a place
+  page in a City district says how often band 1 places there had a major. Part of a district's gap
+  may be how its inspectors cite: the record does not say which inspector made a visit.
 - **Area proxies cannot see who inside an area bears the errors.** A coarse screen by restaurant name
   (keywords suggesting a cuisine; not the owner's ethnicity, and not a validated measure) found that,
   among restaurants whose next routine inspection was clean, places with East or Southeast Asian

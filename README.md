@@ -172,7 +172,7 @@ extract should replace it.
   first); **persistence** (routine inspections with a major in the prior 12 months, then majors,
   then the lowest last routine score over two years; `export_site.persistence`); the last routine
   score; the mean routine score over the prior 12 months; the prior major-violation rate. A routine
-  that ended in a health closure order reads as a score of 70, as on the published card. Ties at
+  that ended in a health closure order reads as a score of 70, as in the students' point rule. Ties at
   the cut are split pro rata (the expectation under a random order).
 
 | 2025+ test, trained and scored as of the 1st | ROC-AUC | top 20% → share of major violations | precision in top 20% | lift |
@@ -448,7 +448,7 @@ python sim_schedule.py     # rolling backtest, days-sooner simulation, pilot pow
 python fairness_check.py   # flag rates, calibration, coverage by group -> food_fairness.png (fetches ACS once)
 python threshold_tradeoff.py # global precision/recall trade + per-group equal-opportunity
 python feedback_check.py   # feedback-loop stress test (needs acs_cache.json)
-python export_site.py      # the published card's points (data/site), read by the worklists
+python export_site.py      # the students' point rule's points (data/site), read by the worklists
 python export_worklist.py  # monthly district worklists + frozen copy -> data/worklists/<month>/
 python export_dashboard.py # de-identified worklist in the rule's order -> dashboard.html
 python -m pytest tests     # includes tests/test_worklist.py
@@ -464,11 +464,13 @@ python -m pytest tests     # includes tests/test_worklist.py
 
 **The students' point rule** is one line: a restaurant's points are how far its average routine
 score over the last two years fell below 100 (a closure order counts as 70), and every place's page
-lists the scores it averages. It was chosen as the sparsest rule within 0.01 AUC of the best
-alternative. Restaurants with 8 points or more had a major violation at their next routine inspection
-at about 1.7 times the rate of all scored restaurants (36.9% against 21.2%), the same at every backtest
+lists the scores it averages. No transparent rule came within 0.01 AUC of the black-box yardsticks,
+so it was chosen by the fallback added after that first run: the sparsest rule within 0.01 AUC of the
+best transparent one. It is frozen (`docs/rule.json`): every export applies it unchanged.
+Restaurants with 8 points or more had a major violation at their next routine inspection at about
+1.7 times the rate of all scored restaurants (36.6% against 21.2%), about the same at every backtest
 date, and every scored place shows what places with about its points did (from about 7 in 100 at 0
-points to about 39 in 100 at 16 or more). Ranking by recent majors does about as well: the rule is a
+points to about 38 in 100 at 9 or more). Ranking by recent majors does about as well: the rule is a
 transparent summary of the County's record, not a better predictor. How it was chosen and checked,
 and what it is not for: [docs/MODEL_CARD.md](docs/MODEL_CARD.md).
 

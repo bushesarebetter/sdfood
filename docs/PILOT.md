@@ -50,8 +50,11 @@ list was inspected that month: a list runs about 2.1 times a month's volume. Wit
 - **Usual order:** the dates the inspections were actually done. In 2025-26 it put an inspection
   that found a major ahead of a clean one in the same district-month no more often than chance
   ([COUNTY_METHOD.md](COUNTY_METHOD.md)); the pilot checks that again on the County's own schedule.
-- **The list as sent:** the published point card's points first, then the one-line rule for
-  places the card does not score.
+- **The list as sent:** places meeting the County's own criteria for a closer look (two or more
+  health closures, the same major item at two or more routine inspections, or two or more routine
+  scores below 90, in two years) first; then everything on one scale, 100 minus the mean routine
+  score: the students' point rule's points where it scores a place, the one-line rule's where it
+  does not.
 - **The one-line rule alone:** lowest mean routine score on record first.
 - **The research model** (`model_food.py`), frozen in `scoring.csv`.
 - **Persistence** (prior-year majors, then the last score), for reference.

@@ -1,14 +1,15 @@
 {
-  "_read_me": "Copy to docs/STAFF_APPROVAL.json (gitignored: it names people) and fill in. publish_city_site.py refuses to publish the City staff site without a responsible adult, a corrections contact and a sunset date. See docs/STAFF_SITE.md.",
+  "_read_me": "Copy to docs/STAFF_APPROVAL.json (gitignored: it names people) and fill in. publish_city_site.py refuses to publish the City staff site without a responsible adult, a corrections contact and a sunset date at most a year away. Every other section left empty is shown to staff, in plain words, as not done. See docs/STAFF_SITE.md.",
   "responsible_adult": {
     "name": "",
-    "relationship": "parent, teacher advisor, or mentor",
+    "relationship": "parent, teacher advisor, or mentor (18 or older, not an author)",
     "email": "",
     "phone": ""
   },
   "corrections_contact": {
     "name": "",
-    "email": ""
+    "email": "",
+    "_note": "a role address the responsible adult controls, not a student's personal address"
   },
   "sunset": "2027-06-30",
   "city_requestor": {
@@ -22,6 +23,23 @@
     "date": "",
     "by": "",
     "result": "",
-    "_note": "the City's answer to whether its TRUST Ordinance (SDMC ch. 2, art. 10, div. 1) applies"
+    "_note": "the City's answer to whether its TRUST Ordinance (SDMC 210.0101-210.0112) applies; if it does, Privacy Advisory Board review and a Council vote come first"
+  },
+  "legal_review": {
+    "reviewer": "",
+    "organization": "",
+    "date": "",
+    "_note": "a lawyer's review of naming these businesses to City staff"
+  },
+  "county_informed": {
+    "date": "",
+    "person": "",
+    "response": "",
+    "_note": "when the County was shown this list, and what it said"
+  },
+  "owner_notice": {
+    "date": "",
+    "method": "",
+    "_note": "when the businesses on the list were told it exists, and how"
   }
 }
