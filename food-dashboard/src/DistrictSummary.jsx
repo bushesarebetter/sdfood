@@ -20,7 +20,8 @@ const ACTION = "border-b border-ink/25 text-[12px] font-normal text-ink-2 hover:
  * the note under them says so; only the one district selected is also given as shares of its own
  * places (districtShareLine), so no column ranks districts. Select a district to filter the map and
  * list to it; select it again to clear. Each district can open its list, or download its places as a CSV.
- * `/map?district=N` opens a district directly, so an office can bookmark its own.
+ * `/map?district=N` opens a district directly (on the staff site `/?district=N`, the List), so an office
+ * can bookmark its own.
  */
 export default function DistrictSummary({ facilities, filters, onFiltersChange, onOpenList = null }) {
   const meta = useMeta();
@@ -63,7 +64,8 @@ export default function DistrictSummary({ facilities, filters, onFiltersChange, 
   };
   const count = (k) => (r) => r[k].toLocaleString();
   // The staff site reads the district's backtest figure, never its count of places in a band.
-  const staffBands = mode === "bands" && isStaff(meta);
+  const staff = isStaff(meta);
+  const staffBands = mode === "bands" && staff;
   const bandCol = staffBands
     ? [`${auditedBandsName(meta)} in the backtest: had a major`, (r) => districtPrecision(meta, r.d) ?? <NoFigure />]
     : ["In a band", count("band")];
@@ -122,7 +124,7 @@ export default function DistrictSummary({ facilities, filters, onFiltersChange, 
         grades are what inspectors cite, and the record does not say which inspector made a visit, so a district&rsquo;s counts are a
         question to take to the County, not a ranking of districts.
         {staffBands && <> {auditedBandsName(meta)} in the backtest: how many in 100 of the district&rsquo;s places in {auditedBandsName(meta).toLowerCase()} on {backtestList(meta)} had a major violation at their next routine inspection, with the likely range.</>}
-        {" "}Bookmark a district: {typeof window !== "undefined" ? window.location.origin : ""}/map?district=3.
+        {" "}Bookmark a district: {typeof window !== "undefined" ? window.location.origin : ""}{staff ? "/?district=3" : "/map?district=3"}.
       </p>
     </div>
   );

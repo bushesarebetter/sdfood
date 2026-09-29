@@ -4,11 +4,12 @@ import Dialog, { CloseButton } from "./Dialog";
 import { useMeta, useMode } from "./useMeta";
 import { bandSummary } from "./lib/bands";
 import { isStaff, staffBar, PUBLIC_RECORD_NOTE, USE_NOTE, watchPrints } from "./lib/staff";
+import { useStaffNotice, hideStaffNotice, showStaffNotice, staffNoticeState } from "./useStaffNotice";
 
-// The notice opens by itself on the first page after each sign-in, until "I have read this" is pressed for
-// this export's run. The mark lives in sessionStorage, which a new tab starts empty and which the server
-// empties at every sign-in (Clear-Site-Data, city_site/server.mjs), so the next person on a shared City
-// computer always meets the notice open.
+// The notice opens by itself on the first page after each sign-in, until "I have read this" (or the bar's
+// ×) is pressed for this export's run. The mark lives in sessionStorage, which a new tab starts empty and
+// which the server empties at every sign-in (Clear-Site-Data, city_site/server.mjs), so the next person on
+// a shared City computer always meets the notice open.
 const SEEN_KEY = "food.staffNoticeSeen";
 
 function seenFor(run) {
@@ -32,27 +33,54 @@ function markSeen(run) {
  * staffBar: "For City of San Diego staff · A student analysis, not a City or County finding · Do not share
  * names or bands outside the City or use a band for any decision about a business · Downloads, prints and
  * messages are likely public records · A demonstration, not a City tool · Not cleared for public release:
- * 17 checks open"), whom to write to, a button that opens the whole notice, and sign-out. A screen reader
- * hears the points as one punctuated sentence. The notice is the public-record note, the full use rule,
- * what a band 1 place's group rate is and which lines are ours, whom to write to, the open checks and every
- * instruction, then "I have read this", last, so it is reached only past every line. It opens by itself
- * after each sign-in until that button is pressed; closing it any other way does not count as read. On
- * paper the whole notice always prints, open or not. `compact` is the phone layout: the same line, and the
- * notice as a full-screen sheet.
+ * 17 checks open"), whom to write to, a button that opens the whole notice, sign-out, and an × that
+ * closes the bar for this session. A screen reader hears the points as one punctuated sentence. The notice
+ * is the public-record note, the full use rule, what a band 1 place's group rate is and which lines are
+ * ours, whom to write to, the open checks and every instruction, then "I have read this", last, so it is
+ * reached only past every line. It opens by itself after each sign-in until that button (or the ×) is
+ * pressed; closing it with the toggle does not count as read. Once the × is pressed the bar gives way to
+ * "Staff notice" and sign-out in the masthead (StaffNoticeLinks), which bring it back with the notice open;
+ * a notice not yet read in this session shows whatever the × said. On paper the whole notice always
+ * prints: open, closed or hidden. `compact` is the phone layout: the same line, and the notice as a
+ * full-screen sheet.
  */
 export default function StaffBanner({ fixed = false, compact = false }) {
   const meta = useMeta();
   const mode = useMode();
   const staff = isStaff(meta);
   const run = meta?.run;
+  const { hidden, openSeq } = useStaffNotice();
+  const [seen, setSeen] = useState(() => seenFor(run));
   const [open, setOpen] = useState(() => staff && !seenFor(run));
   const panelId = useId();
   const titleId = useId();
   const toggleRef = useRef(null);
+  const panelRef = useRef(null);
   const refocus = useRef(false);
+  const toLinks = useRef(false);
+  const toNotice = useRef(false);
+  const seqSeen = useRef(openSeq);
   useEffect(() => {
-    if (staff && !seenFor(run)) setOpen(true);
+    const s = seenFor(run);
+    setSeen(s);
+    if (!staff || s) return;
+    setOpen(true);
+    // Not read in this session: the bar shows whatever the × said, so the masthead's links step back.
+    if (staffNoticeState().hidden) showStaffNotice({ open: false });
   }, [staff, run]);
+  // Asked for from elsewhere (the masthead's "Staff notice"): the whole notice opens and takes focus.
+  useEffect(() => {
+    if (openSeq <= seqSeen.current) return;
+    seqSeen.current = openSeq;
+    toNotice.current = true;
+    setOpen(true);
+  }, [openSeq]);
+  // The phone's sheet puts focus on its own heading (Dialog); on the desktop the panel takes it.
+  useEffect(() => {
+    if (!open || !toNotice.current) return;
+    toNotice.current = false;
+    if (!compact) panelRef.current?.focus();
+  }, [open, openSeq, compact]);
   // Closed from inside the notice: focus goes to the toggle, which says where the notice lives. This runs
   // after the phone sheet's Dialog has handed focus back, so it has the last word.
   useEffect(() => {
@@ -60,6 +88,13 @@ export default function StaffBanner({ fixed = false, compact = false }) {
     refocus.current = false;
     toggleRef.current?.focus();
   }, [open]);
+  // Closed with the ×: focus goes to the masthead's "Staff notice", where the notice now lives.
+  useEffect(() => {
+    if (!hidden || !toLinks.current) return;
+    toLinks.current = false;
+    const links = [...document.querySelectorAll("[data-staff-notice-open]")];
+    links.find((el) => el.getClientRects().length > 0)?.focus();
+  }, [hidden]);
   if (!staff) return null;
   const b = staffBar(meta);
   const close = () => {
@@ -68,7 +103,16 @@ export default function StaffBanner({ fixed = false, compact = false }) {
   };
   const acknowledge = () => {
     markSeen(run);
+    setSeen(true);
     close();
+  };
+  // The ×: read, and the bar closed for the rest of this session.
+  const dismiss = () => {
+    markSeen(run);
+    setSeen(true);
+    setOpen(false);
+    toLinks.current = true;
+    hideStaffNotice();
   };
   // A POST from this page: the server signs out only on a same-site POST, so no link elsewhere can do it.
   const signOut = (
@@ -78,6 +122,21 @@ export default function StaffBanner({ fixed = false, compact = false }) {
   );
   const pad = compact ? "px-3" : "px-4 lg:px-5";
   const last = b.points.length - 1;
+
+  // On paper, always the whole notice, whether the bar is open, closed or hidden.
+  const printed = (
+    <div className="print-only px-1 py-1 text-[10.5px] leading-[1.4]">
+      <p><span className="font-semibold">For City of San Diego staff.</span> {PUBLIC_RECORD_NOTE} {USE_NOTE}{b.contact && ` ${b.contact}`}</p>
+      {b.open && <p>{b.open}</p>}
+      {b.guidance.length > 0 && (
+        <ul className="list-disc pl-4">
+          {b.guidance.map((g) => <li key={g}>{g}</li>)}
+        </ul>
+      )}
+    </div>
+  );
+  // Closed with the × after the notice was read: nothing on screen, the whole notice on paper.
+  if (hidden && seen) return printed;
 
   const rules = (
     <>
@@ -119,11 +178,12 @@ export default function StaffBanner({ fixed = false, compact = false }) {
 
   return (
     <div role="note" aria-label="Notice for City staff" className={`border-b border-ink bg-paper-edge text-ink ${fixed ? "shrink-0" : ""}`}>
-      <div className={`print-hide flex flex-wrap items-center gap-x-4 gap-y-1 py-1.5 text-[13px] leading-[1.4] ${pad}`}>
-        {/* The points take the line; the buttons follow them, or wrap under them on a narrow screen. Each
-            point is one unit that wraps whole, its dot at the end of the line; a screen reader hears the
-            sentence instead of the dots. */}
-        <p className={compact ? "basis-full" : "min-w-[18rem] flex-1"}>
+      <div className={`print-hide flow-root py-1.5 text-[13px] leading-[1.4] ${pad}`}>
+        {/* The points run as text; on a wide screen the buttons float at the right of their last line (or
+            the line under it), so the bar takes as few lines as the words need. Each point is one unit that
+            wraps whole, its dot at the end of the line; a screen reader hears the sentence instead of the
+            dots. On the phone the buttons take a row of their own. */}
+        <p className={compact ? "" : "inline"}>
           <span className="sr-only">{`${b.points.join(". ")}.`}</span>
           <span aria-hidden="true">
             {b.points.map((pt, i) => (
@@ -137,7 +197,7 @@ export default function StaffBanner({ fixed = false, compact = false }) {
             ))}
           </span>
         </p>
-        <span className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1">
+        <span className={`flex flex-wrap items-center gap-x-4 gap-y-1 ${compact ? "mt-1" : "float-right ml-4"}`}>
           {b.mail && (
             <a href={b.mail.href} className="border-b border-ink/40 text-ink hover:border-ink">{b.mail.label}</a>
           )}
@@ -155,6 +215,17 @@ export default function StaffBanner({ fixed = false, compact = false }) {
             </svg>
           </button>
           {signOut}
+          <button
+            type="button"
+            onClick={dismiss}
+            aria-label="Close the staff notice for this session"
+            title="Close the staff notice for this session"
+            className="-my-1 inline-flex h-6 w-6 shrink-0 items-center justify-center text-ink-2 hover:bg-ink/10 hover:text-ink"
+          >
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+              <path d="M2 2l8 8M10 2L2 10" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+            </svg>
+          </button>
         </span>
       </div>
 
@@ -162,6 +233,7 @@ export default function StaffBanner({ fixed = false, compact = false }) {
           instruction. At lg it sits in the left column's foot, beside the end of the instructions. */}
       {open && !compact && (
         <div
+          ref={panelRef}
           id={panelId}
           role="region"
           aria-label="The whole notice"
@@ -193,16 +265,7 @@ export default function StaffBanner({ fixed = false, compact = false }) {
         document.body,
       )}
 
-      {/* On paper, always the whole notice. */}
-      <div className="print-only px-1 py-1 text-[10.5px] leading-[1.4]">
-        <p><span className="font-semibold">For City of San Diego staff.</span> {PUBLIC_RECORD_NOTE} {USE_NOTE}{b.contact && ` ${b.contact}`}</p>
-        {b.open && <p>{b.open}</p>}
-        {b.guidance.length > 0 && (
-          <ul className="list-disc pl-4">
-            {b.guidance.map((g) => <li key={g}>{g}</li>)}
-          </ul>
-        )}
-      </div>
+      {printed}
     </div>
   );
 }

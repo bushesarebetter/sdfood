@@ -397,15 +397,18 @@ test("closed, the bar shows every point and whom to write to; a screen reader he
   assert.match(bar, /inline-block/, "each point wraps whole");
   assert.doesNotMatch(bar, /whitespace-nowrap[^"]*"\s*>\s*\{pt\}/, "never an unbreakable line");
   assert.match(bar, /b\.mail && \(\s*<a href=\{b\.mail\.href\}/, "whom to write to, beside the points");
+  assert.ok(bar.indexOf("b.points.map") < bar.indexOf("b.mail &&"), "the points first in reading and tab order");
+  assert.match(bar, /compact \? "mt-1" : "float-right ml-4"/, "on a wide screen the buttons sit at the end of the last line, not in a column of their own");
   assert.doesNotMatch(bar, /\{open && /, "nothing in the line hangs on the notice being open");
 });
 
-test("only 'I have read this' marks the notice read, and it comes after every line of it", () => {
+test("only 'I have read this' (or the bar's ×) marks the notice read, and the button comes after every line of it", () => {
   const code = banner();
   const toggle = code.slice(code.indexOf("ref={toggleRef}"), code.indexOf("</button>", code.indexOf("ref={toggleRef}")));
   assert.match(toggle, /onClick=\{\(\) => setOpen\(\(o\) => !o\)\}/, "the toggle only opens and closes");
   assert.doesNotMatch(toggle, /acknowledge|markSeen/);
-  assert.equal(code.match(/onClick=\{acknowledge\}/g)?.length, 1, "one button acknowledges");
+  assert.equal(code.match(/onClick=\{acknowledge\}/g)?.length, 1, "one button in the notice acknowledges");
+  assert.equal(code.match(/markSeen\(run\);/g)?.length, 2, "that button and the bar's ×, nothing else");
   // The desktop panel: one scroller, the button inside it, after the open checks and every instruction.
   const panel = code.slice(code.indexOf("{open && !compact && ("), code.indexOf("{open && compact && createPortal("));
   assert.match(panel, /max-h-\[50dvh\] overflow-y-auto/);
@@ -414,7 +417,7 @@ test("only 'I have read this' marks the notice read, and it comes after every li
   const checks = code.slice(code.indexOf("const checks = ("), code.indexOf("const ack = ("));
   assert.match(checks, /b\.open[\s\S]*b\.guidance\.map/, "the open checks and every instruction come before the button");
   // The phone: a full-screen sheet, headed, the whole notice, the button at its end.
-  const sheet = code.slice(code.indexOf("{open && compact && createPortal("), code.indexOf("{/* On paper"));
+  const sheet = code.slice(code.indexOf("{open && compact && createPortal("), code.lastIndexOf("{printed}"));
   assert.match(sheet, /createPortal\(\s*<Dialog titleId=\{titleId\}/);
   assert.match(sheet, /className="min-h-dvh max-w-none border-0" z=\{60\}/, "over the cookie line");
   assert.match(sheet, /<h2 id=\{titleId\}/);
@@ -430,4 +433,108 @@ test("the notice says what a band 1 place's group rate is, and which lines are t
   assert.match(rules, /mode === "bands" && `\$\{bandSummary\(meta, "1"\)\} `/);
   assert.match(rules, /Lines marked &ldquo;Our reading&rdquo; are the site&rsquo;s, not the County&rsquo;s\./);
   assert.match(rules, /PUBLIC_RECORD_NOTE[\s\S]*USE_NOTE[\s\S]*b\.contact/, "the public-record note, the use rule and whom to write to");
+});
+
+/** A sessionStorage stand-in; `broken` throws on every call, as a blocked one does. */
+function fakeSession(init = {}, { broken = false } = {}) {
+  const m = new Map(Object.entries(init));
+  const guard = (f) => (...a) => {
+    if (broken) throw new Error("storage blocked");
+    return f(...a);
+  };
+  return {
+    getItem: guard((k) => (m.has(k) ? m.get(k) : null)),
+    setItem: guard((k, v) => void m.set(k, String(v))),
+    removeItem: guard((k) => void m.delete(k)),
+    map: m,
+  };
+}
+
+/** The notice store, loaded afresh (its own copy of the module); `win` is the window while `fn` runs, or none. */
+async function withStore(win, tag, fn) {
+  const had = Object.prototype.hasOwnProperty.call(globalThis, "window");
+  const before = globalThis.window;
+  if (win) globalThis.window = win;
+  else delete globalThis.window;
+  try {
+    return await fn(await import(new URL(`../src/useStaffNotice.js?${tag}`, import.meta.url).href));
+  } finally {
+    if (had) globalThis.window = before;
+    else delete globalThis.window;
+  }
+}
+
+test("the notice store: the × hides the bar, 'Staff notice' brings it back open, and nothing throws without a window", () => withStore(null, "no-window", (s) => {
+  assert.deepEqual(s.staffNoticeState(), { hidden: false, openSeq: 0 }, "the bar shows to begin with");
+  let calls = 0;
+  const stop = s.subscribeStaffNotice(() => calls++);
+  s.hideStaffNotice();
+  assert.deepEqual(s.staffNoticeState(), { hidden: true, openSeq: 0 }, "hidden; nothing asked to open");
+  s.showStaffNotice();
+  assert.deepEqual(s.staffNoticeState(), { hidden: false, openSeq: 1 }, "back, and the whole notice asked to open");
+  s.hideStaffNotice();
+  s.showStaffNotice({ open: false });
+  assert.deepEqual(s.staffNoticeState(), { hidden: false, openSeq: 1 }, "back without opening the notice");
+  s.showStaffNotice();
+  assert.equal(s.staffNoticeState().openSeq, 2, "each ask opens it again");
+  assert.equal(calls, 5, "every change tells the bar and the masthead");
+  stop();
+  s.hideStaffNotice();
+  assert.equal(calls, 5, "unsubscribed");
+  assert.equal(typeof s.useStaffNotice, "function");
+}));
+
+test("the bar's × lasts for this browser session only, and a blocked storage leaves the bar showing", async () => {
+  const session = fakeSession();
+  await withStore({ sessionStorage: session }, "with-window", (s) => {
+    assert.equal(s.staffNoticeState().hidden, false);
+    s.hideStaffNotice();
+    assert.equal(session.map.get("food.staffNoticeHidden"), "1", "kept in this tab's session, which a sign-in clears");
+    s.showStaffNotice();
+    assert.equal(session.map.has("food.staffNoticeHidden"), false);
+  });
+  await withStore({ sessionStorage: fakeSession({ "food.staffNoticeHidden": "1" }) }, "next-page", (s) => {
+    assert.equal(s.staffNoticeState().hidden, true, "a new page load in the same session keeps it closed");
+  });
+  await withStore({ sessionStorage: fakeSession({}, { broken: true }) }, "blocked", (s) => {
+    assert.equal(s.staffNoticeState().hidden, false, "unreadable: the bar shows");
+    assert.doesNotThrow(() => s.hideStaffNotice());
+    assert.equal(s.staffNoticeState().hidden, true, "for this page, in memory");
+  });
+});
+
+test("the bar's × closes it after marking the notice read; hidden, it still prints the whole notice", () => {
+  const code = banner();
+  const x = code.slice(code.indexOf("onClick={dismiss}"), code.indexOf("</button>", code.indexOf("onClick={dismiss}")));
+  assert.match(x, /aria-label="Close the staff notice for this session"/);
+  assert.match(x, /h-6 w-6/, "a target of at least 24 by 24");
+  assert.match(x, /<path d="M2 2l8 8M10 2L2 10"/, "a visible ×");
+  const cluster = code.slice(code.indexOf("{b.mail && ("), code.indexOf("{/* One scroller"));
+  assert.match(cluster, /\{signOut\}\s*<button\s+type="button"\s+onClick=\{dismiss\}[\s\S]*?<\/button>\s*<\/span>/, "the × ends the bar's right cluster");
+  const dismiss = code.slice(code.indexOf("const dismiss = () => {"), code.indexOf("};", code.indexOf("const dismiss = () => {")));
+  assert.match(dismiss, /markSeen\(run\);[\s\S]*hideStaffNotice\(\);/, "read first, then closed");
+  // Hidden and read: only the print-only block, which holds the whole notice.
+  assert.match(code, /if \(hidden && seen\) return printed;/);
+  const printed = code.slice(code.indexOf("const printed = ("), code.indexOf("if (hidden && seen)"));
+  assert.match(printed, /className="print-only[\s\S]*PUBLIC_RECORD_NOTE[\s\S]*USE_NOTE[\s\S]*b\.contact[\s\S]*b\.open[\s\S]*b\.guidance\.map/);
+  assert.match(code.slice(code.indexOf('role="note"')), /\{printed\}/, "and the same block while the bar shows");
+  // Not read in this session: the bar shows and the notice opens, whatever the × said.
+  const first = code.slice(code.indexOf("const s = seenFor(run);"), code.indexOf("}, [staff, run]);"));
+  assert.match(first, /if \(!staff \|\| s\) return;\s*setOpen\(true\);[\s\S]*showStaffNotice\(\{ open: false \}\)/);
+  // Asked for from the masthead: the notice opens, and its panel (the phone: the sheet's heading) takes focus.
+  assert.match(code, /if \(openSeq <= seqSeen\.current\) return;[\s\S]*setOpen\(true\);/);
+  assert.match(code, /if \(!compact\) panelRef\.current\?\.focus\(\);/);
+  assert.match(code, /<div\s+ref=\{panelRef\}\s+id=\{panelId\}\s+role="region"[\s\S]*?tabIndex=\{0\}/);
+  // After the ×, focus goes to the masthead's "Staff notice".
+  assert.match(code, /querySelectorAll\("\[data-staff-notice-open\]"\)/);
+});
+
+test("once the bar is closed, the masthead carries 'Staff notice' and a sign-out by POST, on the staff site only", () => {
+  const code = readFileSync(join(src, "StaffNoticeLinks.jsx"), "utf8");
+  assert.match(code, /if \(!isStaff\(meta\) \|\| !hidden\) return null;/, "nothing while the bar shows, nothing on the public site");
+  assert.match(code, /<button type="button" data-staff-notice-open onClick=\{\(\) => showStaffNotice\(\)\}[^>]*>Staff notice<\/button>/);
+  assert.match(code, /<form method="post" action="\/logout"[^>]*>\s*<button type="submit"[^>]*>Sign out<\/button>/, "sign-out is a POST");
+  for (const file of ["Header.jsx", "PageFrame.jsx", "MobileShell.jsx"]) {
+    assert.match(readFileSync(join(src, file), "utf8"), /<StaffNoticeLinks\b/, `${file} shows them`);
+  }
 });

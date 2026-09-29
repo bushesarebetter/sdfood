@@ -279,3 +279,47 @@ test("the list's short fact tags: every record fact has one, each keeps its full
   assert.deepEqual(factTags(null), { record: [], escalation: [], themes: [] });
 });
 
+
+test("a closure fact says closed for a health hazard, never ordered: a County order, a Self Closed or a closure a reopening shows", () => {
+  assert.equal(FLAG_LABELS.closed, "Closed for a health hazard");
+  assert.equal(FLAG_LABELS.closures2, "Closed for a health hazard two or more times in two years");
+  for (const k of RECORD_FLAGS) assert.doesNotMatch(FLAG_LABELS[k], /ordered/i, `${k}: no closure order the record may not show`);
+});
+
+test("each short fact keeps its full wording's qualifiers: the reason, the routine inspections and the window", () => {
+  assert.deepEqual(FLAG_SHORT, {
+    major: "Major violation",
+    closed: "Closed, health hazard",
+    bc: "B or C grade",
+    repeat: "2+ reinspections",
+    major_2: "Majors at 2+ routines, 2 years",
+    closures2: "Closed for a health hazard 2+ times, 2 years",
+    repeat_item: "Same major item at 2+ routines, 2 years",
+    lt90_2: "Below 90 at 2+ routines, 2 years",
+  });
+  for (const k of ["closed", "closures2"]) assert.match(FLAG_SHORT[k], /health hazard/, `${k} keeps the reason`);
+  for (const k of ["major_2", "repeat_item", "lt90_2"]) {
+    assert.match(FLAG_LABELS[k], /routine inspections/);
+    assert.match(FLAG_SHORT[k], /at 2\+ routines/, `${k} keeps the routine inspections`);
+  }
+  for (const k of RECORD_FLAGS) assert.doesNotMatch(FLAG_SHORT[k], /ordered/i);
+});
+
+test("a visit in the list's few words still marks our reading; the County's own types read as in full", () => {
+  const { visitShort, visitPhrase } = inspections;
+  assert.equal(visitShort({ type: "followup" }), "re-grade or reopening (our reading)");
+  assert.equal(visitShort({ type: "complaint", county_type: "Environmental" }), "field visit (our reading)");
+  for (const type of ["routine", "reinspection", "status_check"]) assert.equal(visitShort({ type }), visitPhrase({ type }), type);
+  for (const type of inspections.READ_VISIT_TYPES) {
+    assert.match(visitShort({ type }), /\(our reading\)$/, `${type} stays marked`);
+    assert.ok(visitShort({ type }).length < visitPhrase({ type }).length, `${type} is shorter`);
+  }
+});
+
+test("a list's short note on the escalation facts says they are our counts and not a County finding, as the full note does", () => {
+  const { ESCALATION_CAVEAT } = inspections;
+  assert.match(ESCALATION_CAVEAT, /our counts of patterns the County's Operator's Guide names/);
+  const tail = "meeting one is not a County finding and does not mean the County has acted or will.";
+  assert.ok(ESCALATION_CAVEAT.endsWith(tail));
+  assert.ok(ESCALATION_NOTE.endsWith(tail), "one wording in both");
+});

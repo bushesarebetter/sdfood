@@ -147,9 +147,13 @@ export function listPrintRows(features, { meta = null, mode = "record" } = {}) {
   });
 }
 
-/** What each sortable column of the list orders by, and its two directions, in plain words. */
+/**
+ * What each sortable column of the list orders by, and its two directions, in plain words. The band
+ * column keeps the points' order within a band (the staff list shows them in one column).
+ */
 const SORT_WORDS = {
   band: ["band and points", "band 1 first", "places in no band first"],
+  points: ["points", "fewest first", "most first"],
   name: ["name", "A to Z", "Z to A"],
   district: ["council district", "lowest first", "highest first"],
   grade: ["the date of the latest grade", "oldest first", "newest first"],

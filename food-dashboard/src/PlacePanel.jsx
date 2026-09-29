@@ -24,9 +24,15 @@ import { SITE } from "./site";
 /**
  * The detail panel beside the map: the place's name and grade, and in
  * `bands` mode its band, from the index at once; then its full record, loaded
- * from its own file. Prints as a one-page sheet.
+ * from its own file. Only its top (the band, the buttons, the name and the
+ * address) stays put; the rest scrolls, so the whole record is reached on a
+ * short screen. Prints as a one-page sheet. It lies over what is under it;
+ * `docked` (the staff site's List) stands it beside the list from 1024px
+ * instead. When it opens, its heading takes focus; when it closes, focus goes
+ * back to the list's button for that place, else to what opened it, else to
+ * the element whose id is `returnFocusTo`.
  */
-export default function PlacePanel({ feature, onClose, facilities = null, onSelect = () => {}, onNavigate = null }) {
+export default function PlacePanel({ feature, onClose, facilities = null, onSelect = () => {}, onNavigate = null, docked = false, returnFocusTo = null }) {
   const { advanced, copy } = useAdvanced();
   const meta = useMeta();
   const mode = useMode();
@@ -44,10 +50,21 @@ export default function PlacePanel({ feature, onClose, facilities = null, onSele
   const facts = useMemo(() => (place ? recordFacts(place) : []), [place]);
   const nearby = useMemo(() => (feature && facilities ? nearbySites(feature, facilities, 600, 3) : []), [feature, facilities]);
 
+  // What had focus when the panel opened (not when another place opens inside it), and the place shown.
+  const opener = useRef(null);
+  const shown = useRef(null);
   useEffect(() => {
     setCopied(false);
     setStatus("");
-    headingRef.current?.focus({ preventScroll: true });
+    const before = shown.current;
+    shown.current = feature;
+    if (feature) {
+      if (!before) opener.current = document.activeElement;
+      headingRef.current?.focus({ preventScroll: true });
+    } else if (before) {
+      refocusAfterClose(before.properties?.facility_id, opener.current, returnFocusTo);
+      opener.current = null;
+    }
   }, [feature]);
 
   useEffect(() => {
@@ -87,11 +104,15 @@ export default function PlacePanel({ feature, onClose, facilities = null, onSele
 
   const askArgs = place ? { place, url: pageUrl, meta, mode, expired } : null;
 
+  // Docked (the staff site's List, from 1024px): a column of the row beside the list, not a sheet over it.
+  const frame = docked ? " lg:static lg:w-[27rem] lg:max-w-none lg:shrink-0 lg:shadow-none" : "";
+
   return (
-    <aside aria-label={`${p.name}, place detail`} className="print-sheet absolute inset-y-0 right-0 z-30 flex w-full max-w-[27rem] flex-col border-l border-rule-strong bg-paper shadow-paper">
+    <aside aria-label={`${p.name}, place detail`} className={`print-sheet absolute inset-y-0 right-0 z-30 flex w-full max-w-[27rem] flex-col border-l border-rule-strong bg-paper shadow-paper${frame}`}>
       {message && <MessageBox title={message.title} text={message.text} copied={message.copied} onClose={() => setMessage(null)} />}
 
-      <header className="shrink-0 border-b border-rule-strong px-6 pb-4 pt-4">
+      {/* Only this stays put: the band, the buttons, the name and the address. */}
+      <header className="shrink-0 border-b border-rule-strong px-6 pb-3 pt-3">
         <div className="flex items-center justify-between gap-3">
           <p className="text-[13px] text-ink-2">
             {!expired && mark.label ? <span className="font-semibold" style={{ color: mark.text ?? undefined }}>{mark.label}</span> : typeLabel(p.facility_type)}
@@ -102,23 +123,26 @@ export default function PlacePanel({ feature, onClose, facilities = null, onSele
             <button onClick={onClose} aria-label="Close place detail" className="-mr-2 flex h-9 w-9 items-center justify-center text-[20px] leading-none text-ink-3 hover:text-ink">×</button>
           </div>
         </div>
-        <h2 ref={headingRef} tabIndex={-1} className="mt-1 font-serif text-[23px] font-medium leading-[1.2] text-ink focus:outline-none">
+        <h2 ref={headingRef} tabIndex={-1} className="mt-0.5 font-serif text-[23px] font-medium leading-[1.2] text-ink focus:outline-none">
           {p.name}
         </h2>
         <p className="mt-1 text-[13px] text-ink-2">{p.address}</p>
         <span className="sr-only" role="status">{status}</span>
-        <div className="mt-3 flex flex-wrap gap-1.5">
-          <Tag>{typeLabel(p.facility_type)}</Tag>
-          {p.council_district && <Tag>{SITE.districts.short} {p.council_district}</Tag>}
-          <Tag color={g.textColor}>{g.graded ? `Grade ${g.short}` : g.text}</Tag>
-          <StaleBadge place={p} meta={meta} className="self-center" />
-        </div>
-        <div className="mt-3 empty:hidden">
-          <PlaceLines place={place ?? p} withGrade={loaded.status !== "ok"} />
-        </div>
       </header>
 
-      <div className="print-scroll flex-1 overflow-y-auto">
+      <div className="print-scroll min-h-0 flex-1 overflow-y-auto">
+        <div className="border-b border-rule px-6 pb-4 pt-3">
+          <div className="flex flex-wrap gap-1.5">
+            <Tag>{typeLabel(p.facility_type)}</Tag>
+            {p.council_district && <Tag>{SITE.districts.short} {p.council_district}</Tag>}
+            <Tag color={g.textColor}>{g.graded ? `Grade ${g.short}` : g.text}</Tag>
+            <StaleBadge place={p} meta={meta} className="self-center" />
+          </div>
+          <div className="mt-3 empty:hidden">
+            <PlaceLines place={place ?? p} withGrade={loaded.status !== "ok"} />
+          </div>
+        </div>
+
         {!place ? (
           <div className="px-6 py-5">
             <PlaceStatus status={loaded.status} id={id} onRetry={loaded.status === "error" || loaded.status === "missing" ? loaded.retry : null} />
@@ -209,6 +233,28 @@ export default function PlacePanel({ feature, onClose, facilities = null, onSele
       </div>
     </aside>
   );
+}
+
+/**
+ * After the panel closes with focus inside it (focus then falls to the page's body), put focus back
+ * where the person was: the list's button for the place just closed, else what opened the panel,
+ * else the element whose id is `fallbackId`. Each is tried in turn until one takes focus (a button
+ * in a hidden view cannot). Focus left elsewhere (a list row, the masthead) stays where it is.
+ */
+export function refocusAfterClose(placeId, opener, fallbackId) {
+  if (typeof document === "undefined") return;
+  const a = document.activeElement;
+  if (a && a !== document.body && a.isConnected) return;
+  const id = String(placeId ?? "");
+  const esc = typeof CSS !== "undefined" && CSS.escape ? CSS.escape(id) : id.replace(/["\\]/g, "\\$&");
+  const row = id ? document.querySelector(`#workspace [data-place-id="${esc}"]`) : null;
+  const back = opener && opener !== document.body && opener.isConnected ? opener : null;
+  const fallback = fallbackId ? document.getElementById(fallbackId) : null;
+  for (const el of [row, back, fallback]) {
+    if (!el) continue;
+    el.focus({ preventScroll: el === fallback });
+    if (document.activeElement === el) return;
+  }
 }
 
 function Tag({ children, color }) {

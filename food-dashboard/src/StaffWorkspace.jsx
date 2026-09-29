@@ -83,14 +83,23 @@ export default function StaffWorkspace({
   };
   useEffect(() => { setRailOpen(false); }, [tab]);
   useEffect(() => { if (wide) setRailOpen(false); }, [wide]);
-  // Focus moves once the page's inert has been set or lifted: into the rail on open, to "Filters" on close.
+  // Focus moves once the page's inert has been set or lifted: into the rail on open; on close, to
+  // "Filters", unless a place chosen in the rail took it (its panel's heading) or the rail now stands
+  // beside the views (the window widened) with focus still in it.
+  const wasOverlay = useRef(false);
   useEffect(() => {
+    const was = wasOverlay.current;
+    wasOverlay.current = overlay;
     if (overlay) {
       railHeading.current?.focus({ preventScroll: true });
-    } else if (backToFilters.current) {
-      backToFilters.current = false;
-      filtersButton.current?.focus({ preventScroll: true });
+      return;
     }
+    if (!was) return;
+    const back = backToFilters.current;
+    backToFilters.current = false;
+    const a = document.activeElement;
+    const lost = !a || a === document.body || !a.isConnected || a.getClientRects().length === 0;
+    if (back || lost) filtersButton.current?.focus({ preventScroll: true });
   }, [overlay]);
   // Escape closes the overlay and only it: in the capture phase, before the open place's own Escape. An open
   // list of address suggestions closes first, on its own Escape (the rail stops that one going further).
@@ -152,7 +161,10 @@ export default function StaffWorkspace({
     <div className="print-release flex h-dvh flex-col bg-paper">
       {/* Inert while the rail is an overlay, as #workspace and the footer are: Tab and a screen reader stay in the rail. */}
       <div className="contents" inert={inert}>
-        <a href="#view-heading" className="sr-only focus:not-sr-only focus:absolute focus:left-3 focus:top-3 focus:z-[90] focus:bg-ink focus:px-3 focus:py-2 focus:text-[13px] focus:text-paper">
+        <a
+          href="#view-heading"
+          onClick={(e) => { e.preventDefault(); viewHeading.current?.focus(); }}
+          className="sr-only focus:not-sr-only focus:absolute focus:left-3 focus:top-3 focus:z-[90] focus:bg-ink focus:px-3 focus:py-2 focus:text-[13px] focus:text-paper">
           Skip to the {tab === "map" ? "map" : tab === "summary" ? "summary" : "list"}
         </a>
 
@@ -373,9 +385,29 @@ export function RailSkeleton() {
   );
 }
 
-/** The view while the list loads: the list's toolbar and rows in grey, or the map's ground. */
+/** The view while the list loads: the list's toolbar and rows in grey, the map's ground, or the summary's two columns. */
 export function ViewSkeleton({ tab }) {
   if (tab === "map") return <div className="h-full min-w-0 flex-1 bg-paper-sunk" aria-hidden="true" />;
+  if (tab === "summary") {
+    return (
+      <div className="h-full min-w-0 flex-1" aria-hidden="true">
+        <div className="mx-auto grid max-w-[80rem] gap-x-10 gap-y-6 px-7 py-7 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
+          <div className="space-y-3">
+            {bar("w-40", "h-2.5")}
+            {bar("w-full", "h-20")}
+            {Array.from({ length: 9 }, (_, i) => <div key={i}>{bar("w-full", "h-5")}</div>)}
+          </div>
+          <div className="space-y-3">
+            {bar("w-28", "h-2.5")}
+            {bar("w-11/12", "h-6")}
+            {bar("w-4/5", "h-6")}
+            {bar("w-full")}
+            {bar("w-5/6")}
+          </div>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="flex h-full min-w-0 flex-1 flex-col" aria-hidden="true">
       <div className="flex shrink-0 items-center gap-3 border-b border-rule px-5 py-2.5">

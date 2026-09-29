@@ -4,8 +4,8 @@ import { useSyncExternalStore } from "react";
  * Whether the staff notice bar is closed (its ×) for this browser session, and a way to open the whole
  * notice from elsewhere (the masthead's "Staff notice"). One store, so the bar and the masthead agree on
  * every page. Kept in sessionStorage: a new browser session, and every new sign-in (the server clears
- * site storage on sign-in), brings the bar back. The first page of a session still opens the whole
- * notice until it is acknowledged (StaffBanner), so the bar can only be closed after it was read.
+ * site storage on sign-in), brings the bar back. Until the notice has been read in this session the bar
+ * shows, and the whole notice opens, whatever this says (StaffBanner); the × itself marks it read.
  */
 const HIDDEN_KEY = "food.staffNoticeHidden";
 const listeners = new Set();
@@ -31,14 +31,18 @@ function set(next) {
   listeners.forEach((l) => l());
 }
 
-const subscribe = (l) => {
+/** Calls `l` on every change; returns the function that stops it. */
+export function subscribeStaffNotice(l) {
   listeners.add(l);
   return () => listeners.delete(l);
-};
+}
+
+/** The store as it is now, {hidden, openSeq}, outside React. */
+export const staffNoticeState = () => state;
 
 /** {hidden, openSeq}: openSeq goes up each time something asks for the whole notice to open. */
 export function useStaffNotice() {
-  return useSyncExternalStore(subscribe, () => state, () => state);
+  return useSyncExternalStore(subscribeStaffNotice, staffNoticeState, staffNoticeState);
 }
 
 /** The bar's ×: closed for the rest of this browser session. */

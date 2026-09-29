@@ -136,8 +136,8 @@ export const FLAG_LABELS = {
 /**
  * The facts in a few words each, for the list and the staff site's filter rail, where FLAG_LABELS
  * would make every row ten lines tall. Each short tag keeps every qualifier of its FLAG_LABELS
- * wording (the reason, the routine inspections, the window) and stands for it: the list gives the
- * full wording to screen readers and as a tooltip, and the place's own view gives it in full.
+ * wording (the reason, the routine inspections, the window) and stands for it: the list and the rail
+ * give the full wording to screen readers and as a tooltip, and the place's own view gives it in full.
  */
 export const FLAG_SHORT = {
   major: "Major violation",
@@ -170,10 +170,13 @@ export function factTags(flags) {
  */
 export const GUIDE_CRITERIA = "recurring major violations, recurring scores of less than 90%, or recurring facility closures";
 export const ESCALATION_TITLE = "Patterns the County's Operator's Guide names";
+const NOT_A_FINDING = "meeting one is not a County finding and does not mean the County has acted or will.";
 export const ESCALATION_NOTE =
   `The County's Retail Food Facility Operator's Guide (p. 8) says a facility with “a history of ${GUIDE_CRITERIA}” may be issued a notice to appear for an administrative hearing. ` +
   "The County sets no count or period. These are our counts (two or more in the 24 months before the list date; a closure, which the County does not score, counts as a closure, not as a score below 90); " +
-  "meeting one is not a County finding and does not mean the County has acted or will.";
+  NOT_A_FINDING;
+/** ESCALATION_NOTE in one sentence, for a list's footnote whenever an escalation fact is in the list. */
+export const ESCALATION_CAVEAT = `The two-year facts are our counts of patterns the County's Operator's Guide names; ${NOT_A_FINDING}`;
 
 export const VISIT_LABELS = {
   routine: "routine inspection",

@@ -1,8 +1,11 @@
 /**
  * Deep links: `/map?place=<facility_id>` opens that place; `/map?district=3`
- * opens the map filtered to one council district. A place is keyed on the
- * County's permit record id and nothing else. replaceState, so selecting
- * dots does not fill the back button.
+ * opens the map filtered to one council district. On the staff site every view
+ * takes them (`/?district=3` is the List for that district, `/summary?place=`
+ * the Summary with the place open). A place is keyed on the County's permit
+ * record id and nothing else. replaceState, so selecting dots does not fill the
+ * back button; the address follows what is shown, and the back button moves
+ * between views without changing the place or the district.
  */
 const PLACE = "place";
 const DISTRICT = "district";

@@ -15,7 +15,7 @@ import NotFound from "./NotFound";
 import Notice from "./Notice";
 import SampleBanner from "./SampleBanner";
 import StaffBanner, { PrintAudit } from "./StaffBanner";
-import StaffWorkspace, { STAFF_TABS } from "./StaffWorkspace";
+import StaffWorkspace, { STAFF_TABS, RailSkeleton, ViewSkeleton } from "./StaffWorkspace";
 import ExpiryBanner from "./ExpiryBanner";
 import { inArea, hasCountyPlaces } from "./AreaToggle";
 import useFacilities from "./useFacilities";
@@ -43,10 +43,13 @@ const defaultFilters = (mode, staff = false) => ({ band: mode === "bands" && !st
  * navigation or the back button), not only on the first load. On the staff
  * site the map view is three views of the same filtered places (`tab`,
  * StaffWorkspace): `/` the full list of every listed place (and `/map?list`),
- * `/map` the map, `/summary` the district view and the bands. Nothing
- * renders until meta.json has loaded, so no page shows one mode and then
- * another. Once the export has expired, the front page and the map are a
- * notice and a search.
+ * `/map` the map, `/summary` the district view and the bands. The address
+ * follows what is shown: after every change of address (a view, the
+ * masthead, the back button) it is written again from the open place and the
+ * district, so the back button moves between views and never brings back an
+ * old place or district. Nothing renders until meta.json has loaded, so no
+ * page shows one mode and then another. Once the export has expired, the
+ * front page and the map are a notice and a search.
  */
 let locationSeq = 0;
 function viewFromLocation(staff = false) {
@@ -116,23 +119,22 @@ function Dashboard() {
     if (feature) setSelected(feature);
   }, [facilities]);
 
-  // Deep link out: the address bar is the share link, keyed on facility_id.
+  // Deep link out: the address bar is the share link, keyed on facility_id. Written again after every
+  // change of address (loc.key), so an entry the back button returns to, or the masthead's bare "/",
+  // says what is shown: the open place and the district always win over what the entry held.
   useEffect(() => {
     if (initialPlace.current != null || view !== "map") return;
     writePlaceToUrl(selected ? placeKey(selected.properties) : null);
-  }, [selected, view]);
+  }, [selected, view, loc.key]);
 
   useEffect(() => {
     if (view !== "map") return;
     writeDistrictToUrl(filters.districts.length === 1 ? filters.districts[0] : null);
-  }, [filters.districts, view]);
+  }, [filters.districts, view, loc.key]);
 
+  // Back and forward change the view only; the address is then written from what is shown (above).
   useEffect(() => {
-    const onPop = () => {
-      setLocation(viewFromLocation(staff));
-      const d = readDistrictFromUrl();
-      if (d) setFilters((f) => ({ ...f, districts: [d] }));
-    };
+    const onPop = () => setLocation(viewFromLocation(staff));
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
   }, [staff]);
@@ -163,13 +165,18 @@ function Dashboard() {
     navigate("/");
   }, [navigate]);
 
-  // The staff site's views: the same place and district in the address, another path.
+  // The staff site's views: the same place and district in the address, another path. A new entry in
+  // the history only for another view: the view already shown (a second click on its tab, `/summary/`,
+  // `/?list`) tidies its address in place, or does nothing when the address would not change.
   const goTab = useCallback((t) => {
     const target = STAFF_TABS.find((x) => x.key === t) ?? STAFF_TABS[0];
     const url = new URL(window.location.href);
     url.pathname = target.path;
     url.searchParams.delete("list");
-    window.history.pushState(null, "", url);
+    url.hash = "";
+    if (url.href === window.location.href) return;
+    const sameTab = viewFromLocation(staff).tab === target.key;
+    window.history[sameTab ? "replaceState" : "pushState"](null, "", url);
     setLocation(viewFromLocation(staff));
   }, [staff]);
 
@@ -179,6 +186,7 @@ function Dashboard() {
     navigate("/map", { list: true, place: selected ? placeKey(selected.properties) : null });
   }, [navigate, selected]);
   const setDistricts = useCallback((districts) => setFilters((f) => ({ ...f, districts })), []);
+  const closePlace = useCallback(() => setSelected(null), []);
 
   const sel = selected?.properties;
   const pageFeature = view === "place" ? findPlace(facilities?.features, place) : null;
@@ -222,7 +230,10 @@ function Dashboard() {
     );
   }
 
-  if (loading) return <LoadingShell isPhone={isPhone} />;
+  // The staff site's desktop draws its own masthead and notice while the list loads (StaffWorkspace
+  // `loading`), so the notice is laid out once; everything else waits in a skeleton of its layout.
+  const staffDesk = staff && !isPhone;
+  if (loading && !staffDesk) return <LoadingShell />;
 
   if (error) {
     return (
@@ -265,6 +276,7 @@ function Dashboard() {
   if (staff) {
     return (
       <StaffWorkspace
+        loading={loading}
         facilities={shown}
         filters={filters}
         defaults={{ ...defaultFilters(mode, staff), county: filters.county }}
@@ -311,7 +323,7 @@ function Dashboard() {
             its "Print this list" prints every listed row. */}
         <PlaceTable facilities={shown} filters={filters} onSelect={setSelected} openKey={listKey} openWhen={Boolean(mapError)} />
 
-        <PlacePanel feature={selected} onClose={() => setSelected(null)} facilities={shown} onSelect={setSelected} onNavigate={navigate} />
+        <PlacePanel feature={selected} onClose={closePlace} returnFocusTo="map-area" facilities={shown} onSelect={setSelected} onNavigate={navigate} />
       </main>
 
       <Notice placement="fixed" onNavigate={navigate} />
@@ -334,8 +346,34 @@ function MetaError({ onRetry }) {
   );
 }
 
-function LoadingShell({ isPhone = false }) {
+/**
+ * What shows while the data loads, laid out like what comes, so nothing jumps when it arrives: the
+ * public site's masthead, sidebar and map; or the staff site's desktop, its masthead, notice line,
+ * views row, filter rail (from 1280px) and the view the address asks for.
+ */
+function LoadingShell() {
+  const isPhone = useMediaQuery(PHONE);
+  const staff = isStaff(useMeta());
   const bar = (w, h = "h-3") => <div className={`${h} ${w} animate-pulse bg-paper-edge`} />;
+  if (staff && !isPhone) {
+    return (
+      <div className="flex h-dvh flex-col bg-paper" aria-busy="true">
+        <p className="sr-only" role="status">Loading</p>
+        <div className="flex min-h-[109px] shrink-0 items-center border-b border-rule-strong px-5 lg:min-h-[57px]">{bar("w-36", "h-4")}</div>
+        <div className="flex min-h-[31px] shrink-0 items-center border-b border-ink bg-paper-edge px-4 lg:px-5">{bar("w-2/3 max-w-3xl", "h-2.5")}</div>
+        <div className="flex h-[47px] shrink-0 items-center gap-x-6 border-b border-rule-strong px-4 lg:px-5">
+          <div className="h-8 w-20 border border-rule-strong xl:hidden" />
+          {bar("w-16")}
+          {bar("w-10")}
+          {bar("w-16")}
+        </div>
+        <div className="flex min-h-0 flex-1">
+          <div className="hidden w-[17rem] shrink-0 border-r border-rule-strong xl:block"><RailSkeleton /></div>
+          <ViewSkeleton tab={viewFromLocation(true).tab ?? "list"} />
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="flex h-dvh flex-col bg-paper" aria-busy="true">
       <p className="sr-only" role="status">Loading</p>

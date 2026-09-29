@@ -1,14 +1,15 @@
-import { useState, useMemo, useEffect, useRef } from "react";
+import { Fragment, useState, useMemo, useEffect, useRef } from "react";
 import { flushSync } from "react-dom";
 import { useReactTable, getCoreRowModel, getSortedRowModel, getPaginationRowModel, flexRender } from "@tanstack/react-table";
-import { listPrintColumns, listPrintName, listPrintRows, listScope, saveCsv } from "./lib/format";
+import { listPrintColumns, listPrintName, listPrintRows, listScope, orderPhrase, saveCsv } from "./lib/format";
 import { useAdvanced } from "./useAdvanced";
 import { useMeta, useMode } from "./useMeta";
 import { passesFilters, sortPlaces, shownPoints, lastVisitStale, flagWindowNote } from "./lib/filters";
 import { StaleBadge } from "./PlaceParts";
-import { FLAG_LABELS, factTags, typeLabel, visitPhrase } from "./lib/inspections";
+import { ESCALATION_CAVEAT, ESCALATION_FLAGS, FLAG_LABELS, factTags, typeLabel, visitPhrase, visitShort } from "./lib/inspections";
 import { gradeView } from "./lib/grades";
 import { markFor, shownBand } from "./lib/marks";
+import { bandDefs, bandSummary } from "./lib/bands";
 import { searchPlaces } from "./lib/search";
 import { fmtDate, fmtShort } from "./lib/dates";
 import { gradeContextSentence } from "./lib/framing";
@@ -19,47 +20,100 @@ const PAGE_SIZE = 50;
 const DRAWER_HEIGHT = "44vh";
 const TOGGLE_HEIGHT = 40;
 
-/**
- * The columns, all from the index. `bands` mode leads with the band and the
- * points (where the export gives them); `record` mode has neither. There is
- * no position column in any mode. The grade is gradeView's, as everywhere.
- * The place's kind sits under its name, with its address. A last visit more
- * than a year before the record's end carries a badge; a visit type that is
- * our reading of the County's says so (visitPhrase). In the full-page list
- * (`inline`, the staff site) the last visit and the facts give way on narrower
- * screens, the facts then shown under the place's name, so the table never
- * scrolls sideways.
- */
 const factsText = (p) => (p.flags ?? []).map((k) => FLAG_LABELS[k] ?? k).join("; ");
 
-// In the list, a City address without the city and state every row repeats ("1250 J ST, 92101"); the
-// place's own view gives it in full, and an address anywhere else is left whole.
-const listAddress = (a) => String(a ?? "").replace(/,\s*SAN DIEGO,\s*CA\b\s*/i, ", ");
+/**
+ * In the list, a City address without the city, the state and the ZIP's last four, which every row
+ * repeats or which split the line ("1250 J ST, 92101"); the place's own view gives it in full, and an
+ * address outside the City keeps its town.
+ */
+export const listAddress = (a) => String(a ?? "").replace(/,\s*SAN DIEGO,\s*CA\b\s*/i, ", ").replace(/(\d{5})-\d{4}\s*$/, "$1");
+
+/** Where a list's facts sit, for its closing note: the drawer's and the printout's last column. */
+export const FACTS_IN_LAST_COLUMN = "The last column is";
+/** The staff list's facts, in their last column on a wide screen and under each place's name otherwise. */
+export const FACTS_EITHER_PLACE = "The facts (in the last column on a wide screen, or under each place’s name) are";
+/** The staff list's facts beside an open place: always under each place's name. */
+export const FACTS_UNDER_NAME = "The facts under each place’s name are";
 
 /**
- * The facts as short tags (lib/inspections.js factTags), each with its full wording for screen readers
- * and on hover, the escalation facts outlined in ink, and the themes of the majors in one line.
+ * The list's closing note on its facts: where they sit (`where`), that they are our reading and of
+ * which months, and, when an escalation fact is among `keys`, that meeting one is not a County finding.
  */
-function FactTags({ flags, className = "" }) {
+export function factsNote(where, keys = []) {
+  const esc = keys.some((k) => ESCALATION_FLAGS.includes(k));
+  return `${where} ${flagWindowNote(keys).replace(/^Our/, "our")}${esc ? ` ${ESCALATION_CAVEAT}` : ""}`;
+}
+
+/**
+ * The facts as a line of text (lib/inspections.js factTags), in a few words each, separated by dots:
+ * the escalation facts in ink and semibold, then the themes of the majors on one line of their own.
+ * Each fact's full wording is given to screen readers and as a tooltip; the place's own view gives
+ * every fact and theme in full. Under a place's name (`label`) the facts are marked "Our reading:",
+ * as the facts column's heading marks them.
+ */
+function FactTags({ flags, label = false, className = "" }) {
   const t = factTags(flags);
-  if (!t.record.length && !t.escalation.length && !t.themes.length) return null;
-  const tag = (x, strong) => (
-    <span key={x.key} title={x.full} className={`inline-block border px-1.5 py-px text-[11.5px] leading-[1.35] ${strong ? "border-ink text-ink" : "border-rule-strong text-ink-2"}`}>
-      <span aria-hidden="true">{x.short}</span>
-      <span className="sr-only">{x.full}.</span>
-    </span>
-  );
+  const items = [...t.record.map((x) => ({ ...x, strong: false })), ...t.escalation.map((x) => ({ ...x, strong: true }))];
+  if (!items.length && !t.themes.length) return null;
+  const lead = label ? <span className="text-ink-3">Our reading: </span> : null;
+  const themes = t.themes.join(", ");
   return (
-    <span className={`flex flex-wrap gap-1 ${className}`}>
-      {t.record.map((x) => tag(x, false))}
-      {t.escalation.map((x) => tag(x, true))}
-      {t.themes.length > 0 && <span title={`Majors: ${t.themes.join(", ")}`} className="line-clamp-2 w-full text-[12px] leading-snug text-ink-2">Majors: {t.themes.join(", ")}</span>}
+    <span className={`block text-[12px] leading-snug text-ink-2 ${className}`}>
+      {items.length > 0 && (
+        <span className="block">
+          {lead}
+          {items.map((x, i) => (
+            <Fragment key={x.key}>
+              {i > 0 && <span aria-hidden="true"> &middot; </span>}
+              <span className={x.strong ? "font-semibold text-ink" : undefined}>
+                <span aria-hidden="true" title={x.full}>{x.short}</span>
+                <span className="sr-only">{x.full}.</span>
+              </span>
+            </Fragment>
+          ))}
+        </span>
+      )}
+      {themes && <span title={`Majors: ${themes}`} className="line-clamp-1">{items.length ? null : lead}Majors: {themes}</span>}
     </span>
   );
 }
 
-const makeColumns = ({ mode, meta, onSelect, inline = false }) => [
-  ...(mode === "bands"
+/**
+ * The columns, all from the index. `bands` mode leads with the band and the points (where the export
+ * gives them; the staff list puts both in one column); `record` mode has neither. There is no position
+ * column in any mode. The grade is gradeView's, as everywhere. The place's kind sits under its name,
+ * with its address; the name's button is the place's name, kind and address only, and carries the
+ * place's id and, for the open place, aria-current. A last visit more than a year before the record's
+ * end carries a badge; a visit type that is our reading of the County's says so (visitPhrase). In the
+ * full-page list (`inline`, the staff site) the last visit and the facts give way on narrower screens,
+ * and at every width while a place's panel stands beside the list (`beside`): the facts then sit
+ * under the place's name, marked "Our reading:", and so does the badge, so the table never scrolls
+ * sideways.
+ */
+const makeColumns = ({ mode, meta, onSelect, inline = false, beside = false }) => [
+  ...(mode === "bands" && inline
+    ? [
+        {
+          id: "band",
+          header: "Band, points",
+          // Band 1 first, and the most points first within a band, as the site orders the list.
+          accessorFn: (f) => (Number(shownBand(f.properties, { mode })) || 99) * 100000 - (shownPoints(f.properties, { mode }) ?? -1),
+          meta: { thWrap: true, td: "whitespace-nowrap" },
+          cell: ({ row }) => {
+            const p = row.original.properties;
+            const m = markFor(p, { mode });
+            const pts = shownPoints(p, { mode });
+            return (
+              <span className="tnum block">
+                {m.label && <span className="block font-semibold" style={{ color: m.text ?? undefined }}>{m.label}</span>}
+                {pts != null && <span className="block text-[12px] leading-snug text-ink">{pts} {pts === 1 ? "point" : "points"}</span>}
+              </span>
+            );
+          },
+        },
+      ]
+    : mode === "bands"
     ? [
         {
           id: "band",
@@ -85,17 +139,26 @@ const makeColumns = ({ mode, meta, onSelect, inline = false }) => [
     header: "Place",
     accessorFn: (f) => f.properties.name,
     meta: { td: "min-w-[12rem]" },
-    cell: ({ row, getValue }) => {
+    cell: ({ row, getValue, table }) => {
       const p = row.original.properties;
+      const selectedId = table.options.meta?.selectedId;
+      const on = selectedId != null && p.facility_id === selectedId;
       return (
-        <button
-          onClick={(e) => { e.stopPropagation(); onSelect(row.original); }}
-          className="block text-left hover:underline focus:underline"
-        >
-          <span className="block font-medium text-ink">{getValue()}</span>
-          <span className="block text-[12px] leading-snug text-ink-2">{typeLabel(p.facility_type)} &middot; {inline ? listAddress(p.address) : p.address}</span>
-          {inline && <FactTags flags={p.flags} className="mt-1 xl:hidden" />}
-        </button>
+        <>
+          <button
+            type="button"
+            data-place-id={p.facility_id}
+            aria-current={on ? "true" : undefined}
+            onClick={(e) => { e.stopPropagation(); onSelect(row.original); }}
+            className="block text-left hover:underline focus:underline"
+          >
+            <span className="block font-medium text-ink">{getValue()}</span>
+            <span className="block text-[12px] leading-snug text-ink-2">{typeLabel(p.facility_type)} &middot; {inline ? listAddress(p.address) : p.address}</span>
+          </button>
+          {/* Outside the button, so its name stays the place's; a click on them reaches the row. */}
+          {inline && <StaleBadge place={p} meta={meta} className={beside ? "mt-1" : "mt-1 lg:hidden"} />}
+          {inline && <FactTags flags={p.flags} label className={beside ? "mt-1" : "mt-1 xl:hidden"} />}
+        </>
       );
     },
   },
@@ -120,30 +183,50 @@ const makeColumns = ({ mode, meta, onSelect, inline = false }) => [
     id: "last",
     header: "Last visit",
     accessorFn: (f) => f.properties.last_visit?.date ?? "",
-    meta: { th: inline ? "hidden lg:table-cell" : "", td: inline ? "hidden min-w-[8rem] max-w-[11rem] lg:table-cell" : "whitespace-nowrap" },
+    meta: {
+      th: inline ? (beside ? "hidden" : "hidden lg:table-cell") : "",
+      td: inline ? (beside ? "hidden" : "hidden min-w-[8rem] max-w-[11rem] lg:table-cell") : "whitespace-nowrap",
+    },
     cell: ({ row }) => {
       const v = row.original.properties.last_visit;
       if (!v) return "";
       const stale = lastVisitStale(row.original.properties, meta) && <StaleBadge className="ml-1.5" />;
-      return inline ? (
+      if (!inline) {
+        return (
+          <span className="tnum">
+            {fmtShort(v.date)}, {visitPhrase(v)}
+            {stale}
+          </span>
+        );
+      }
+      // In the narrow column a visit we read is shortened, still marked; its full words go to screen readers.
+      const full = visitPhrase(v);
+      const short = visitShort(v);
+      return (
         <span className="tnum block">
           <span className="block">{fmtShort(v.date)}{stale}</span>
-          <span className="block text-[12px] leading-snug">{visitPhrase(v)}</span>
-        </span>
-      ) : (
-        <span className="tnum">
-          {fmtShort(v.date)}, {visitPhrase(v)}
-          {stale}
+          {short === full ? (
+            <span className="block text-[12px] leading-snug">{full}</span>
+          ) : (
+            <span className="block text-[12px] leading-snug">
+              <span aria-hidden="true" title={full}>{short}</span>
+              <span className="sr-only">{full}</span>
+            </span>
+          )}
         </span>
       );
     },
   },
   {
     id: "flags",
-    header: inline ? "Facts (our reading)" : "12 months before the list date (our reading)",
+    header: inline ? "Facts, 12 months before the list date (our reading)" : "12 months before the list date (our reading)",
     accessorFn: (f) => (f.properties.flags ?? []).length,
     enableSorting: false,
-    meta: { th: inline ? "hidden xl:table-cell" : "", td: inline ? "hidden w-[24rem] min-w-[16rem] xl:table-cell" : "min-w-[10rem] max-w-[20rem]" },
+    meta: {
+      thWrap: inline,
+      th: inline ? (beside ? "hidden" : "hidden xl:table-cell") : "",
+      td: inline ? (beside ? "hidden" : "hidden min-w-[14rem] xl:table-cell") : "min-w-[10rem] max-w-[20rem]",
+    },
     cell: ({ row }) => (inline
       ? <FactTags flags={row.original.properties.flags} />
       : <span className="text-[12px] leading-snug text-ink-2">{factsText(row.original.properties)}</span>),
@@ -154,14 +237,31 @@ const makeColumns = ({ mode, meta, onSelect, inline = false }) => [
  * The list of the places the filters leave, with a filter by name or street, sorting by any column,
  * pages of 50, a printout of every row and a CSV of every row. Two layouts: a drawer under the map with
  * its own toggle (the public site), or `inline`, the whole of its container (the staff site's List
- * view), where selecting anywhere on a row opens the place and the open place's row is marked.
+ * view), where selecting anywhere on a row opens the place and the open place's row is marked. Inline:
+ *  - `active`: false while another view shows; the list then counts as closed (a print is not its
+ *    printout, and the print log is not told it is);
+ *  - `beside`: a place's panel stands beside the list, which folds its last visit and its facts under
+ *    each place's name at every width;
+ *  - `onShowSummary`: in `bands` mode, the line on band 1's rate links to the view with every band's;
+ *  - `selectedId`: the open place, whose row and name are marked.
  */
-export default function PlaceTable({ facilities, filters, onSelect, openKey = null, openWhen = false, inline = false, selectedId = null }) {
+export default function PlaceTable({
+  facilities,
+  filters,
+  onSelect,
+  openKey = null,
+  openWhen = false,
+  inline = false,
+  active = true,
+  beside = false,
+  selectedId = null,
+  onShowSummary = null,
+}) {
   const { advanced } = useAdvanced();
   const meta = useMeta();
   const mode = useMode();
   const [drawerOpen, setOpen] = useState(Boolean(openKey));
-  const open = inline || drawerOpen;
+  const open = inline ? active : drawerOpen;
   // Each time the address asks for the list (?list, a new key each time), it opens.
   useEffect(() => { if (openKey) setOpen(true); }, [openKey]);
   // When the map cannot load, the list opens in its place.
@@ -170,7 +270,7 @@ export default function PlaceTable({ facilities, filters, onSelect, openKey = nu
   const [sorting, setSorting] = useState([]);
   const [globalFilter, setGlobalFilter] = useState("");
   const select = (f) => { onSelect(f); if (!inline) setOpen(false); };
-  const columns = useMemo(() => makeColumns({ mode, meta, onSelect: select, inline }), [mode, meta, onSelect, inline]);
+  const columns = useMemo(() => makeColumns({ mode, meta, onSelect: select, inline, beside }), [mode, meta, onSelect, inline, beside]);
 
   // The site's order (band, then points, then name; or name) until a header is chosen.
   const rowsIn = useMemo(() => {
@@ -179,10 +279,15 @@ export default function PlaceTable({ facilities, filters, onSelect, openKey = nu
     if (!globalFilter.trim()) return feats;
     return searchPlaces(feats, globalFilter, feats.length);
   }, [facilities, filters, globalFilter, mode]);
+  // Every fact any listed place carries, for the closing note.
+  const listFlags = useMemo(() => [...new Set(rowsIn.flatMap((f) => f.properties.flags ?? []))], [rowsIn]);
 
   const table = useReactTable({
     data: rowsIn,
     columns,
+    // A row is its place, not its position: a search or a filter that hides a place removes its row.
+    getRowId: (f) => String(f.properties.facility_id),
+    meta: { selectedId },
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
@@ -243,6 +348,10 @@ export default function PlaceTable({ facilities, filters, onSelect, openKey = nu
     window.print();
   }
 
+  // One phrase for the list's order, on screen (the caption) and on paper.
+  const order = orderPhrase({ sorting, search: globalFilter, mode });
+  const bandLine = inline && mode === "bands" && bandDefs(meta).length > 0;
+
   return (
     <>
       {printing && (
@@ -252,7 +361,7 @@ export default function PlaceTable({ facilities, filters, onSelect, openKey = nu
           mode={mode}
           filters={filters}
           search={globalFilter}
-          sorted={sorting.length > 0}
+          order={order}
         />
       )}
 
@@ -301,9 +410,24 @@ export default function PlaceTable({ facilities, filters, onSelect, openKey = nu
           </button>
         </div>
 
+        {/* What a band is, as a group rate, where the list opens; every band's rate is on the Summary view. */}
+        {bandLine && (
+          <p className="shrink-0 border-b border-rule px-5 py-2 text-[12.5px] leading-[1.45] text-ink-2">
+            {bandSummary(meta, "1")}
+            {onShowSummary && (
+              <>
+                {" "}
+                <button type="button" onClick={onShowSummary} className="whitespace-nowrap border-b border-ink/25 text-ink-2 hover:border-ink hover:text-ink">
+                  Every band&rsquo;s rate: Summary
+                </button>
+              </>
+            )}
+          </p>
+        )}
+
         <div className="flex-1 overflow-auto">
           <table className="w-full text-sm">
-            <caption className="sr-only">Listed places{mode === "bands" ? ", by band, then points, then name" : ", by name"}. Select a place&rsquo;s name to open it.</caption>
+            <caption className="sr-only">Listed places, {order}. Select a place&rsquo;s name to open it.</caption>
             <thead className="sticky top-0 border-b border-rule-strong bg-paper">
               {table.getHeaderGroups().map((hg) => (
                 <tr key={hg.id}>
@@ -311,8 +435,9 @@ export default function PlaceTable({ facilities, filters, onSelect, openKey = nu
                     const canSort = header.column.getCanSort();
                     const dir = header.column.getIsSorted();
                     const label = flexRender(header.column.columnDef.header, header.getContext());
+                    const colMeta = header.column.columnDef.meta;
                     return (
-                      <th key={header.id} scope="col" aria-sort={dir === "asc" ? "ascending" : dir === "desc" ? "descending" : canSort ? "none" : undefined} className={`label whitespace-nowrap px-4 py-2.5 text-left first:pl-5 ${header.column.columnDef.meta?.th ?? ""}`}>
+                      <th key={header.id} scope="col" aria-sort={dir === "asc" ? "ascending" : dir === "desc" ? "descending" : canSort ? "none" : undefined} className={`label px-4 py-2.5 text-left align-bottom first:pl-5 ${colMeta?.thWrap ? "" : "whitespace-nowrap"} ${colMeta?.th ?? ""}`}>
                         {canSort ? (
                           <button onClick={header.column.getToggleSortingHandler()} className="label inline-flex items-center gap-1 hover:text-ink">
                             {label}
@@ -327,16 +452,16 @@ export default function PlaceTable({ facilities, filters, onSelect, openKey = nu
             </thead>
             <tbody>
               {rows.map((row) => {
+                // The open place's row: its background and, since that is faint on paper, an ink bar at its left edge.
                 const on = selectedId != null && row.original.properties.facility_id === selectedId;
                 return (
                   <tr
                     key={row.id}
                     onClick={inline ? () => select(row.original) : undefined}
-                    aria-current={on ? "true" : undefined}
                     className={`border-b border-rule align-top ${inline ? "cursor-pointer" : ""} ${on ? "bg-paper-edge" : "hover:bg-paper-sunk"}`}
                   >
                     {row.getVisibleCells().map((cell) => (
-                      <td key={cell.id} className={`px-4 py-2 text-[13px] text-ink-2 first:pl-5 ${cell.column.columnDef.meta?.td ?? "whitespace-nowrap"}`}>
+                      <td key={cell.id} className={`px-4 py-2 text-[13px] text-ink-2 first:pl-5 ${on ? "first:shadow-[inset_3px_0_0_#17150F]" : ""} ${cell.column.columnDef.meta?.td ?? "whitespace-nowrap"}`}>
                         {flexRender(cell.column.columnDef.cell, cell.getContext())}
                       </td>
                     ))}
@@ -352,13 +477,13 @@ export default function PlaceTable({ facilities, filters, onSelect, openKey = nu
           )}
           {total > 0 && (
             <p className="px-5 py-3 text-[13px] leading-[1.5] text-ink-2">
-              Grades are the County&rsquo;s latest on record for each place. {gradeContextSentence(meta)} The last column is{" "}
-              {flagWindowNote(rowsIn.flatMap((f) => f.properties.flags ?? [])).replace(/^Our/, "our")}
+              Grades are the County&rsquo;s latest on record for each place. {gradeContextSentence(meta)}{" "}
+              {factsNote(!inline ? FACTS_IN_LAST_COLUMN : beside ? FACTS_UNDER_NAME : FACTS_EITHER_PLACE, listFlags)}
             </p>
           )}
         </div>
 
-        <div className="flex shrink-0 items-center justify-between border-t border-rule px-5 py-2 text-[13px] text-ink-2">
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-1 border-t border-rule px-5 py-2 text-[13px] text-ink-2">
           <span>{total === 0 ? "No results" : `${start} to ${end} of ${total.toLocaleString()}`}</span>
           <div className="flex items-center gap-2">
             <span>Page {pageCount === 0 ? "0" : pageIndex + 1} of {pageCount}</span>
@@ -376,10 +501,12 @@ export default function PlaceTable({ facilities, filters, onSelect, openKey = nu
 }
 
 /**
- * The list on paper (print only): what it holds and when it was drawn up, the use rule on the staff
- * site (the invented-sample and student notes elsewhere), and every row, in the list's order.
+ * The list on paper (print only): what it holds, in which order (`order`, the caption's phrase) and
+ * when it was drawn up, the use rule on the staff site (the invented-sample and student notes
+ * elsewhere), in `bands` mode each printed band's rate as a group, then every row, in the list's order,
+ * and what the grades and the facts are.
  */
-function ListPrintout({ features, meta, mode, filters, search, sorted }) {
+export function ListPrintout({ features, meta, mode, filters, search = "", order }) {
   const n = features.length;
   const cols = listPrintColumns({ mode });
   const rows = listPrintRows(features, { meta, mode });
@@ -388,15 +515,19 @@ function ListPrintout({ features, meta, mode, filters, search, sorted }) {
     meta?.inspections_through && `inspections through ${fmtDate(meta.inspections_through)}`,
     meta?.expires && `do not use after ${fmtDate(meta.expires)}`,
   ].filter(Boolean).join("; ");
-  const order = sorted ? "in the order chosen on screen" : mode === "bands" ? "by band, then points, then name" : "by name";
+  const bands = mode === "bands"
+    ? [...new Set(features.map((f) => shownBand(f.properties, { mode })).filter(Boolean))].sort((a, b) => Number(a) - Number(b))
+    : [];
+  const flags = [...new Set(features.flatMap((f) => f.properties.flags ?? []))];
   return (
     <section className="print-only print-list w-full px-1 py-2 text-[10.5px] leading-[1.35] text-ink">
       <h2 className="font-serif text-[17px] font-medium">{SITE.siteTitle}: the listed places</h2>
-      <p className="mt-1">{listScope(filters, { mode, search })} {n.toLocaleString()} {n === 1 ? "place" : "places"}, {order}.</p>
+      <p className="mt-1">{listScope(filters, { mode, search })} {n.toLocaleString()} {n === 1 ? "place" : "places"}, {order ?? orderPhrase({ search, mode })}.</p>
       {dates && <p className="mt-0.5">{dates}.</p>}
       <p className="mt-0.5">
         {isStaff(meta) ? `${USE_NOTE} ${PUBLIC_RECORD_NOTE}` : `${meta?.sample ? "Every place, address and figure in it is invented. " : ""}${STUDENT_NOTE}`}
       </p>
+      {bands.length > 0 && <p className="mt-0.5">{bands.map((b) => bandSummary(meta, b)).join(" ")}</p>}
       <table className="mt-2 w-full border-collapse text-left">
         <thead>
           <tr className="border-b border-ink">
@@ -413,8 +544,7 @@ function ListPrintout({ features, meta, mode, filters, search, sorted }) {
       </table>
       {n > 0 && (
         <p className="mt-2">
-          Grades are the County&rsquo;s latest on record for each place. {gradeContextSentence(meta)} The last column is{" "}
-          {flagWindowNote(features.flatMap((f) => f.properties.flags ?? [])).replace(/^Our/, "our")}
+          Grades are the County&rsquo;s latest on record for each place. {gradeContextSentence(meta)} {factsNote(FACTS_IN_LAST_COLUMN, flags)}
         </p>
       )}
     </section>

@@ -151,3 +151,33 @@ test("the printout's head says what the list holds, and its log name says so wit
   assert.equal(listPrintName(m, {}, { search: "taco" }), "list food-inspection-record-2026-09-29, searched");
   assert.doesNotMatch(listPrintName(m, {}, { search: "taco" }), /taco/);
 });
+
+test("the printout marks a visit type that is our reading, as the screen does", async () => {
+  const { listPrintRows } = await import("../src/lib/format.js");
+  const { visitPhrase } = await import("../src/lib/inspections.js");
+  const at = (last_visit) => listPrintRows([{ properties: { ...feature.properties, last_visit } }], { meta })[0][4];
+  assert.equal(at({ date: "2026-06-08", type: "followup" }), "Jun 2026, re-grade or reopening visit (our reading)");
+  assert.equal(at({ date: "2026-06-08", type: "complaint", county_type: "Environmental" }), "Jun 2026, complaint or other field visit (our reading; County type: Environmental)");
+  assert.equal(at({ date: "2026-02-08", type: "reinspection" }), "Feb 2026, reinspection", "the County's own type is unmarked");
+  assert.equal(at({ date: "2025-01-10", type: "complaint" }), "Jan 2025, complaint or other field visit (our reading) (last visit over a year ago)", "the stale mark stays");
+  for (const type of ["routine", "reinspection", "followup", "complaint", "status_check"]) {
+    const v = { date: "2026-06-08", type };
+    assert.equal(at(v), `Jun 2026, ${visitPhrase(v)}`, `${type}: paper and screen say the same`);
+  }
+});
+
+test("one phrase for the list's order, on screen and on paper: the columns chosen, else a search's, else the site's", async () => {
+  const { orderPhrase } = await import("../src/lib/format.js");
+  assert.equal(orderPhrase(), "by name");
+  assert.equal(orderPhrase({ mode: "bands" }), "by band, then points, then name");
+  assert.equal(orderPhrase({ mode: "bands", search: "  " }), "by band, then points, then name", "a blank search changes nothing");
+  assert.equal(orderPhrase({ mode: "bands", search: "taco" }), "closest match first, then by name");
+  assert.equal(orderPhrase({ mode: "bands", search: "taco", sorting: [{ id: "name", desc: false }] }), "by name, A to Z", "a header chosen wins");
+  assert.equal(orderPhrase({ sorting: [{ id: "last", desc: true }] }), "by the date of the last visit, newest first");
+  assert.equal(orderPhrase({ sorting: [{ id: "grade", desc: false }] }), "by the date of the latest grade, oldest first", "the grade column sorts by date, and says so");
+  assert.equal(orderPhrase({ sorting: [{ id: "band", desc: false }] }), "by band and points, band 1 first");
+  assert.equal(orderPhrase({ sorting: [{ id: "band", desc: true }, { id: "district", desc: false }] }),
+    "by band and points, places in no band first, then by council district, lowest first", "several columns, in order");
+  assert.equal(orderPhrase({ sorting: [{ id: "points", desc: true }] }), "by points, most first");
+  assert.equal(orderPhrase({ sorting: [{ id: "mystery", desc: true }] }), "by mystery, descending", "an unknown column still says something true");
+});

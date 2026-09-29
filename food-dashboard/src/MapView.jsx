@@ -135,22 +135,25 @@ export default function MapView({
     overlay.setProps({ layers });
   }, [shown, mapReady, onSelect, pointOverlay, mode]);
 
+  // The address, then the open place (so the place wins when both are set). Each runs again once the
+  // map exists: a place or an address chosen before the map loaded (the staff site's List, a deep link)
+  // is moved to when it arrives.
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !pointOverlay?.point) return;
+    if (!mapReady || !map || !pointOverlay?.point) return;
     const [lng, lat] = pointOverlay.point;
     map.panTo({ lat, lng });
     map.setZoom(15);
-  }, [pointOverlay]);
+  }, [pointOverlay, mapReady]);
 
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !selected) return;
+    if (!mapReady || !map || !selected) return;
     const [lng, lat] = selected.geometry.coordinates;
     map.panTo({ lat, lng });
     if (map.getZoom() < FLY_ZOOM) map.setZoom(FLY_ZOOM);
     if (selectionOffsetY) map.panBy(0, selectionOffsetY);
-  }, [selected, selectionOffsetY]);
+  }, [selected, selectionOffsetY, mapReady]);
 
   useEffect(() => {
     return () => {
