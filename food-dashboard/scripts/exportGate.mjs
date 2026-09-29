@@ -20,6 +20,12 @@
  *     tests/test_publish_city_site.py checks this public repository never contains it.
  *     The staff build also stops unless its meta.json is the staff copy (audience "staff") with a
  *     sunset date that has not passed: the same conditions under which server.mjs closes the site.
+ *
+ * The public build's owner route: its privacy page promises an owner or manager an email address to
+ * ask whether their business is on the staff site (VITE_OWNER_CONTACT, set on the host, never in the
+ * repository). A public build on the host (Render sets RENDER=true), or one run with
+ * SDFOOD_REQUIRE_OWNER_CONTACT=1, stops without an email address there; a local, test or review build
+ * only warns. The staff build carries its contact in meta.json and is not asked.
  */
 import { spawnSync } from "node:child_process";
 import { cpSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -67,11 +73,29 @@ export function staffProblems(dir, today = new Date().toISOString().slice(0, 10)
   return problems;
 }
 
+const EMAIL = /^[^\s@<>"]+@[^\s@<>"]+\.[^\s@<>"]+$/;
+
+/**
+ * Why a public build may not ship without the owner route, or null when it may: `{level, message}`,
+ * "error" on the host (RENDER=true) or with SDFOOD_REQUIRE_OWNER_CONTACT=1, "warn" elsewhere. Null for
+ * the staff build and a review build, and whenever `contact` is an email address.
+ */
+export function ownerContactProblem(env = process.env, contact = env.VITE_OWNER_CONTACT, { staff = false, review = false } = {}) {
+  if (staff || review) return null;
+  const c = typeof contact === "string" ? contact.trim() : "";
+  if (EMAIL.test(c)) return null;
+  const what = c ? `VITE_OWNER_CONTACT is ${JSON.stringify(c)}, not an email address` : "VITE_OWNER_CONTACT is not set";
+  const message = `${what}: the privacy page promises owners an email route to ask about the staff site. ` +
+    "Set it in the host's environment to the corrections contact in docs/STAFF_APPROVAL.json, then rebuild.";
+  const deployed = env.RENDER === "true" || env.SDFOOD_REQUIRE_OWNER_CONTACT === "1";
+  return { level: deployed ? "error" : "warn", message };
+}
+
 export default function exportGate(env = process.env, root = join(scripts, "..")) {
   const external = env.SDFOOD_SITE_DATA ? resolve(env.SDFOOD_SITE_DATA) : null;
   const review = env.SDFOOD_SITE_REVIEW === "1";
   const staff = existsSync(join(root, STAFF_MARKER));
-  let publicDir, outDir;
+  let publicDir, outDir, fileEnv = {};
   return {
     name: "sdfood-export-gate",
     apply: "build",
@@ -81,6 +105,7 @@ export default function exportGate(env = process.env, root = join(scripts, "..")
     configResolved(config) {
       publicDir = config.publicDir;
       outDir = resolve(config.root, config.build.outDir);
+      fileEnv = config.env ?? {};                         // the VITE_ variables, .env files included
     },
     buildStart() {
       const dir = external ?? (publicDir ? join(publicDir, "data") : null);
@@ -88,6 +113,9 @@ export default function exportGate(env = process.env, root = join(scripts, "..")
       const problems = checkExport(dir, { review: review || staff });
       if (staff) problems.push(...staffProblems(dir));
       if (problems.length) this.error(`the export at ${dir} may not ship:\n${problems.join("\n")}`);
+      const owner = ownerContactProblem(env, env.VITE_OWNER_CONTACT ?? fileEnv.VITE_OWNER_CONTACT, { staff, review });
+      if (owner?.level === "error") this.error(`the public build may not ship: ${owner.message}`);
+      if (owner) this.warn?.(owner.message);
     },
     closeBundle() {
       if (external) {

@@ -1,5 +1,6 @@
 """api/main.py: keys, filters, a place's record, districts, results, worklists, CSV and reload, on a
-small export in the contract's shape (docs/FOOD_DATA_CONTRACT.md)."""
+small export in the contract's shape (docs/FOOD_DATA_CONTRACT.md); and a deployed image's release record,
+past whose sunset (or without the City's answer) no data is served."""
 import csv
 import io
 import json
@@ -72,6 +73,10 @@ def test_health_and_docs_are_open_but_data_needs_a_key(client, monkeypatch):
     assert client.get("/health").json()["build"] == "forward_2026-09-20-20260924T213000Z"
     assert client.get("/docs").status_code == 200
     assert client.get("/openapi.json").json()["info"]["title"] == "San Diego Food Inspection API"
+    # the site's one disclaimer, word for word: it names the City as well as the County
+    site = (api.ROOT / "food-dashboard" / "src" / "site.js").read_text(encoding="utf-8")
+    assert f'STUDENT_NOTE = "{api.STUDENT_NOTE}"' in site
+    assert client.get("/openapi.json").json()["info"]["description"].endswith(api.STUDENT_NOTE)
     for path in ("/v1/summary", "/v1/facilities", "/v1/facilities/DEH-1", "/v1/districts", "/v1/worklists", "/v1/results"):
         assert client.get(path).status_code == 401, path
         assert client.get(path, headers={"X-API-Key": "wrong"}).status_code == 401, path
@@ -141,3 +146,50 @@ def test_stale_data_is_flagged_and_reload_picks_up_changes(client):
     assert client.post("/v1/admin/reload", headers=H).json()["status"] == "reloaded"
     r = client.get("/v1/facilities", headers=H)
     assert r.json()["stale"] is True and r.headers["X-Data-Stale"] == "true"
+
+
+def _release(client, **release):
+    (client.site / "api_release.json").write_text(json.dumps(release), encoding="utf-8")
+    api.get_store.cache_clear()
+
+
+def test_past_its_sunset_a_deployed_image_serves_no_data(client):
+    _release(client, sunset="2999-12-31", access_approved=True, held=[])
+    h = client.get("/health").json()
+    assert h["sunset"] == "2999-12-31" and h["closed"] is None
+    assert client.get("/v1/facilities", headers=H).status_code == 200
+    _release(client, sunset="2020-01-01", access_approved=True, held=[])
+    assert client.get("/health").json()["closed"] == "its sunset date, 2020-01-01, has passed"
+    for path in ("/v1/summary", "/v1/facilities", "/v1/facilities/DEH-1", "/v1/districts", "/v1/worklists",
+                 "/v1/worklists/2026-10/districts/3", "/v1/export.csv", "/v1/results"):
+        r = client.get(path, headers=H)
+        assert r.status_code == 503 and "sunset date, 2020-01-01, has passed" in r.json()["detail"], path
+    assert client.post("/v1/admin/reload", headers=H).status_code == 503
+    assert client.get("/v1/summary").status_code == 401, "a key is still checked first"
+
+
+def test_the_sunset_is_san_diegos_date(monkeypatch):
+    assert api.closed_reason({"sunset": "2027-06-30", "access_approved": True}, "2027-06-30") is None, "open through the day"
+    assert api.closed_reason({"sunset": "2027-06-30", "access_approved": True}, "2027-07-01")
+    assert len(api.san_diego_today()) == 10
+
+
+def test_an_image_without_the_citys_answer_or_a_readable_release_serves_no_data(client):
+    for release, why in [({"sunset": "2999-12-31", "access_approved": False}, "TRUST Ordinance answer"),
+                         ({"access_approved": True}, "no sunset date"), ({"sunset": "soon", "access_approved": True}, "no sunset")]:
+        _release(client, **release)
+        r = client.get("/v1/facilities", headers=H)
+        assert r.status_code == 503 and why in r.json()["detail"], release
+    (client.site / "api_release.json").write_text("{not json", encoding="utf-8")
+    api.get_store.cache_clear()
+    assert client.get("/v1/facilities", headers=H).status_code == 503
+    assert "cannot be read" in client.get("/health").json()["closed"]
+    (client.site / "api_release.json").unlink()
+    api.get_store.cache_clear()
+    assert client.get("/v1/facilities", headers=H).status_code == 200, "a local run, with no release record, is open"
+
+
+def test_the_csv_says_what_the_band_and_points_are(client):
+    rows = list(csv.DictReader(io.StringIO(client.get("/v1/export.csv", headers=H).text)))
+    assert all(r["about_band_points"] == api.POINT_RULE_NOTE for r in rows)
+    assert "not a County grade or rating" in api.POINT_RULE_NOTE and "students' point rule" in api.POINT_RULE_NOTE

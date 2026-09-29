@@ -6,10 +6,13 @@
 //                  python -c "import secrets; print(secrets.token_urlsafe(24))"). Remove a person's entry the day
 //                  they leave: the change restarts the service, which signs everyone out, and that person cannot
 //                  sign in again. Every data request is logged with the user name, so Render's log is an access log.
-//   SITE_PASSWORD  the older shared sign-in (user SITE_USER, default "city"), 16+ characters; while migrating
+//   SITE_PASSWORD  the operator's own older sign-in, 16+ characters, never given to anyone: City staff each
+//                  get a SITE_USERS id. Remove it once the operator's own SITE_USERS id works; while it is set
+//                  alongside SITE_USERS the server logs a warning at startup.
+//   SITE_USER      the SITE_PASSWORD sign-in's user name (default "city")
 //   SITE_OPERATORS the ids that see the named list before the City's request and TRUST answer are on record
-//                  (meta.access_approved). Unset: the shared sign-in's user, but only while it is the only
-//                  sign-in (no SITE_USERS); once personal sign-ins exist, name the operators explicitly.
+//                  (meta.access_approved), comma-separated. Unset: the SITE_PASSWORD sign-in, but only while it
+//                  is the only sign-in (no SITE_USERS); once personal sign-ins exist, name the operators here.
 //   SITE_CONTACT   who to ask for access, shown on the sign-in page (for example "Jane Doe, jane@example.org")
 //   PORT           set by Render
 // For the tests only (leave them unset on Render):
@@ -84,7 +87,7 @@ const STYLE =
   "input{box-sizing:border-box;width:100%;padding:.55rem;font:inherit;border:1px solid #8a8a86;border-radius:4px;background:#fff}" +
   "button{margin-top:1.5rem;padding:.6rem 1.4rem;font:inherit;font-weight:600;border:0;border-radius:4px;" +
   "background:#1d1d1b;color:#fff;cursor:pointer}.note{margin:0 0 1rem;padding:.6rem .8rem;border-left:4px solid #1d1d1b;" +
-  "background:#fff}.bad{border-color:#b3261e}.contact{margin-top:2rem;color:#555}";
+  "background:#fff}.bad{border-color:#b3261e}.contact{margin-top:2rem;color:#555}.log{margin-top:1.5rem;font-size:.85rem;color:#555}";
 const PAGE_CSP = `default-src 'none'; style-src 'sha256-${createHash("sha256").update(STYLE).digest("base64")}'; ` +
   "form-action 'self'; frame-ancestors 'none'; base-uri 'none'";
 const TITLE = "Food Inspection Record: student analysis for City staff";
@@ -97,16 +100,34 @@ function sendPage(req, res, status, title, body, headers = {}) {
     `<meta name="robots" content="noindex, nofollow"><title>${esc(title)}</title><style>${STYLE}</style><main>${body}</main></html>`);
 }
 
+// What the site records, said where a record is first made: the sign-in page (and its 401 and 429 answers)
+// and the Withheld page, which is all a sign-in sees before the City's request is on record.
+const LOG_NOTICE = "This site keeps a log, under your sign-in id, of each sign-in and sign-out with your network " +
+  "address; of each sign-in that is refused, with the address (and the id typed, only when it is one of this " +
+  "site's ids); and of each place or list opened, downloaded or printed. The site's operator, and anyone with " +
+  "access to its hosting account, can read that log. During a pilot it may be used, by sign-in id, in the " +
+  "pilot's analysis.";
+const logNotice = () => `<p class="log">${esc(LOG_NOTICE)}</p>`;
+// The site's one disclaimer, word for word (food-dashboard/src/site.js STUDENT_NOTE): it names the City too.
+const STUDENT_NOTE = "Independent student project, not affiliated with or endorsed by the City of San Diego or the County of San Diego.";
+
+// The sign-ins are ids and tokens this site issues, never a City account: the page says so, so that no one
+// types a City network password into a student-run server.
 function loginForm({ next = "/", user = "", notice = "", bad = false } = {}) {
-  const contact = process.env.SITE_CONTACT ? `<p class="contact">For access, ask ${esc(process.env.SITE_CONTACT)}.</p>` : "";
-  return "<h1>Food Inspection Record</h1><p class=\"sub\">Student analysis for City of San Diego staff. Sign in with your City staff sign-in.</p>" +
+  const contact = process.env.SITE_CONTACT
+    ? `<p class="contact">For access, ask ${esc(process.env.SITE_CONTACT)}.</p>`
+    : '<p class="contact">No sign-in id yet? Ask the person who sent you this link. Do not try your City account.</p>';
+  return "<h1>Food Inspection Record</h1><p class=\"sub\">A student analysis offered to City of San Diego staff, not a " +
+    `City site. ${STUDENT_NOTE}</p><p class="sub">Sign in with the ` +
+    "sign-in id (such as u07) and access token this site's operator sent you. This is not your City network account: " +
+    "never enter your City user name or password here.</p>" +
     (notice ? `<p class="note${bad ? " bad" : ""}" role="${bad ? "alert" : "status"}">${esc(notice)}</p>` : "") +
     `<form method="post" action="/login"><input type="hidden" name="next" value="${esc(next)}">` +
-    `<label for="user">User name</label><input id="user" name="user" autocomplete="username" autocapitalize="none" ` +
+    `<label for="user">Sign-in id</label><input id="user" name="user" autocomplete="username" autocapitalize="none" ` +
     `spellcheck="false" required value="${esc(user)}"${user ? "" : " autofocus"}>` +
-    `<label for="password">Password</label><input id="password" name="password" type="password" ` +
+    `<label for="password">Access token</label><input id="password" name="password" type="password" ` +
     `autocomplete="current-password" required${user ? " autofocus" : ""}>` +
-    "<button type=\"submit\">Sign in</button></form>" + contact;
+    "<button type=\"submit\">Sign in</button></form>" + contact + logNotice();
 }
 
 // ── sign-in ─────────────────────────────────────────────────────────────────────────────
@@ -133,13 +154,22 @@ function parseUsers(env) {
 }
 
 const { users: USERS, weak: WEAK } = parseUsers(process.env);
-// Who may see the named list before the City has asked for it: SITE_OPERATORS (ids, comma-separated). By
-// default the older shared sign-in's user, but only while it is the only sign-in: once personal sign-ins
-// exist (SITE_USERS), whoever still holds the shared one is not assumed to be the operator.
-const OPERATORS = new Set((process.env.SITE_OPERATORS
-  ?? (process.env.SITE_PASSWORD && !(process.env.SITE_USERS || "").trim() ? process.env.SITE_USER || "city" : ""))
+// Who may see the named list before the City has asked for it: SITE_OPERATORS (ids, comma-separated). The
+// SITE_PASSWORD sign-in (user SITE_USER, default "city") is the operator's own older sign-in, never given to
+// anyone. With SITE_OPERATORS unset it is an operator only while it is the only sign-in (no SITE_USERS); once
+// personal sign-ins exist, the operators are the ids SITE_OPERATORS names.
+const OWN = process.env.SITE_PASSWORD ? process.env.SITE_USER || "city" : null;
+const PERSONAL = Boolean((process.env.SITE_USERS || "").trim());
+const OPERATORS = new Set((process.env.SITE_OPERATORS ?? (OWN && !PERSONAL ? OWN : ""))
   .split(",").map((u) => u.trim()).filter(Boolean));
 if (!OPERATORS.size) console.warn("no SITE_OPERATORS: until the City's request is on record, nobody sees the named list");
+if (OWN && PERSONAL) {
+  console.warn(`SITE_PASSWORD is set alongside SITE_USERS: it is the operator's own older sign-in (user ${OWN}), never ` +
+    `given to anyone, and ${OPERATORS.has(OWN) ? "SITE_OPERATORS names it an operator" : "it is not an operator"}. ` +
+    "Remove SITE_PASSWORD once your own SITE_USERS id works.");
+}
+const UNKNOWN_OPERATORS = [...OPERATORS].filter((u) => !USERS.has(u));
+if (UNKNOWN_OPERATORS.length) console.warn(`SITE_OPERATORS names ${UNKNOWN_OPERATORS.join(", ")}, which no sign-in has`);
 if (WEAK.length) {
   console.error(`refusing to start: the sign-in for ${WEAK.join(", ")} is shorter than ${MIN_SECRET} characters. ` +
     'Make one with: python -c "import secrets; print(secrets.token_urlsafe(24))"');
@@ -512,9 +542,10 @@ async function handle(req, res) {
   }
 
   // Until a City request and a TRUST Ordinance determination are on record (meta.access_approved), the
-  // named list is shown only to the site's operators (SITE_OPERATORS), who build and check it; a City
-  // sign-in issued early sees why, not the list (docs/STAFF_SITE.md, "Who may use it").
-  const withheld = !m.access_approved && !OPERATORS.has(s.user);
+  // named list is shown only to the site's operators (SITE_OPERATORS), who build and check it; a site
+  // sign-in issued early sees why, not the list (docs/STAFF_SITE.md, "Who may use it"). Only the value the
+  // publisher writes, true, opens it: "yes" or any other truthy value does not.
+  const withheld = m.access_approved !== true && !OPERATORS.has(s.user);
   if (withheld && path === "/data/meta.json") {           // the app can say why, but no per-place field leaves
     console.log(`withheld user=${s.user} ${path}`);
     const { corrections, ...rest } = m;                    // eslint-disable-line no-unused-vars
@@ -525,7 +556,7 @@ async function handle(req, res) {
     console.log(`withheld user=${s.user} ${path}`);
     return sendPage(req, res, 503, "Withheld", "<h1>Food Inspection Record</h1><p>The named list is withheld until the City " +
       "has recorded a request for this site and a TRUST Ordinance determination.</p>" +
-      '<form method="post" action="/logout"><button type="submit">Sign out</button></form>');
+      '<form method="post" action="/logout"><button type="submit">Sign out</button></form>' + logNotice());
   }
   if (path === "/audit") return allow(req, res, "POST") && audit(req, res, s.user);
   if (!allow(req, res, "GET", "HEAD")) return;
@@ -533,15 +564,29 @@ async function handle(req, res) {
   return serveFile(req, res, path, s.user);
 }
 
+/** The monitor's summary as the publisher shipped it (meta.monitor), or null for an older export. An alert
+ *  is any alert sentence, or a monitor that did not run for this list (status "failed"). */
+function monitorOf(m) {
+  const mon = m.monitor && typeof m.monitor === "object" && !Array.isArray(m.monitor) ? m.monitor : null;
+  const alert = Boolean(mon && (mon.status === "failed" || (Array.isArray(mon.alerts) && mon.alerts.length > 0)));
+  return { status: typeof mon?.status === "string" ? mon.status : null, alert };
+}
+
+// Open and carrying no data: which export, rule and server are live, and yes/no signals for the daily check
+// (city_site/watch.yml). The drift note and the monitor's alerts are said as booleans only; their text stays
+// behind the sign-in.
 async function healthz(req, res) {
   const m = await meta();
   const day = today();
+  const mon = monitorOf(m);
   return send(req, res, 200, { "Content-Type": "application/json", "Cache-Control": "no-store" }, JSON.stringify({
     ok: true, run: m.run ?? null, inspections_through: m.inspections_through ?? null, expires: m.expires ?? null,
     stale: Boolean(m.expires && day > m.expires), source: process.env.RENDER_GIT_COMMIT ?? null, server: SERVER_BUILD,
     sunset: m.sunset ?? null, closed: closedReason(m, day), refit_needed: !!m.drift?.refit_needed,
-    rule_version: m.frozen?.version ?? null, access_approved: !!m.access_approved,
-    named_list: m.access_approved ? "signed-in staff" : "operators only",
+    drift_note: typeof m.drift?.note === "string" && m.drift.note.trim() !== "",
+    monitor: mon.status, monitor_alert: mon.alert,
+    rule_version: m.frozen?.version ?? null, access_approved: m.access_approved === true,
+    named_list: m.access_approved === true ? "signed-in staff" : "operators only",
   }));
 }
 
@@ -572,7 +617,7 @@ async function login(req, res) {
   const now = Date.now();
   if (blocked(key, now)) {
     return sendPage(req, res, 429, TITLE, loginForm({ next, user, bad: true,
-      notice: "Too many failed sign-ins for this user name. Try again in 15 minutes." }), { "Retry-After": "900" });
+      notice: "Too many wrong sign-ins for this id from here. Try again in 15 minutes." }), { "Retry-After": "900" });
   }
   const over = recentFailures(now) > GLOBAL_FAILS;
   const busy = () => sendPage(req, res, 429, TITLE, loginForm({ next, user, bad: true,
@@ -582,9 +627,11 @@ async function login(req, res) {
   if (over && !(await slowTurn(ip))) return busy();
   if (!ok) {
     failed(key, now);
-    console.warn(`sign-in failed user=${JSON.stringify(clean(user, 100))} from ${clean(ip, 64)}`);
+    // The name typed is logged only when it is one of this site's ids: a City account name or an email typed
+    // here by mistake never reaches the log.
+    console.warn(`sign-in failed user=${USERS.has(user) ? JSON.stringify(clean(user, 100)) : "<not an id>"} from ${clean(ip, 64)}`);
     return sendPage(req, res, 401, TITLE, loginForm({ next, user, bad: true,
-      notice: "The user name or password is not right. Try again." }));
+      notice: "The sign-in id or access token is not right. Try again." }));
   }
   FAILS.delete(key);
   const old = cookie(req, COOKIE_NAME);

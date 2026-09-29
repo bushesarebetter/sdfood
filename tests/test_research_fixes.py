@@ -215,6 +215,52 @@ def test_within_window_spearman_sees_an_order_that_follows_x_and_none_that_does_
     assert lo0 < 0 < hi0                                   # an unrelated x: no ordering
 
 
+def _pull():
+    """An invented pull with the records the data rules now keep: a Self Closed routine with a major,
+    a closure only the County's reopening shows, a status check with items, an Environmental visit."""
+    def insp(day, kind="Routine", score="95", grade="A", status="Complete", viol=()):
+        return {"inspection_id": f"{day}-{kind}-{status}", "custom_id": "DEH2024-FFPP-000001", "type": kind, "score": score,
+                "grade": grade, "completed_date": day, "status": status,
+                "violations": [{"violation": t, "violation_accela": t, "status": s, "major_violation": "Y" if s.endswith("Major") else "N"}
+                               for t, s in viol]}
+    MAJ, PESTS = "Out of Compliance - Major", "23. No rodents, insects, birds or animals"
+    biz = [("1", [insp("2025-02-01"), insp("2025-10-17", score="0", grade="", status="Self Closed", viol=[(PESTS, MAJ)]),
+                  insp("2025-10-24", score="100")]),
+           ("2", [insp("2025-03-01", score="97"), insp("2026-03-03", score="0", grade="", viol=[(PESTS, MAJ)]),
+                  insp("2026-03-04", kind="Re-inspection", score="0", grade="", status="Approved to Reopen"),
+                  insp("2026-03-04", score="98")]),
+           ("3", [insp("2025-05-05", score="92"), insp("2025-06-01", kind="Status Verification", score="0", grade="",
+                                                       viol=[(PESTS, MAJ)]),
+                  insp("2025-07-01", kind="Environmental", score="0", grade=""), insp("2026-01-10", score="96")])]
+    return [{"business_id": int(b), "name": f"Invented {b}", "business_type": "Restaurant Food Facility", "address": f"{b} Test St",
+             "zip": "92101", "lat": "32.72", "long": "-117.16", "status": "Permit Renewed", "opened_date": "2015-01-01",
+             "inspections": ins} for b, ins in biz]
+
+
+def test_the_research_csv_carries_the_new_records_and_its_readers_still_work(tmp_path):
+    import fetch_sdfood as fs
+    out = tmp_path / "insp.csv"
+    fs.write_csv(_pull(), out=out)
+    csv = pd.read_csv(out)
+    assert {"county_type", "closure_inferred"} <= set(csv.columns)
+    by = {(r.business_id, r.completed_date, r.insp_type): r for r in csv.itertuples()}
+    assert by[(1, "2025-10-17", "Routine")].status == "Self Closed" and by[(1, "2025-10-17", "Routine")].closure_order == "health"
+    assert (1, "2025-10-24", "Follow-up") in by, "the routine a week after the operator's closure is its re-score"
+    assert bool(by[(2, "2026-03-03", "Routine")].closure_inferred) and by[(2, "2026-03-03", "Routine")].closure_order == "health"
+    assert (3, "2025-06-01", "Status Verification") in by, "a kept status check has its own name"
+    assert (3, "2025-07-01", "Environmental") in by, "a complaint visit keeps the County's own type"
+    insp = mf.load(str(out))
+    assert "Status Verification" not in set(insp["insp_type"]), "status checks are shown on the site, never read"
+    rated = {(b, d.strftime("%Y-%m-%d"), t): r for b, d, t, r in
+             zip(insp["business_id"], insp["completed_date"], insp["insp_type"], insp["rated_score"])}
+    assert rated[(1, "2025-10-17", "Routine")] == rated[(2, "2026-03-03", "Routine")] == es.CLOSURE_SCORE
+    info = ew.facility_info(_pull())
+    f = ew.worklist(insp, info, "2026-10", lambda lo, la: 1)
+    assert set(f.index) == {1, 2, 3}
+    assert f.loc[2, "mean_points"] == 100 - round((97 + es.CLOSURE_SCORE) / 2, 1), "the reopening re-score is not a routine score"
+    assert f.loc[1, "last_routine_outcome"].startswith("Self Closed")
+
+
 def test_every_routine_health_closure_reads_as_70_even_with_a_same_day_score(tmp_path):
     """The CSV's closure_order marks every visit that ended in a closure order (closure marks only an
     episode's first): the research rules read each routine health closure as 70, like the card."""

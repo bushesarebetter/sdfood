@@ -106,6 +106,9 @@ def load(path=DATA):
     df["opened_date"] = pd.to_datetime(df["opened_date"], errors="coerce")
     df["score"] = pd.to_numeric(df["score"], errors="coerce")
     df = df.dropna(subset=["completed_date"])
+    # A kept "Status Verification" record is shown on the site and never read by the features
+    # (export_site: a status check is not in RECORD_TYPES); the research features do not read it either.
+    df = df[df["insp_type"].astype(str) != "Status Verification"]
     # score is NaN unless it is a real routine score; a Follow-up (the County's re-grade or
     # reopening visit) keeps its score in the CSV, but that is not the place's routine score.
     df.loc[df["insp_type"].astype(str) != "Routine", "score"] = np.nan

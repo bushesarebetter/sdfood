@@ -1,6 +1,7 @@
 """fetch_sdfood.py without the network: a pull checkpoints to its own partial file, only a complete
-pull replaces the last one (with a dated backup and its sha256), a refusal is recorded and never
-retried, an HTML page where JSON belongs counts as a refusal, and --resume continues."""
+pull replaces the last one (with a dated backup and its sha256), a refusal is kept on record in
+PULL_REFUSED.json and no later run pulls while it is there, an HTML page where JSON belongs counts as
+a refusal, and --resume continues."""
 import gzip
 import json
 
@@ -15,7 +16,7 @@ def data(tmp_path, monkeypatch):
     d.mkdir()
     for name, value in (("DATA", d), ("RAW", d / "sd_businesses.json"), ("PULL", d / "pull_meta.json"),
                         ("WORK", d / "sd_businesses.partial.json"), ("WORK_META", d / "pull_meta.partial.json"),
-                        ("BACKUPS", d / "pulls")):
+                        ("REFUSED", d / "PULL_REFUSED.json"), ("BACKUPS", d / "pulls")):
         monkeypatch.setattr(f, name, value)
     monkeypatch.setattr(f, "PAGE", 2)
     return d
@@ -106,6 +107,8 @@ def test_main_exit_codes(data, monkeypatch):
     monkeypatch.setenv("SDFOOD_CONTACT", "test@example.org")
     monkeypatch.setattr(f, "make_client", lambda contact: (None, pages(10, refuse_at=2)))
     assert f.main([]) == f.EXIT_REFUSED
+    f.REFUSED.unlink()                  # the County's written OK (docs/RUNBOOK.md)
+    f.WORK_META.unlink()
 
     def short(n):                       # the pages run out before every business appears
         return {"total_count": 9, "result": [{"business_id": f"B{n}"}] if n < 3 else []}
@@ -115,3 +118,65 @@ def test_main_exit_codes(data, monkeypatch):
     monkeypatch.delenv("SDFOOD_CONTACT")
     with pytest.raises(SystemExit):
         f.main([])
+
+
+def _client_never_called(contact):
+    raise AssertionError("no request may be made while a refusal is on record")
+
+
+def test_a_refusal_at_the_search_page_is_kept_on_record_and_blocks_every_later_run(data, monkeypatch):
+    """make_client raises before anything is saved: the refusal still stays on record, and the next
+    run (a scheduled one, or --resume) stops before any request."""
+    monkeypatch.setenv("SDFOOD_CONTACT", "test@example.org")
+
+    def refused(contact):
+        raise f.Refused(403, 0, "the search page")
+    monkeypatch.setattr(f, "make_client", refused)
+    assert f.main([]) == f.EXIT_REFUSED
+    rec = json.loads(f.REFUSED.read_text())
+    assert rec["status"] == 403 and rec["page"] == 0 and rec["detail"] == "the search page" and rec["at"]
+    monkeypatch.setattr(f, "make_client", _client_never_called)
+    assert f.main([]) == f.EXIT_REFUSED
+    assert f.main(["--resume"]) == f.EXIT_REFUSED
+    assert json.loads(f.REFUSED.read_text()) == rec, "the first refusal is kept, never overwritten"
+
+
+def test_a_refusal_mid_pull_is_kept_on_record_too(data):
+    with pytest.raises(f.Refused):
+        f.run_pull(pages(10, refuse_at=2), {}, "2026-09-29", sleep=lambda s: None, log=lambda m: None)
+    assert json.loads(f.REFUSED.read_text())["page"] == 2
+    f.record_refusal({"status": 429, "page": 7})
+    assert json.loads(f.REFUSED.read_text())["page"] == 2, "never overwritten"
+
+
+@pytest.mark.parametrize("meta_name", ["pull_meta.partial.json", "pull_meta.partial.json.stale-20260901T060000"])
+def test_a_refusal_in_a_partial_meta_blocks_the_pull_even_after_it_was_set_aside(data, monkeypatch, meta_name):
+    """A refusal recorded before PULL_REFUSED.json existed lives in the partial meta; setting a stale
+    partial aside must not turn it into permission to pull again."""
+    monkeypatch.setenv("SDFOOD_CONTACT", "test@example.org")
+    monkeypatch.setattr(f, "make_client", _client_never_called)
+    f.save({"started": "2026-09-01", "complete": False, "refused": {"status": 403, "page": 5, "detail": "403"}},
+           data / meta_name)
+    assert f.main([]) == f.EXIT_REFUSED
+    rec = json.loads(f.REFUSED.read_text())
+    assert rec["status"] == 403 and rec["page"] == 5 and rec["from"] == meta_name, "copied into the lasting record"
+    assert (data / meta_name).exists(), "the partial meta itself is left as it was"
+
+
+def test_a_hand_made_refusal_file_blocks_the_pull_and_the_csv_rebuild_still_runs(data, monkeypatch):
+    """The County's written request to stop is recorded by hand; any content, even none, counts."""
+    monkeypatch.setenv("SDFOOD_CONTACT", "test@example.org")
+    monkeypatch.setattr(f, "make_client", _client_never_called)
+    f.REFUSED.write_text("")
+    assert f.main([]) == f.EXIT_REFUSED
+    f.REFUSED.write_text(json.dumps({"detail": "written request"}))
+    assert f.refusal_on_record() == {"detail": "written request"}
+    rebuilt = []
+    monkeypatch.setattr(f, "write_csv", lambda biz: rebuilt.append(len(biz)))
+    f.save([{"business_id": "B0"}], f.RAW)
+    assert f.main(["--csv-only"]) == 0 and rebuilt == [1], "--csv-only makes no request, so a refusal does not stop it"
+
+
+def test_no_refusal_on_record_lets_the_pull_run(data):
+    f.save({"started": "2026-09-28", "complete": False}, f.WORK_META)
+    assert f.refusal_on_record() is None and not f.REFUSED.exists()

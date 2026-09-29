@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
  * Check the export the site is about to ship against the contract
- * (docs/FOOD_DATA_CONTRACT.md, version 3.2): the index, every place file,
- * and meta.json.
+ * (docs/FOOD_DATA_CONTRACT.md): the index, every place file, meta.json and,
+ * where there is one, monitor_summary.json.
  *
  * Fails on:
  *  - an index larger than 3 MB (8 MB with --review: an unpublished export
@@ -16,6 +16,24 @@
  *  - a closure without `reopened_on`, or one that is not null or a date,
  *    that sits on a record that is not a closure or was not reopened, that
  *    comes before the closure, or that names no "Approved to Reopen" record;
+ *  - a closure on a record that is neither "Ordered Closed" nor "Self Closed"
+ *    (with a major) and not marked `closure_inferred`;
+ *  - where they are given (an export from before them passes without them):
+ *    `notes` that are not a list of the County's note texts; a `county_type`
+ *    that is not one of the County's types for the visit type; a
+ *    `closure_inferred` that is not on a closure, is on an "Ordered Closed"
+ *    record, or has no "Approved to Reopen" (reopened_on); a
+ *    `reopen_without_closure` that is not on an "Approved to Reopen" record;
+ *    a "Self Closed" or status-verification record kept with no items and no
+ *    closure order, or a status verification with a score; a
+ *    `grade.open_closure` that is not null or { date, reason,
+ *    later_ungraded, status? }, comes before the grade, or does not match an
+ *    open closure in the place file (its `status` the County's status text on
+ *    the record that started it); `theme_counts` of the wrong shape, below the
+ *    items listed, or not adding up to `violations_total`; a
+ *    `violations_total` below the items listed, or above them when the list
+ *    was not cut at 60; and a monitor_summary.json outside { status, runs,
+ *    alerts, next_window_date };
  *  - a place file that is missing, that does not match its index entry, or
  *    that has no index entry;
  *  - record mode carrying bands fields; in bands mode, a band meta.card.bands
@@ -25,10 +43,13 @@
  *    give the worksheet's deficits, a tie in points straddling a band edge, a
  *    place under review that still shows a band or points, an estimate whose
  *    `group` is not scores|closure or does not match whether scores_used holds
- *    a closure, and, where they are given, meta.frozen, meta.drift (either
+ *    a closure, or whose fitted group (min_points, max_points) is not a range
+ *    of whole points, and, where they are given, meta.frozen, meta.drift (either
  *    threshold shape; status, recent_quarters, latest_* and note),
  *    meta.card.band_1_by_route, meta.card.closure_score, meta.card.interim,
- *    meta.card.curve_closure and meta.card.outside.curve_closure, the outside
+ *    meta.card.curve_closure and meta.card.outside.curve_closure, each curve's
+ *    group_counts (one { min_points, max_points, labelled, positives } per
+ *    fitted group, in the groups' order), the outside
  *    bands' baseline_rate, baseline_interval and vs_baseline,
  *    meta.catch_run.eligible, or a district's precision_interval, labelled,
  *    interval_family, interval_family_deff (interval_family_zip, from before
@@ -64,7 +85,7 @@ const review = args.includes("--review");
 const dirArg = args.find((a) => !a.startsWith("--"));
 const data = dirArg ? resolve(dirArg) : join(root, "public", "data");
 const lib = (name) => import(pathToFileURL(join(root, "src", "lib", name)).href);
-const { THEMES, TYPE_LABELS, MODES, PUBLIC_TYPES, VISIT_TYPES, SEVERITIES, CLOSURES, GRADES, FLAG_KEYS } = await lib("inspections.js");
+const { THEMES, TYPE_LABELS, MODES, PUBLIC_TYPES, VISIT_TYPES, COUNTY_TYPES, SEVERITIES, CLOSURES, GRADES, FLAG_KEYS, MAX_ITEMS } = await lib("inspections.js");
 const { sampleProblems } = await lib("sampleProof.js");
 const FRESH_DAYS = 14;   // export_site.FRESH_DAYS: expires = inspections_through + 14 days
 
@@ -75,13 +96,18 @@ const FRESH_DAYS = 14;   // export_site.FRESH_DAYS: expires = inspections_throug
 const MAX_INDEX_BYTES = 3 * 1024 * 1024;
 const MAX_REVIEW_INDEX_BYTES = 8 * 1024 * 1024;
 const INDEX_KEYS = new Set(["facility_id", "name", "address", "facility_type", "council_district", "last_visit", "grade", "flags", "band", "points", "on_hold"]);
-const DETAIL_KEYS = new Set(["business_type", "inspections", "violations", "score_card", "band_stability", "scores_used", "estimate"]);
+const DETAIL_KEYS = new Set(["business_type", "inspections", "violations", "theme_counts", "violations_total", "score_card", "band_stability", "scores_used", "estimate"]);
 const FORBIDDEN = ["rank", "percentile", "oof_rank", "score", "shap_features", "is_known_positive"];
 const BAND_FIELDS = ["band", "points", "on_hold"];
 const ISO = /^\d{4}-\d{2}-\d{2}$/;
 const CLOSURE_SCORE = 70;   // a routine that ended in a health closure order is read as this score
 const ESTIMATE_GROUPS = ["scores", "closure"];   // which curve a place's estimate was read from
 const DRIFT_STATUS = ["ok", "refit", "not_yet_measurable"];
+const MONITOR_STATUS = ["too early", "interim", "complete", "failed"];   // monitor_summary.json, from export_site.monitor
+const REOPEN = /approved to reopen/i;
+const SELF_CLOSED = /self closed/i;
+const isObj = (x) => x != null && typeof x === "object" && !Array.isArray(x);
+const isCount = (x) => Number.isInteger(x) && x >= 0;
 
 let failed = false;
 const fail = (msg) => { console.error(`FAIL: ${msg}`); failed = true; };
@@ -132,6 +158,16 @@ const kinds = sample ? Object.keys(TYPE_LABELS) : PUBLIC_TYPES;
 
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const isGrade = (g) => g && GRADES.includes(g.grade) && ISO.test(g.date ?? "") && (g.score === null || typeof g.score === "number");
+// open_closure: the place's last closure has no "Approved to Reopen" and no graded visit after it (null otherwise).
+const isOpenClosure = (o) => o === null || (isObj(o) && ISO.test(o.date ?? "") && CLOSURES.includes(o.reason)
+  && (!("later_ungraded" in o) || (Array.isArray(o.later_ungraded) && o.later_ungraded.every((x) => ISO.test(x ?? "") && x >= o.date)))
+  && (!("status" in o) || (typeof o.status === "string" && o.status.trim() !== "")));
+const gradeProblem = (g) => {
+  if (!isGrade(g) || (g.replaced != null && !isGrade(g.replaced))) return "grade outside { grade: A|B|C, score, date, replaced }";
+  if ("open_closure" in g && !isOpenClosure(g.open_closure)) return "grade.open_closure outside null|{ date, reason: health|permit|other, later_ungraded: [dates on or after it] }";
+  if (g.open_closure && g.open_closure.date < g.date) return "grade.open_closure before the grade it follows";
+  return null;
+};
 
 function readPlace(id) {
   for (const name of [`${id}.json`, `${encodeURIComponent(id)}.json`]) {
@@ -175,7 +211,7 @@ for (const f of features) {
   if (!kinds.includes(p.facility_type)) note(`facility_type outside ${kinds.join("|")}`, `${label}: ${p.facility_type}`);
   if (p.council_district != null && (!Number.isInteger(p.council_district) || p.council_district < 1 || p.council_district > 9)) note("council_district outside 1 to 9 (null: outside the City)", `${label}: ${p.council_district}`);
   if (!ISO.test(p.last_visit?.date ?? "") || !VISIT_TYPES.includes(p.last_visit?.type)) note("last_visit without a date and a visit type from the contract", label);
-  if (p.grade != null && (!isGrade(p.grade) || (p.grade.replaced != null && !isGrade(p.grade.replaced)))) note("grade outside { grade: A|B|C, score, date, replaced }", label);
+  if (p.grade != null && gradeProblem(p.grade)) note(gradeProblem(p.grade), label);
   if (!Array.isArray(p.flags) || p.flags.some((k) => !FLAG_KEYS.includes(k))) note(`flags outside ${FLAG_KEYS.join("|")}`, `${label}: ${JSON.stringify(p.flags)}`);
   if (!sample && /^Sample /.test(p.name ?? "")) note("a real export contains a place named 'Sample …'", label);
 
@@ -244,14 +280,31 @@ for (const f of features) {
         note('reopened_on that is not the date of an "Approved to Reopen" record', `${id}: ${i.date} reopened ${on}`);
       }
     }
+    for (const msg of recordProblems(i)) note(msg, `${id}: ${i.date} ${i.status}`);
+  }
+  // open_closure names the place's last closure, which no "Approved to Reopen" and no later graded visit ended.
+  const oc = isObj(d.grade) ? d.grade.open_closure : null;
+  if (isObj(oc) && Array.isArray(d.inspections)) {
+    const start = d.inspections.findLast((j) => j.closed && j.date === oc.date);
+    const lastClosed = d.inspections.findLast((j) => j.closed);
+    if (!start || start !== lastClosed) note("grade.open_closure that is not the date of the place's last closure", `${id}: ${oc.date}`);
+    else if (start.reopened === true) note('grade.open_closure on a closure an "Approved to Reopen" ended', `${id}: ${oc.date}`);
+    else if (start.closure !== oc.reason) note("grade.open_closure whose reason is not its closure's", `${id}: ${oc.date} ${oc.reason}`);
+    else if ("status" in oc && oc.status !== start.status) {
+      note("grade.open_closure whose status is not the County's status text on the record that started it", `${id}: ${oc.date} ${oc.status}`);
+    }
+    else if (d.inspections.some((j) => (j.type === "routine" || j.type === "followup") && GRADES.includes(j.grade) && j.date > oc.date)) {
+      note("grade.open_closure with a graded visit after it", `${id}: ${oc.date}`);
+    }
   }
   const vs = d.violations ?? [];
-  if (!Array.isArray(vs) || vs.length > 60) note("violations missing or more than 60", id);
+  if (!Array.isArray(vs) || vs.length > MAX_ITEMS) note(`violations missing or more than ${MAX_ITEMS}`, id);
   for (const v of Array.isArray(vs) ? vs : []) {
     if (!SEVERITIES.includes(v.severity)) note(`violation severity outside ${SEVERITIES.join("|")}`, `${id}: ${v.date} ${v.severity}`);
     if (!Object.hasOwn(THEMES, v.theme)) note(`violation theme outside ${Object.keys(THEMES).join("|")}`, `${id}: ${v.date} ${v.theme}`);
     if (!VISIT_TYPES.includes(v.visit)) note(`violation visit outside ${VISIT_TYPES.join("|")}`, `${id}: ${v.date} ${v.visit}`);
   }
+  for (const msg of itemCountProblems(d, Array.isArray(vs) ? vs : [])) note(msg, id);
   if (!bands) {
     for (const k of ["score_card", "band_stability", "scores_used", "estimate"]) if (k in d) note(`bands field ${k} in a record-mode place file`, id);
   } else if (typeof p.points === "number") {
@@ -289,6 +342,11 @@ for (const f of features) {
         && e.low >= 0 && e.high <= 1 && e.low <= e.rate + 1e-9 && e.rate <= e.high + 1e-9)) {
       note("an estimate outside 0 <= low <= rate <= high <= 1", `${id}: ${JSON.stringify(e)}`);
     }
+    // min_points, max_points: the fitted group of points the estimate is read from (optional: older exports lack it).
+    if (e != null && typeof e === "object" && ("min_points" in e || "max_points" in e)
+        && !(Number.isInteger(e.min_points) && Number.isInteger(e.max_points) && e.min_points >= 0 && e.min_points <= e.max_points)) {
+      note("an estimate whose fitted group is not { min_points <= max_points }, whole points", `${id}: ${JSON.stringify(e)}`);
+    }
     // group: the curve the estimate was read from, "closure" exactly when the scores the rule reads
     // include a routine inspection that ended in a health closure (optional: older exports lack it).
     if (e != null && typeof e === "object" && "group" in e) {
@@ -319,6 +377,83 @@ if (bands) {
       fail(`band ${lo.band} reaches ${lo.max_points} points, not below band ${hi.band}'s ${hi.min_points}`);
     }
   }
+}
+
+/**
+ * What a record's newer fields must say, where the export gives them (an
+ * export from before them has none, and passes): the County's notes and type
+ * verbatim, a closure only on a record that shows one, and our readings of a
+ * closure no order shows (`closure_inferred`) and of a reopening no closure
+ * could be placed before (`reopen_without_closure`).
+ */
+function recordProblems(i) {
+  const out = [];
+  const status = i.status ?? "";
+  const items = (Number(i.major) || 0) + (Number(i.minor) || 0) + (Number(i.grp) || 0);
+  if ("notes" in i && (!Array.isArray(i.notes) || i.notes.some((n) => typeof n !== "string" || !n.trim()))) {
+    out.push("notes that are not a list of the County's note texts");
+  }
+  if ("county_type" in i) {
+    if (typeof i.county_type !== "string" || !i.county_type.trim()) out.push("county_type that is not the County's inspection type text");
+    else if (COUNTY_TYPES[i.type] && !COUNTY_TYPES[i.type].includes(i.county_type)) {
+      out.push(`county_type that is not one of the County's types for its visit type (${Object.entries(COUNTY_TYPES).map(([t, c]) => `${t}: ${c.join("|")}`).join("; ")})`);
+    }
+  }
+  if ("closure_inferred" in i && typeof i.closure_inferred !== "boolean") out.push("closure_inferred outside true|false");
+  if (i.closure_inferred === true) {
+    if (!i.closed) out.push("closure_inferred on a record that does not start a closure");
+    else if (status === "Ordered Closed") out.push('closure_inferred on an "Ordered Closed" record (it marks a closure no order shows)');
+    else if (i.reopened !== true || !ISO.test(i.reopened_on ?? "")) out.push('closure_inferred without the "Approved to Reopen" that shows it (reopened true, reopened_on)');
+  }
+  if ("reopen_without_closure" in i && typeof i.reopen_without_closure !== "boolean") out.push("reopen_without_closure outside true|false");
+  if (i.reopen_without_closure === true && (!REOPEN.test(status) || i.closed)) out.push('reopen_without_closure on a record that is not an "Approved to Reopen"');
+  if (i.closed && status !== "Ordered Closed" && !SELF_CLOSED.test(status) && i.closure_inferred !== true) {
+    out.push('a closure on a record that is not "Ordered Closed" or "Self Closed" and not marked closure_inferred');
+  }
+  if (i.closed && SELF_CLOSED.test(status) && !(Number(i.major) > 0)) out.push('a "Self Closed" closure with no major violation');
+  if ((SELF_CLOSED.test(status) || i.type === "status_check") && items === 0 && status !== "Ordered Closed") {
+    out.push('a "Self Closed" or status-verification record kept with no items and no closure order');
+  }
+  if (i.type === "status_check" && i.score != null) out.push("a status verification with a score (it is shown, never scored)");
+  return out;
+}
+
+/**
+ * `theme_counts` and `violations_total` (optional): every item in the 36-month window, counted before
+ * the 60-item cut, so they cannot be below what the list shows, and they add up to each other.
+ */
+function itemCountProblems(d, vs) {
+  const out = [];
+  const total = d.violations_total;
+  if ("violations_total" in d) {
+    if (!isCount(total) || total < vs.length) out.push("violations_total that is not a count at least the number of items listed");
+    else if (vs.length < MAX_ITEMS && total !== vs.length) out.push(`violations_total above the items listed, although the list was not cut at ${MAX_ITEMS}`);
+  }
+  if (!("theme_counts" in d)) return out;
+  const tc = d.theme_counts;
+  const row = (c) => isObj(c) && ["major", "minor", "grp", "complaint"].every((k) => isCount(c[k]))
+    && c.complaint <= c.major + c.minor + c.grp && (c.major + c.minor + c.grp === 0 || ISO.test(c.latest ?? ""));
+  if (!isObj(tc) || Object.entries(tc).some(([theme, c]) => !Object.hasOwn(THEMES, theme) || !row(c))) {
+    out.push("theme_counts outside { theme: { major, minor, grp, complaint, latest } }");
+    return out;
+  }
+  const listed = {};
+  for (const v of vs) {
+    const t = (listed[v.theme] ??= { major: 0, minor: 0, grp: 0, complaint: 0, latest: "" });
+    if (SEVERITIES.includes(v.severity)) t[v.severity] += 1;
+    if (v.visit === "complaint") t.complaint += 1;
+    if ((v.date ?? "") > t.latest) t.latest = v.date;
+  }
+  for (const [theme, t] of Object.entries(listed)) {
+    const c = tc[theme] ?? { major: 0, minor: 0, grp: 0, complaint: 0, latest: "" };
+    if (["major", "minor", "grp", "complaint"].some((k) => c[k] < t[k]) || (c.latest ?? "") < t.latest) {
+      out.push(`theme_counts below the items listed (${theme})`);
+      break;
+    }
+  }
+  const sum = Object.values(tc).reduce((a, c) => a + c.major + c.minor + c.grp, 0);
+  if (isCount(total) && sum !== total) out.push(`theme_counts that do not add up to violations_total (${sum} against ${total})`);
+  return out;
 }
 
 /**
@@ -389,6 +524,18 @@ function metaShapeProblems(m) {
       out.push(`${where}.curve_closure is not null or a curve { rate, low, high } (lists of one length, 0 to 1, low <= rate <= high)`);
     }
   }
+  // group_counts: the labelled places and positives each fitted group pools, one per group in order
+  // (optional: an export from before it has only `groups` and the finer `bins`).
+  for (const [where, c] of [["meta.card", card], ["meta.card.outside", card.outside]]) {
+    for (const k of ["curve", "curve_closure"]) {
+      const cv = isObj(c) ? c[k] : null;
+      if (!isObj(cv) || !("group_counts" in cv)) continue;
+      const gc = cv.group_counts, groups = Array.isArray(cv.groups) ? cv.groups : [];
+      const ok = Array.isArray(gc) && gc.length === groups.length && gc.every((g, j) => isObj(g)
+        && g.min_points === groups[j]?.[0] && g.max_points === groups[j]?.[1] && count(g.labelled) && count(g.positives) && g.positives <= g.labelled);
+      if (!ok) out.push(`${where}.${k}.group_counts is not one { min_points, max_points, labelled, positives } per fitted group, in the groups' order`);
+    }
+  }
   // Rates with the label cut off after N days, for the monitor: { "90": { "1": {...}, "all": {...} }, ... }.
   if ("interim" in card && card.interim !== null) {
     const group = (g) => isObj(g) && count(g.labelled) && count(g.positives) && g.positives <= g.labelled && shareOrNull(g.rate);
@@ -429,6 +576,22 @@ function metaShapeProblems(m) {
     }
   }
   return out;
+}
+
+// monitor_summary.json (export_site.monitor), optional: { status, runs, alerts: [sentences], next_window_date }.
+const monitorPath = join(data, "monitor_summary.json");
+if (existsSync(monitorPath)) {
+  let m = null;
+  try {
+    m = JSON.parse(readFileSync(monitorPath, "utf8"));
+  } catch (err) {
+    fail(`monitor_summary.json does not parse (${err.message})`);
+  }
+  if (m !== null && (!isObj(m) || !MONITOR_STATUS.includes(m.status) || !isCount(m.runs) || !Array.isArray(m.alerts)
+      || m.alerts.some((a) => typeof a !== "string" || !a.trim())
+      || ("next_window_date" in m && m.next_window_date !== null && !ISO.test(m.next_window_date ?? "")))) {
+    fail(`monitor_summary.json is not { status: ${MONITOR_STATUS.join("|")}, runs, alerts: [sentences], next_window_date: YYYY-MM-DD|null }`);
+  }
 }
 
 const addDays = (iso, n) => {

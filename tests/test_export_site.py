@@ -66,11 +66,193 @@ def test_visits_that_were_not_inspections_are_dropped():
         inspection("2024-01-10", status="No Access", score="0", grade=""),
         inspection("2024-02-10", status="Self Closed", score="0", grade=""),
         inspection("2024-03-10", kind="Status Verification", score="0", grade=""),
+        inspection("2024-03-11", kind="Status Verification", score="0", grade="", violations=[note("No Valid Permit")]),
+        inspection("2024-03-12", kind="Status Verification", status="No Access", score="0", grade="",
+                   violations=[violation(PESTS, "major")]),
         inspection("2024-04-10", status="Incomplete"),
         inspection("2024-05-10", score="96"),
     ])], st)[0]
-    assert [v["date"] for v in p["visits"]] == ["2024-05-10"]
-    assert sum(st.dropped.values()) == 4
+    assert [v["date"] for v in p["visits"]] == ["2024-05-10"], "itemless Self Closed and status checks carry nothing"
+    assert sum(st.dropped.values()) == 6 and not st.kept
+
+
+def test_self_closed_and_status_verification_records_that_carry_information_are_kept():
+    """The operator's own closure at a routine that found a major is a closure (health): the days it
+    covers are on the record, and the routine a week later is the reopening's re-score, not a routine
+    score. A status check citing items is shown and never read; its closure order is a closure."""
+    st = es.Stats()
+    p = es.load_places([business("1", [
+        inspection("2024-04-15", score="95"),
+        inspection("2024-10-17", status="Self Closed", score="0", grade="A", violations=[violation(PESTS, "major")]),
+        inspection("2024-10-24", kind="Re-inspection", score="0", grade=""),
+        inspection("2024-10-24", score="100"),
+        inspection("2025-02-03", status="Self Closed", score="0", grade="", violations=[violation(TEMP, "minor")]),
+        inspection("2025-03-01", kind="Status Verification", score="0", grade="", violations=[violation(PESTS, "major")]),
+        inspection("2025-05-02", kind="Status Verification", score="0", grade="", status="Ordered Closed",
+                   violations=[note("No Valid Permit")]),
+        _reopen("2025-05-05"),
+        inspection("2025-05-05", score="97"),
+    ])], st)[0]
+    types = {v["date"]: v["type"] for v in p["visits"]}
+    assert [v["type"] for v in p["visits"] if v["date"] == "2024-10-24"] == ["reinspection", "followup"]
+    assert types["2025-03-01"] == "status_check" and types["2025-02-03"] == "routine"
+    self_closed = next(v for v in p["visits"] if v["date"] == "2024-10-17")
+    assert (self_closed["status"], self_closed["score"], self_closed["grade"]) == ("Self Closed", None, None), \
+        "a Self Closed record carries no score or letter"
+    assert (self_closed["closed"], self_closed["closure"], self_closed["closure_order"]) == (True, "health", "health")
+    minor_only = next(v for v in p["visits"] if v["date"] == "2025-02-03")
+    assert not minor_only["closed"] and minor_only["closure_order"] is None, "Self Closed with no major: shown, no closure"
+    shown = es.display_records(p)
+    sv_closure = next(r for r in shown if r["date"] == "2025-05-02")
+    assert (sv_closure["type"], sv_closure["closed"], sv_closure["closure"], sv_closure["reopened_on"]) == \
+        ("status_check", True, "permit", "2025-05-05"), "the status check's closure order, ended by the County's reopening"
+    assert sv_closure["county_type"] == "Status Verification" and sv_closure["notes"] == ["No Valid Permit"]
+    assert not any(r.get("reopen_without_closure") for r in shown)
+    used = es.scores_used(p, "2025-09-01")
+    assert [(u["date"], u["score"], u["closure"]) for u in used] == [("2024-04-15", 95, False), ("2024-10-17", 70, True)], \
+        "the Self Closed routine reads as 70; the 100 a week later and the reopening-day 97 are re-scores"
+    f = es.features_at(p, "2025-09-01")
+    assert f["majors"] == 1 and f["theme_vermin"] == 1 and f["health_closures"] == 1, \
+        "the Self Closed routine's pest major counts; the status check's is shown, never read"
+    assert f["routines"] == 2, "a Self Closed routine is a routine inspection, with a major or not"
+    assert st.kept == {"Routine/Self Closed": 2, "Status Verification/Complete": 1, "Status Verification/Ordered Closed": 1}
+    assert es.label_at(p, "2024-10-01") == (1, self_closed["_id"]), "the Self Closed routine found a major"
+
+
+def test_a_reopening_with_no_closure_order_places_the_closure_at_the_unscored_routine_before_it():
+    """The County's pattern: a routine marked Complete with no score and a major, then "Approved to
+    Reopen" and a re-score. Read as a closure (our reading, marked), counted as 70, and the re-score is
+    a re-grade, never a routine score; the pre-pass sees the re-score before the reopening does."""
+    st = es.Stats()
+    p = es.load_places([business("1", [
+        inspection("2025-04-21", score="98"),
+        inspection("2026-03-03", score="0", grade="", violations=[violation(PESTS, "major")]),
+        _reopen("2026-03-04", iid="z-reopen"),
+        inspection("2026-03-04", score="98", iid="a-rescore"),
+        inspection("2026-05-19", score="96"),
+    ])], st)[0]
+    closure = next(v for v in p["visits"] if v["date"] == "2026-03-03")
+    assert (closure["closed"], closure["closure"], closure["closure_inferred"], closure["reopened_on"]) == \
+        (True, "health", True, "2026-03-04")
+    assert [v["type"] for v in p["visits"] if v["date"] == "2026-03-04"] == ["reinspection", "followup"]
+    rec = next(r for r in es.display_records(p) if r["date"] == "2026-03-03")
+    assert rec["status"] == "Complete" and rec["closure_inferred"] is True, "the County's own status text stays"
+    assert [(u["score"], u["county_score"]) for u in es.scores_used(p, "2026-09-29")] == [(98, 98), (70, None), (96, 96)]
+    assert es.features_at(p, "2026-09-29")["avg_deficit"] == 100 - int((98 + 70 + 96) / 3 + 0.5) == 12
+    assert "closed" in es.flags(es.display_records(p), p["visits"], "2026-09-29")
+    assert (st.inferred, st.unplaced) == (1, 0)
+    assert all("closure_inferred" not in r for r in es.display_records(p) if r["date"] != "2026-03-03")
+
+
+def test_a_closure_is_never_placed_on_a_scored_routine_or_far_from_the_reopening():
+    """Nothing is guessed: a routine the County scored, a visit more than INFER_DAYS before, or a
+    graded routine between leaves the reopening unplaced, and its record says so. Its re-score is
+    still a re-grade, unless the place's record starts at the reopening."""
+    scored = _place([inspection("2025-09-18", score="90", violations=[violation(TEMP, "major")]),
+                     _reopen("2025-09-25"), inspection("2025-09-25", score="97")])
+    far = _place([inspection("2025-06-01", score="0", grade="", violations=[violation(VERMIN, "major")]),
+                  _reopen("2025-06-20"), inspection("2025-06-20", score="97")])
+    between = _place([inspection("2025-06-01", score="0", grade="", violations=[violation(VERMIN, "major")]),
+                      inspection("2025-06-03", score="96"), _reopen("2025-06-04")])
+    for p in (scored, far, between):
+        recs = es.display_records(p)
+        assert not any(r["closed"] for r in recs)
+        assert [r["date"] for r in recs if r.get("reopen_without_closure")] == \
+            [r["date"] for r in recs if r["status"] == "Approved to Reopen"]
+    assert [v["type"] for v in scored["visits"]] == ["routine", "reinspection", "followup"], "the re-score is a re-grade"
+    assert scored["visits"][0]["score"] == 90, "the County's score stands"
+    first = _place([_reopen("2026-01-28"), inspection("2026-01-28", score="94")])
+    assert [v["type"] for v in first["visits"]] == ["reinspection", "routine"], \
+        "a record that starts at a reopening: its routine is the first inspection on it"
+    assert es.display_records(first)[0]["reopen_without_closure"] is True
+
+
+def test_a_reopening_belongs_to_a_recent_closure_a_graded_routine_ended():
+    """Closed, graded again while still closed, then the County's reopening: it is that closure's
+    reopening, not a stray one; and a second reopening of a closure already reopened is not flagged."""
+    p = _place([_closed("2026-04-28"), inspection("2026-05-07", score="96"), _reopen("2026-05-20")])
+    recs = es.display_records(p)
+    ep = next(r for r in recs if r["closed"])
+    assert (ep["reopened"], ep["reopened_on"]) == (True, "2026-05-20")
+    assert not any(r.get("reopen_without_closure") for r in recs)
+    twice = _place([_closed("2025-06-03"), _reopen("2025-06-07"), _reopen("2025-06-08"), inspection("2025-06-08", score="98")])
+    recs = es.display_records(twice)
+    assert [r["reopened_on"] for r in recs if r["closed"]] == ["2025-06-07"]
+    assert not any(r.get("reopen_without_closure") for r in recs)
+    later = _place([_closed("2025-01-10"), _reopen("2025-01-12"), inspection("2025-01-19", score="0", grade="",
+                                                                           violations=[violation(VERMIN, "major")]),
+                    _reopen("2025-01-20")])
+    assert [(r["date"], r["reopened_on"], r.get("closure_inferred", False)) for r in es.display_records(later) if r["closed"]] == \
+        [("2025-01-10", "2025-01-12", False), ("2025-01-19", "2025-01-20", True)], "a new closure after the first reopened"
+
+
+def test_an_open_closure_is_named_beside_the_last_letter():
+    """The County posts no card while it has a place closed: a closure with no reopening and no graded
+    routine after it is named on the grade, with the ungraded records after it."""
+    p = _place([inspection("2026-05-27", score="96"), _closed("2026-08-21"),
+                inspection("2026-09-09", kind="Re-inspection", score="0", grade="")])
+    p["district"] = 1
+    feat, detail = es.entry(p)
+    g = feat["properties"]["grade"]
+    assert (g["grade"], g["date"]) == ("A", "2026-05-27"), "the letter stays the last one on the record"
+    assert g["open_closure"] == {"date": "2026-08-21", "reason": "health", "later_ungraded": ["2026-09-09"],
+                                 "status": "Ordered Closed"}, "with the County's status text on the record that started it"
+    assert detail["grade"] == g
+    reopened = _place([inspection("2026-05-27", score="96"), _closed("2026-08-21"), _reopen("2026-08-23")])
+    regraded = _place([inspection("2026-05-27", score="96"), _closed("2026-08-21"), inspection("2026-09-01", score="95")])
+    for q in (reopened, regraded):
+        assert es.posted_grade(es.display_records(q), q["visits"])["open_closure"] is None
+    self_closed = _place([inspection("2026-05-27", score="96"),
+                          inspection("2026-08-21", status="Self Closed", score="0", grade="", violations=[violation(VERMIN, "major")])])
+    oc = es.posted_grade(es.display_records(self_closed), self_closed["visits"])["open_closure"]
+    assert (oc["date"], oc["status"]) == ("2026-08-21", "Self Closed"), "the operator's own closure is never called a County order"
+
+
+def test_the_countys_notes_and_inspection_type_are_shown_verbatim():
+    p = _place([inspection("2025-06-01", score="93", violations=[violation(TEMP, "minor"), note("Impoundment")]),
+                inspection("2025-07-01", kind="Environmental", score="0", grade="", violations=[note("No Valid Permit")]),
+                inspection("2025-07-01", kind="Site Investigation", score="0", grade="", violations=[violation(PESTS, "major")])])
+    p["district"] = 1
+    _, detail = es.entry(p)
+    got = [(i["county_type"], i["type"], i["notes"]) for i in detail["inspections"]]
+    assert got == [("Routine", "routine", ["Impoundment"]), ("Environmental", "complaint", ["No Valid Permit"]),
+                   ("Site Investigation", "complaint", [])], "each record keeps its own type and notes, as published"
+    assert json.loads(json.dumps(detail))["inspections"][0]["notes"] == ["Impoundment"]
+
+
+def test_theme_counts_count_every_item_before_the_cap_and_the_cap_drops_the_oldest():
+    grp = "45. Floor, walls and ceilings - built, maintained, clean"
+    visits = [inspection(f"2025-{m:02d}-10", score="80", grade="B",
+                         violations=[violation(TEMP, "major")] + [violation(grp, "grp")] * 12) for m in range(1, 8)]
+    p = _place(visits)
+    p["district"] = 1
+    _, d = es.entry(p)
+    assert d["violations_total"] == 7 * 13 and len(d["violations"]) == es.MAX_VIOLATIONS
+    assert d["theme_counts"]["temperature"] == {"major": 7, "minor": 0, "grp": 0, "complaint": 0, "latest": "2025-07-10"}
+    assert d["theme_counts"]["grp_facility"]["grp"] == 84, "counted before the 60-item cap"
+    kept = [v["date"] for v in d["violations"] if v["severity"] == "grp"]
+    assert max(kept) == "2025-07-10" and min(kept) > "2025-01-10", "the cap drops the oldest items, not the newest"
+    assert [v["severity"] for v in d["violations"][:7]] == ["major"] * 7
+    small = _place([inspection("2025-01-10", violations=[violation(TEMP, "minor")]),
+                    inspection("2025-02-10", kind="Site Investigation", score="0", grade="", violations=[violation(PESTS, "major")])])
+    small["district"] = 1
+    _, d = es.entry(small)
+    assert d["violations_total"] == len(d["violations"]) == 2 and d["theme_counts"]["vermin"]["complaint"] == 1
+
+
+def test_the_fingerprint_county_exercises_the_new_closure_rules(monkeypatch):
+    places = es.load_places(es._fingerprint_county())
+    recs = {p["id"]: es.display_records(p) for p in places}
+    assert any(r["status"] == "Self Closed" and r["closed"] for rs in recs.values() for r in rs)
+    assert any(r.get("closure_inferred") for rs in recs.values() for r in rs)
+    assert any(r.get("reopen_without_closure") for rs in recs.values() for r in rs)
+    assert any(r["type"] == "status_check" for rs in recs.values() for r in rs)
+    base = es.behaviour_fingerprint()
+    monkeypatch.setattr(es, "INFER_DAYS", 0)
+    assert es.behaviour_fingerprint() != base, "the reading of a reopening changes what a point means"
+    monkeypatch.undo()
+    monkeypatch.setattr(es, "ITEM_STATUS", set())
+    assert es.behaviour_fingerprint() != base, "so does keeping the Self Closed closure"
 
 
 def test_followups_closures_and_reopening():
@@ -337,7 +519,30 @@ def test_the_risk_curve_rises_with_points_and_brackets_its_estimate():
     assert all(lo <= m + 1e-9 <= hi + 2e-9 for lo, m, hi in zip(c["low"], c["rate"], c["high"]))
     assert sum(b["labelled"] for b in c["bins"]) == 3000 and c["labelled"] == 3000
     e = es.estimate(c, 99)                          # beyond the backtest's largest: read at the largest
-    assert e == {"rate": c["rate"][-1], "low": c["low"][-1], "high": c["high"][-1]}
+    top = c["groups"][-1]
+    assert e == {"rate": c["rate"][-1], "low": c["low"][-1], "high": c["high"][-1], "min_points": top[0], "max_points": top[1]}
+
+
+def test_each_fitted_group_carries_its_counts_and_an_estimate_names_the_group_it_is_read_from():
+    """Every place in a fitted group is given the group's rate, so the estimate names the group, and the
+    curve says how many labelled places (and how many with a major) each group pools."""
+    pts = np.array([0] * 250 + [2] * 120 + [3] * 110 + [9] * 90 + [12] * 130)
+    pos = (np.random.default_rng(3).random(len(pts)) < 0.05 + 0.03 * pts).astype(float)
+    ones = np.ones(len(pts), bool)
+    c = es.risk_curve(pts, pos, ones, ones, np.arange(len(pts)), n_boot=20)
+    assert [[g["min_points"], g["max_points"]] for g in c["group_counts"]] == c["groups"]
+    assert sum(g["labelled"] for g in c["group_counts"]) == c["labelled"] == len(pts)
+    assert sum(g["positives"] for g in c["group_counts"]) == c["positives"]
+    for g in c["group_counts"]:
+        inside = (pts >= g["min_points"]) & (pts <= g["max_points"])
+        assert (g["labelled"], g["positives"]) == (int(inside.sum()), int(pos[inside].sum()))
+    for p in range(0, 20):
+        e = es.estimate(c, p)
+        lo, hi = e["min_points"], e["max_points"]
+        assert [lo, hi] in c["groups"] and e["rate"] == c["rate"][lo], f"{p} points read the rate of the group {lo} to {hi}"
+    assert es.curve_group(c, 5) == tuple(next(g for g in c["groups"] if g[0] <= 3 <= g[1])), \
+        "a value no backtest place had reads the group below"
+    assert es.curve_group({"rate": [0.1]}, 3) is None and "min_points" not in es.estimate({"rate": [0.1], "low": [0.1], "high": [0.1]}, 3)
 
 
 def test_naming_by_cost_ratio():
@@ -1032,6 +1237,86 @@ def test_the_drift_baseline_is_the_label_years_own_months():
     assert d["major_rate_backtest"] == 0.15 and d["status"] == "not_yet_measurable"
 
 
+def test_the_drift_notes_baseline_never_shares_an_inspection_with_the_quarter_it_is_set_against():
+    """The latest quarter (2026 Q3) falls inside the label year: the note compares it with the label
+    year's months before it (September 2025 to June 2026), on their own count."""
+    fitted = {"confirm": "2025-09-01", "label_quarters": ["2025Q3", "2025Q4", "2026Q1", "2026Q2", "2026Q3"],
+              "card": {"rows": []}, "catch_run": {"eligible": 3000}}
+    months = {f"2025-{m:02d}": [1000, 150] for m in (7, 8, 9, 10, 11, 12)}
+    months.update({f"2026-{m:02d}": [1000, 150] for m in range(1, 7)})
+    months.update({"2026-07": [1000, 300], "2026-08": [1000, 300], "2026-09": [900, 270]})     # the latest quarter: 30%
+    m = {"routine_by_month": months, "major_rate_by_quarter": {"2026Q2": 0.15, "2026Q3": 0.3},
+         "routine_n_by_quarter": {"2026Q2": 3000, "2026Q3": 2900}}
+    d = es.drift_check(m, fitted, None, through="2026-09-28")
+    assert d["latest_quarter"] == "2026Q3" and d["latest_baseline"] == 0.15 and d["latest_baseline_n"] == 10_000
+    assert d["latest_baseline_span"] == "September 2025 to June 2026"
+    assert d["major_rate_backtest"] == round((10 * 150 + 600) / 12_000, 4), "the refit baseline is still the whole label year"
+    assert "against 15.0% over the backtest's label year before that quarter (September 2025 to June 2026)" in d["note"]
+    assert "may be low" in d["note"]
+    quiet = es.drift_check({**m, "major_rate_by_quarter": {"2026Q2": 0.15, "2026Q3": 0.16}}, fitted, None, through="2026-09-28")
+    assert quiet["note"] is None, "one point on these counts is within the threshold"
+
+
+def _summary_row(run, *, complete=False, window=90, b1=(200, 0.2, [0.15, 0.26], 0.31), oe=None, vp=(1.0, 9.0), outside_oe=None):
+    n, rate, interval, expected = b1
+    city = {"labelled": 1000, "bands": {"1": {"labelled": n, "positives": int(n * rate), "rate": rate, "interval": interval,
+                                               "expected": expected}},
+            "band_1_minus_persistence": list(vp)}
+    if oe is not None:
+        city["observed_over_expected"] = {"observed": int(100 * oe), "expected": 100.0, "ratio": oe}
+    out = {"labelled": 800, "bands": {}}
+    if outside_oe is not None:
+        out["observed_over_expected"] = {"observed": int(100 * outside_oe), "expected": 100.0, "ratio": outside_oe}
+    return {"run": run, "complete": complete, "window_days": window, "record_days": 0, "city": city, "outside": out}
+
+
+def test_the_monitor_summary_says_how_far_the_monitor_got_and_what_it_found():
+    too_early = [{"run": "forward_2026-09-29-aaaaaaaa", "complete": False, "window_days": None}]
+    s = es.monitor_summary(too_early)
+    assert s == {"status": "too early", "runs": 1, "alerts": [], "next_window_date": "2027-01-27"}, "90 + 30 days after the list"
+    assert es.monitor_summary([])["status"] == "too early" and es.monitor_summary([])["next_window_date"] is None
+    fine = [_summary_row("forward_2026-06-01-bbbbbbbb", b1=(200, 0.3, [0.24, 0.37], 0.31))] + too_early
+    s = es.monitor_summary(fine)
+    assert s["status"] == "interim" and s["alerts"] == [] and s["next_window_date"] == "2026-12-28", \
+        "the 180-day window of the June list comes before the first window of the September one"
+    low = [_summary_row("forward_2026-05-01-cccccccc"), _summary_row("forward_2026-06-01-bbbbbbbb")] + too_early
+    s = es.monitor_summary(low)
+    assert len(s["alerts"]) == 1 and "list of 2026-06-01" in s["alerts"][0] and "below the 31.0%" in s["alerts"][0]
+    assert "So did 1 earlier list." in s["alerts"][0], "one sentence per kind of finding, not one per list"
+    done = [_summary_row("forward_2025-06-01-dddddddd", complete=True, window=365, b1=(400, 0.3, [0.26, 0.35], 0.31),
+                         oe=0.8, vp=(-9.0, -1.0), outside_oe=1.2)]
+    s = es.monitor_summary(done)
+    assert s["status"] == "complete" and s["next_window_date"] is None and len(s["alerts"]) == 3
+    assert "in the City" in s["alerts"][0] and "outside 0.85 to 1.15" in s["alerts"][0]
+    assert "outside the City" in s["alerts"][1]
+    assert "the most recent major violations" in s["alerts"][2] and "-9.0 to -1.0" in s["alerts"][2]
+    ok = [_summary_row("forward_2025-06-01-dddddddd", complete=True, window=365, b1=(400, 0.3, [0.26, 0.35], 0.31),
+                       oe=1.1, vp=(-3.0, 8.0))]
+    assert es.monitor_summary(ok)["alerts"] == [], "an interval that crosses 0 is not clearly negative"
+    for text in (a for r in (low, done) for a in es.monitor_summary(r)["alerts"]):
+        assert "—" not in text and "risk" not in text.lower() and "fail" not in text.lower()
+
+
+def test_the_monitor_writes_its_summary_and_a_monitor_that_did_not_run_says_so(built, tmp_path, monkeypatch):
+    fc, details, meta, extra = built
+    es.monitor(tmp_path, extra["places"], log=lambda *_: None)
+    s = json.loads((tmp_path / "monitor_summary.json").read_text(encoding="utf-8"))
+    assert s == {"status": "too early", "runs": 0, "alerts": [], "next_window_date": None}, "written even with nothing to score"
+    raw = invented_county(n=20)
+    pull = tmp_path / "sd_businesses.2026-09-29.json"
+    pull.write_text(json.dumps(raw), encoding="utf-8")
+    (tmp_path / "pull_meta.2026-09-29.json").write_text(json.dumps({"complete": True, "sha256": es.sha256_pull(pull)}),
+                                                       encoding="utf-8")
+
+    def broken(*a, **k):
+        raise ValueError("no")
+    monkeypatch.setattr(es, "monitor", broken)
+    with pytest.raises(ValueError):
+        es.main(["--pull", str(pull), "--out", str(tmp_path / "out"), "--monitor"])
+    s = json.loads((tmp_path / "out" / "monitor_summary.json").read_text(encoding="utf-8"))
+    assert s["status"] == "failed" and s["alerts"] == ["The monitor did not run (ValueError)."]
+
+
 def test_the_registration_counts_from_githubs_record_of_the_push():
     """A commit date is whatever its author set; GitHub's push timestamp is not."""
     path = ROOT / "docs" / "prospective" / "REGISTERED.json"
@@ -1048,3 +1333,16 @@ def test_the_registration_counts_from_githubs_record_of_the_push():
     assert es._pushed_date(path, run, activity=[]) is None, "never pushed: no date"
     assert es._pushed_date(path, "no-such-run-anywhere", activity=carried) is None
 
+
+
+def test_the_export_reads_holds_strictly_so_a_broken_file_never_releases_them(tmp_path):
+    """The export applies docs/holds.json with the same strict loader as the publish, the worklists and
+    the API deploy: no file is no hold, and a file that is not {"facility_ids": [...]} stops the run."""
+    assert es.load_holds(tmp_path / "none.json") == set()
+    good = tmp_path / "holds.json"
+    good.write_text(json.dumps({"facility_ids": [" DEH2022-FFPP-000001 "]}), encoding="utf-8")
+    assert es.load_holds(good) == {"DEH2022-FFPP-000001"}
+    for bad in ('{"facility_ids": "DEH2022-FFPP-000001"}', "{not json", '{"facility_ids": [""]}', "[]"):
+        good.write_text(bad, encoding="utf-8")
+        with pytest.raises(SystemExit):
+            es.load_holds(good)

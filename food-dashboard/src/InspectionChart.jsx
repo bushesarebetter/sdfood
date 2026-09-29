@@ -1,8 +1,8 @@
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Cell, ReferenceLine } from "recharts";
 import { useAdvanced } from "./useAdvanced";
 import { fmtShort, fmtDate } from "./lib/dates";
-import { visitLabel, isGraded } from "./lib/inspections";
-import { GRADE_SWATCH } from "./lib/grades";
+import { visitPhrase, isGraded, countyNotes, countyType, visitLabel } from "./lib/inspections";
+import { GRADE_SWATCH, OPEN_CLOSURE_COLOR } from "./lib/grades";
 
 const AXIS = { fontSize: 11, fill: "#6B6457", fontFamily: "ui-monospace, Consolas, monospace" };
 const FLOOR = 50;
@@ -11,21 +11,25 @@ const STUB = 53;
 const LIGHT = 0.5;
 const NO_SCORE = "#B8AF9C";
 const SCORED_UNGRADED = "#8A8272";
-const CLOSED = "#7F1D1D";
+const CLOSED = OPEN_CLOSURE_COLOR;
 
 function PaperTooltip({ active, payload }) {
   if (!active || !payload?.length) return null;
   const d = payload[0].payload;
   const items = [d.major ? `${d.major} major` : "", d.minor ? `${d.minor} minor` : "", d.grp ? `${d.grp} good-retail-practice` : ""].filter(Boolean);
+  const notes = countyNotes(d);
   return (
     <div style={{ background: "#FBF9F5", border: "1px solid #B8AF9C", padding: "8px 10px", fontSize: 12, color: "#17150F", maxWidth: 240 }}>
       <div style={{ fontWeight: 600 }}>{fmtDate(d.date)}</div>
       <div style={{ color: "#55503F" }}>
-        {visitLabel(d.type)}
+        {countyType(d) ? `${countyType(d)} (County type)` : visitPhrase(d)}
         {d.status ? `, "${d.status}"` : ""}
         {d.score != null ? `, score ${d.score}` : ", no score"}
         {isGraded(d) ? `, grade ${d.grade}` : ""}
         {items.length ? `; ${items.join(", ")}` : ""}
+        {notes.length ? `; County ${notes.length === 1 ? "note" : "notes"}: ${notes.join(", ")}` : ""}
+        {countyType(d) && (d.type === "followup" || d.type === "complaint") ? `; our reading: ${visitLabel(d.type)}` : ""}
+        {d.closed ? `; start of a closure (our reading)` : ""}
       </div>
     </div>
   );
@@ -39,16 +43,19 @@ const fillFor = (d) => {
 
 /**
  * Score by County record, oldest to newest, coloured by the County's grade.
- * Re-grade or reopening visits, reinspections and complaint visits are drawn
- * lighter than routine ones; a record with no score is a short stub. The same
- * records are in a table for screen readers.
+ * Re-grade or reopening visits, reinspections, complaint or other field
+ * visits and status verifications are drawn lighter than routine ones; a
+ * record with no score is a short stub, and the record that starts a closure
+ * (our reading: an "Ordered Closed", a "Self Closed" with a major, or a
+ * closure only a later "Approved to Reopen" shows) is drawn in the closure
+ * colour. The same records are in a table for screen readers.
  */
 export default function InspectionChart({ inspections }) {
   const { advanced } = useAdvanced();
   const list = inspections ?? [];
   const data = list.map((i) => ({ ...i, plotted: typeof i.score === "number" ? Math.max(i.score, STUB) : STUB }));
   const has = (pred) => list.some(pred);
-  const lighter = has((i) => i.type === "followup" || i.type === "reinspection" || i.type === "complaint");
+  const lighter = has((i) => (i.type ?? "routine") !== "routine");
 
   return (
     <figure>
@@ -77,7 +84,7 @@ export default function InspectionChart({ inspections }) {
           {list.map((i, k) => (
             <tr key={k}>
               <td>{fmtDate(i.date)}</td>
-              <td>{visitLabel(i.type)}{i.status ? `, ${i.status}` : ""}</td>
+              <td>{visitPhrase(i)}{countyType(i) && i.type !== "followup" && i.type !== "complaint" ? ` (County type: ${countyType(i)})` : ""}{i.status ? `, ${i.status}` : ""}{i.closed ? ", start of a closure (our reading)" : ""}</td>
               <td>{typeof i.score === "number" ? i.score : "no score"}</td>
               <td>{isGraded(i) ? i.grade : "not graded"}</td>
               <td>{i.major ?? 0}</td>
@@ -90,9 +97,9 @@ export default function InspectionChart({ inspections }) {
         {[["A", "A, 90 or more"], ["B", "B, 80 to 89"], ["C", "C, 79 or less"]].map(([g, label]) => (
           <Key key={g} color={GRADE_SWATCH[g]}>{advanced ? g : label}</Key>
         ))}
-        {lighter && <Key color="#55503F" opacity={LIGHT}>lighter: re-grade or reopening visit, reinspection, complaint visit</Key>}
+        {lighter && <Key color="#55503F" opacity={LIGHT}>lighter: re-grade or reopening visit, reinspection, complaint or other field visit, status verification</Key>}
         {has((i) => typeof i.score !== "number" && !i.closed) && <Key color={NO_SCORE} short>no score</Key>}
-        {has((i) => i.closed) && <Key color={CLOSED} short>Ordered Closed</Key>}
+        {has((i) => i.closed) && <Key color={CLOSED} short>start of a closure (our reading)</Key>}
         {has((i) => typeof i.score === "number" && !isGraded(i) && !i.closed) && <Key color={SCORED_UNGRADED}>scored, not graded</Key>}
       </ul>
     </figure>

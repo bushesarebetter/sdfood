@@ -1,8 +1,10 @@
 """city_site/server.mjs: malformed and ambiguous requests are answered, never crash the process and never
 slip past the access log; sign-in is a form and a server-side session per person that expires and ends at
-sign-out; guessing is slowed per address and user name; the site closes itself past its sunset or without
-the staff export; nothing real is cached; the health check says which export is live; downloads are
-audited; CSP reports are collected; the address lookup merges, retries and limits its upstream calls."""
+sign-out, asks for a site id and token (never a City account) and says what the site logs; guessing is
+slowed per address and user name; the site closes itself past its sunset or without the staff export;
+nothing real is cached; the health check says which export is live, and yes or no to the drift note and
+the monitor; downloads are audited; CSP reports are collected; the address lookup merges, retries and
+limits its upstream calls; the Render record and the daily check (watch.yml) match what the server reads."""
 import base64
 import hashlib
 import http.server
@@ -30,6 +32,15 @@ META = {"run": "forward_2026-09-20-abcd1234", "expires": "2000-01-01", "inspecti
         "drift": {"refit_needed": True}, "access_approved": True}
 FORM = {"Content-Type": "application/x-www-form-urlencoded"}
 HTML = {"Accept": "text/html,application/xhtml+xml,*/*;q=0.8"}
+LOG_NOTICE = b"This site keeps a log, under your sign-in id, of each sign-in and sign-out"
+# Words the site's copy does not use (food-dashboard/tests/copy.test.mjs); the server's own pages follow them too.
+BANNED = re.compile(rb"\bfail(?:s|ed|ing|ure|ures)?\b|\brisk\b|\bclean\b|published rule|\xe2\x80\x94", re.I)
+
+
+def _own_page(body):
+    """The server's own page: no reviewed-out word, and the notice of what the site logs."""
+    assert not BANNED.search(body), BANNED.search(body)
+    assert LOG_NOTICE in body and b"The site&#39;s operator, and anyone with access to its hosting account" in body
 
 
 # ── a small HTTP client on raw sockets, so every byte of the request is ours ─────────────────────────
@@ -227,6 +238,14 @@ def test_the_sign_in_page_is_a_self_contained_form(site):
                   b'method="post" action="/login"'):
         assert field in r.body, field
     assert b"For access, ask Jane Doe." in r.body
+    # A site sign-in, never a City account: the page says so, and asks for nothing that looks like one.
+    assert b"not your City network account" in r.body and b"never enter your City user name or password here" in r.body
+    assert b'<label for="user">Sign-in id</label>' in r.body and b'<label for="password">Access token</label>' in r.body
+    assert b"City staff sign-in" not in r.body and b"User name" not in r.body and b">Password<" not in r.body
+    # Not a City site: the site's one disclaimer, word for word, names the City as well as the County.
+    note = re.search(r'STUDENT_NOTE = "([^"]+)"', (ROOT / "food-dashboard" / "src" / "site.js").read_text(encoding="utf-8")).group(1)
+    assert b"not a City site" in r.body and note.encode() in r.body
+    _own_page(r.body)
     assert not re.search(rb"(src|href)=", r.body), "no external assets"
     style = re.search(rb"<style>(.*?)</style>", r.body, re.S).group(1)
     sha = base64.b64encode(hashlib.sha256(style).digest()).decode()
@@ -250,6 +269,8 @@ def test_every_person_signs_in_with_their_own_token_and_it_is_logged(site):
     bad = _login(port, "city", "nope-nope-nope-nope")
     assert bad.status == 401 and b"not right" in bad.body and _cookie(bad) is None
     assert b'value="city"' in bad.body, "the form comes back with the user name"
+    _own_page(bad.body)
+    assert _login(port, "jane.doe@sandiego.example", "my-city-password-123").status == 401
     assert _login(port, "ana", SECRET).status == 401, "a token belongs to one person"
     assert _login(port, "nobody", SECRET).status == 401
     assert _login(port, "ana", "").status == 401
@@ -268,7 +289,9 @@ def test_every_person_signs_in_with_their_own_token_and_it_is_logged(site):
     assert signed_in.status == 303 and signed_in.header("location") == "/data/meta.json"
     log = site.log()
     assert "access user=ana /data/place/X.json" in log and "sign-in user=ana" in log
-    assert 'sign-in failed user="nobody"' in log
+    # The name typed is logged only when it is one of the site's ids: a City account typed by mistake is not.
+    assert 'sign-in failed user="city"' in log and "sign-in failed user=<not an id>" in log
+    assert '"nobody"' not in log and "jane.doe" not in log
 
 
 def test_next_is_only_ever_a_path_on_this_site(site):
@@ -358,6 +381,7 @@ def test_guessing_is_slowed_per_address_and_user_name(site):
     blocked = _login(port, "ana", ANA)
     assert blocked.status == 429 and blocked.header("retry-after") == "900", "blocked even with the right password"
     assert _cookie(blocked) is None
+    _own_page(blocked.body)
     assert _login(port, "city", SECRET).status == 303, "another person at the same address still signs in"
     assert _login(port, "ana", ANA, headers={"CF-Connecting-IP": "203.0.113.9"}).status == 303, "ana from elsewhere"
     # X-Forwarded-For is anyone's to write: changing it does not change who is counted.
@@ -450,7 +474,25 @@ def test_the_health_check_says_which_export_and_rule_are_live(site):
     assert h["refit_needed"] is False and h["rule_version"] is None and h["access_approved"] is False
     _write_meta(site.dist, {**META, "frozen": None, "drift": None, "access_approved": "yes"})
     h = _req(site.port, "/healthz").json()
-    assert h["refit_needed"] is False and h["rule_version"] is None and h["access_approved"] is True
+    assert h["refit_needed"] is False and h["rule_version"] is None and h["access_approved"] is False, \
+        "only true, the value the publisher writes, is approval"
+    assert h["named_list"] == "operators only"
+
+
+def test_the_health_check_says_yes_or_no_to_the_drift_note_and_the_monitor(site):
+    h = _req(site.port, "/healthz").json()
+    assert h["drift_note"] is False and h["monitor"] is None and h["monitor_alert"] is False, "an older export"
+    note = "In the latest quarter 20.4% of routine inspections found a major violation, against 17.5% over the backtest year."
+    for monitor, status, alert in [({"status": "interim", "runs": 2, "alerts": [], "next_window_date": None}, "interim", False),
+                                   ({"status": "complete", "runs": 3, "alerts": ["a sentence"]}, "complete", True),
+                                   ({"status": "failed", "runs": 0, "alerts": []}, "failed", True),
+                                   ({"status": "too early", "runs": 1}, "too early", False)]:
+        _write_meta(site.dist, {**META, "drift": {"refit_needed": False, "note": note}, "monitor": monitor})
+        h = _req(site.port, "/healthz").json()
+        assert h["drift_note"] is True and h["monitor"] == status and h["monitor_alert"] is alert, monitor
+        assert "20.4" not in json.dumps(h) and "a sentence" not in json.dumps(h), "yes or no only: the text stays behind the sign-in"
+    _write_meta(site.dist, {**META, "drift": {"refit_needed": False, "note": "  "}})
+    assert _req(site.port, "/healthz").json()["drift_note"] is False
 
 
 def test_the_site_closes_itself_past_its_sunset_or_without_the_staff_export(site):
@@ -592,32 +634,80 @@ def test_at_most_two_census_lookups_run_at_once(start, geocoders):
 
 
 def test_before_the_city_asks_only_the_operator_sees_the_named_list(start):
-    """Until a City request and a TRUST determination are on record, a City sign-in issued early sees
-    why, not the list; the operators (SITE_OPERATORS) build and check it. The shared sign-in is an
-    operator by default only while it is the only sign-in."""
+    """Until a City request and a TRUST determination are on record, a site sign-in issued early sees
+    why, not the list; the operators (SITE_OPERATORS) build and check it. The SITE_PASSWORD sign-in is the
+    operator's own older one, never given to anyone: by default an operator only while it is the only sign-in."""
     withheld = {**META, "access_approved": False,
                 "corrections": [{"date": "2026-09-01", "facility_id": "X", "what": "w", "why": "y"}]}
-    s = start(env={"SITE_OPERATORS": "city"}, meta=withheld)
-    op, ana = _session(s.port), _session(s.port, "ana", ANA)
+    s = start(env={"SITE_OPERATORS": "ana"}, meta=withheld)
+    op, city = _session(s.port, "ana", ANA), _session(s.port)
     assert _req(s.port, "/data/place/X.json", cookie=op).status == 200, "the operator"
     for path in ("/data/place/X.json", "/", "/geocode?q=x", "/data/facilities.geojson"):
-        r = _req(s.port, path, cookie=ana)
+        r = _req(s.port, path, cookie=city)
         assert r.status == 503 and b"withheld until the City has recorded a request" in r.body, path
-    m = _req(s.port, "/data/meta.json", cookie=ana)
+    _own_page(r.body)
+    m = _req(s.port, "/data/meta.json", cookie=city)
     assert m.status == 200 and m.json()["corrections"] == [] and m.json()["run"] == META["run"], \
         "the app can still say why, and no per-place field leaves"
     assert _req(s.port, "/data/meta.json", cookie=op).json()["corrections"], "the operator sees the whole file"
     assert _req(s.port, "/healthz").json()["named_list"] == "operators only"
-    assert "withheld user=ana" in s.log()
+    log = s.log()
+    assert "withheld user=city" in log
+    assert "SITE_PASSWORD is set alongside SITE_USERS" in log and "it is not an operator" in log
+    _write_meta(s.dist, {**withheld, "access_approved": "yes"})
+    assert _req(s.port, "/data/place/X.json", cookie=city).status == 503, "only the value true opens the list"
     alone = start(env={"SITE_USERS": ""}, meta=withheld)
     assert _req(alone.port, "/data/place/X.json", cookie=_session(alone.port)).status == 200, \
-        "while the shared sign-in is the only one, it is the operator's"
+        "while the SITE_PASSWORD sign-in is the only one, it is the operator's"
+    assert "alongside SITE_USERS" not in alone.log()
     both = start(meta=withheld)
     assert _req(both.port, "/data/place/X.json", cookie=_session(both.port)).status == 503, \
-        "once personal sign-ins exist, whoever holds the shared one is not assumed to be the operator"
-    assert "no SITE_OPERATORS" in both.log()
+        "once personal sign-ins exist, the SITE_PASSWORD sign-in is not assumed to be an operator"
+    log = both.log()
+    assert "no SITE_OPERATORS" in log and "SITE_PASSWORD is set alongside SITE_USERS" in log
+    named = start(env={"SITE_OPERATORS": "city"}, meta=withheld)
+    assert _req(named.port, "/data/place/X.json", cookie=_session(named.port)).status == 200, \
+        "named in SITE_OPERATORS, it is one (the operator's own sign-in), and the log says so"
+    assert "SITE_OPERATORS names it an operator" in named.log()
+    typo = start(env={"SITE_OPERATORS": "ana,anna"}, meta=withheld)
+    assert "SITE_OPERATORS names anna, which no sign-in has" in typo.log()
     _write_meta(s.dist, {**META, "access_approved": True})
-    assert _req(s.port, "/data/place/X.json", cookie=ana).status == 200, "once recorded, every signed-in person"
+    assert _req(s.port, "/data/place/X.json", cookie=city).status == 200, "once recorded, every signed-in person"
+
+
+def test_without_site_contact_the_sign_in_page_still_says_whom_to_ask(start):
+    s = start(env={"SITE_CONTACT": ""})
+    body = _req(s.port, "/login").body
+    assert b"For access, ask" not in body and b"Ask the person who sent you this link. Do not try your City account." in body
+
+
+def test_the_render_record_names_every_setting_the_server_reads():
+    text = (ROOT / "city_site" / "render.yaml").read_text(encoding="utf-8")
+    keys = re.findall(r"\{ key: (\w+),", text)
+    server = (ROOT / "city_site" / "server.mjs").read_text(encoding="utf-8")
+    read = set(re.findall(r"process\.env\.(SITE_\w+)", server))
+    assert read <= set(keys), read - set(keys)
+    assert {"SITE_OPERATORS", "SITE_USER"} <= set(keys)
+    assert "shared" not in text and "shared" not in server.split("import ")[0], "the SITE_PASSWORD sign-in is no one else's"
+
+
+def test_the_daily_check_is_bounded_and_reports_a_run_that_ran_out_of_time():
+    text = (ROOT / "city_site" / "watch.yml").read_text(encoding="utf-8")
+    job = int(re.search(r"^    timeout-minutes: (\d+)", text, re.M).group(1))
+    check = int(re.search(r"id: check\n(?:\s+#.*\n)*\s+timeout-minutes: (\d+)", text).group(1))
+    health = next(line for line in text.splitlines() if '"$SITE/healthz"' in line and "curl" in line)
+    opt = lambda line, name: int(re.search(rf"--{name} (\d+)", line).group(1))
+    worst = opt(health, "retry-max-time") + opt(health, "max-time")
+    metas = [line for line in text.splitlines() if "/data/meta.json" in line and "curl" in line]
+    worst += len(metas) * max(opt(line, "max-time") for line in metas)
+    assert worst < check * 60 - 60, (worst, check)
+    assert job > check, "the job outlasts the check, so the issue steps still run"
+    assert re.search(r"if: failure\(\) \|\| \(cancelled\(\) && github.event_name == 'schedule'\)", text)
+    assert text.index("the check did not finish") < text.index("curl"), "a run stopped by its limit still says why"
+    assert "vars.SITE_URL" in text
+    for signal in (".drift_note == true", ".monitor_alert == true"):
+        assert signal in text, signal
+    assert "the monitor has an alert" in text and "major-violation rate differs" in text
 
 
 def test_past_the_budget_one_client_cannot_hold_every_sign_in(site):

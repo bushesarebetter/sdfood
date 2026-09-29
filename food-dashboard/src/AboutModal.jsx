@@ -2,10 +2,10 @@ import Dialog, { CloseButton } from "./Dialog";
 import { useAdvanced } from "./useAdvanced";
 import { useExpired, useMeta, useMode, useSample } from "./useMeta";
 import {
-  GROUP_NOTE, auditedBandsName, bandDefs, bandPoints, bandSummary, backtestList, costLimitSentence, driftLines, frozenLine, persistenceSentence,
-  rateRatio, restRate, restRatio, routeSentence, ruleSentence, utilityRows,
+  GROUP_NOTE, auditedBandsName, bandDefs, bandPoints, bandSummary, backtestList, costLimitSentence, curveGroupRows, curveGroupSpread, driftLines,
+  frozenLine, persistenceSentence, pointsSpan, rateRatio, restRate, restRatio, routeSentence, ruleSentence, utilityRows,
 } from "./lib/bands";
-import { isStaff, reviewStatus } from "./lib/staff";
+import { districtStatus, isStaff, reviewStatus } from "./lib/staff";
 import { gradeContextSentence } from "./lib/framing";
 import { OUR_READING } from "./lib/inspections";
 import { fmtDate } from "./lib/dates";
@@ -102,8 +102,8 @@ export default function AboutModal({ onClose, onNavigate }) {
         <Section heading="The County's words and ours">
           <p>
             Shown as the County published them: each record&rsquo;s date, visit type, status text (such as
-            &ldquo;Complete&rdquo;, &ldquo;Ordered Closed&rdquo; or &ldquo;Approved to Reopen&rdquo;), score, grade, and
-            each item&rsquo;s text and severity.
+            &ldquo;Complete&rdquo;, &ldquo;Ordered Closed&rdquo; or &ldquo;Approved to Reopen&rdquo;), score, grade, the
+            County&rsquo;s own notes on it (such as &ldquo;Impoundment&rdquo;), and each item&rsquo;s text and severity.
           </p>
           <p>
             Marked &ldquo;Our reading&rdquo; wherever they appear: re-grade or reopening visits ({rule(OUR_READING.followup)}),
@@ -111,8 +111,9 @@ export default function AboutModal({ onClose, onNavigate }) {
             {rule(OUR_READING.flags)}){mode === "bands" ? "; and the points and bands of the students' point rule, which are ours entirely" : ""}.
           </p>
           <p>
-            Dropped as not inspections: &ldquo;No Access&rdquo;, &ldquo;Self Closed&rdquo; and &ldquo;Status
-            Verification&rdquo; visits. A score of 0 means not scored, and no grade is ever made from a score.
+            Dropped as not inspections: &ldquo;No Access&rdquo; visits, and &ldquo;Self Closed&rdquo; or &ldquo;Status
+            Verification&rdquo; records that cite no item and were not ordered closed. Those that do are shown with the
+            County&rsquo;s status text. A score of 0 means not scored, and no grade is ever made from a score.
           </p>
         </Section>
 
@@ -164,6 +165,8 @@ function Rule({ meta, advanced, expired }) {
   const limit = costLimitSentence(meta);
   const byRoute = routeSentence(meta);
   const drift = driftLines(meta);
+  const fitted = fittedRows(card);
+  const finer = curveRows(card);
   return (
     <>
       <Section heading="The students' point rule (not a County grade or rating)">
@@ -227,19 +230,40 @@ function Rule({ meta, advanced, expired }) {
         </Section>
       )}
 
-      {curveRows(card).length > 0 && (
+      {(fitted || finer.length > 0) && (
         <Section heading="What the points say, place by place">
           <p>
-            Every scored place is also given an estimate: what places with about its points did in the backtest, read from a
-            monotone fit to the counts below: more points never means a lower rate, and where the counts cannot tell point values apart their rate is pooled, so it levels off where the rates do. Each estimate comes with a likely range.
+            Every scored place is also given an estimate, with a likely range: what places with about its points did in the backtest.
+            {fitted ? (
+              <> Point values are pooled into groups of at least {poolFloor(card)} labelled places, and every place in a group is
+                given the group&rsquo;s rate, even where the finer counts inside it differ{spreadText(card)}. A monotone fit then keeps
+                the rate from falling as points rise, so neighbouring groups can read the same rate. Each place&rsquo;s estimate
+                names the group of points it is read from.</>
+            ) : (
+              <> It is read from a monotone fit to the counts below: more points never means a lower rate.</>
+            )}
             {card && "curve_closure" in card && (
               <> There are two fits: one for places whose two scored years include no closure, and one for places whose two years
                 include a routine inspection that ended in a closure, which the rule counts as 70; each place is read from its own,
                 and an estimate from the second says so.</>
             )}{" "}
-            The counts themselves:
+            {fitted ? "Each group, and the rate every place in it is given:" : "The counts themselves:"}
           </p>
-          <Table head={["Points", "Places", "Had a major", "Rate"]} rows={curveRows(card)} />
+          {fitted ? (
+            <Table
+              head={["Points", "Places", "Had a major", "Rate given (likely range)"]}
+              rows={fitted.rows}
+              note={fitted.blank ? "Places and majors are left blank for a group whose finer counts run across its edges." : null}
+            />
+          ) : (
+            <Table head={["Points", "Places", "Had a major", "Rate"]} rows={finer} />
+          )}
+          {fitted && advanced && finer.length > 0 && (
+            <>
+              <p>The finer counts by points, from the same backtest. No place is read from these; they show how the rate moves inside each group.</p>
+              <Table head={["Points", "Places", "Had a major", "Rate"]} rows={finer} />
+            </>
+          )}
         </Section>
       )}
 
@@ -308,18 +332,71 @@ const totalRow = (c, label) => [
   typeof c?.labelled === "number" && c.labelled > 0 && typeof c?.positives === "number" ? pct(c.positives / c.labelled) : "",
 ];
 
+const NO_CLOSURE_LABEL = "Places whose two scored years include no closure";
+const CLOSURE_LABEL = "Places whose two years include a closure counted as 70";
+
 /**
- * The counts under the estimate curves. An export with `curve_closure` fits `curve` to the places
- * whose two scored years include no closure, so each curve is headed by the places it covers, the
- * closure curve (when there is one) second; an older export's one curve covers every scored place.
+ * The finer counts under the estimate curves (`bins`). An export with `curve_closure` fits `curve` to
+ * the places whose two scored years include no closure, so each curve is headed by the places it
+ * covers, the closure curve (when there is one) second; an older export's one curve covers every
+ * scored place. No place is read from these (fittedRows is what places are told).
  */
 function curveRows(card) {
   if (!card) return [];
   const plain = binRows(card.curve);
   if (!("curve_closure" in card)) return plain;
-  const rows = plain.length ? [totalRow(card.curve, "Places whose two scored years include no closure"), ...plain] : [];
-  if (card.curve_closure) rows.push(totalRow(card.curve_closure, "Places whose two years include a closure counted as 70"), ...binRows(card.curve_closure));
+  const rows = plain.length ? [totalRow(card.curve, NO_CLOSURE_LABEL), ...plain] : [];
+  if (card.curve_closure) rows.push(totalRow(card.curve_closure, CLOSURE_LABEL), ...binRows(card.curve_closure));
   return rows;
+}
+
+/**
+ * What places are told, one row per fitted group of each curve (lib/bands.js curveGroupRows): its
+ * points, its places and majors where the export's counts allow, and the rate and likely range every
+ * place in it is given, the same the estimate on a place's page states. `{rows, blank}`, blank when a
+ * group's counts could not be given; null for an export whose curves have no `groups`.
+ */
+function fittedRows(card) {
+  if (!card?.curve) return null;
+  const two = "curve_closure" in card;
+  const curves = [[card.curve, two ? NO_CLOSURE_LABEL : null], ...(two && card.curve_closure ? [[card.curve_closure, CLOSURE_LABEL]] : [])];
+  const rows = [];
+  let blank = false;
+  for (const [c, label] of curves) {
+    const groups = curveGroupRows(c);
+    if (!groups) return null;
+    if (label) rows.push(totalRow(c, label));
+    for (const g of groups) {
+      blank ||= g.labelled == null;
+      const range = typeof g.low === "number" && typeof g.high === "number" ? ` (${pct(g.low)} to ${pct(g.high)})` : "";
+      rows.push([pointsSpan(g.lo, g.hi).replace(/ points?$/, ""), num(g.labelled), num(g.positives), `${pct(g.rate)}${range}`]);
+    }
+  }
+  return rows.length ? { rows, blank } : null;
+}
+
+/** The fewest labelled places in a group, from the curve's own description ("groups of at least 200 places"). */
+function poolFloor(card) {
+  const m = /at least (\d+)/.exec(String(card?.curve?.model ?? ""));
+  return m ? Number(m[1]).toLocaleString("en-US") : "200";
+}
+
+/**
+ * Where the finer counts inside a fitted group run from low to high, as the About page states it:
+ * " (in the group from 7 to 25 points whose two years include a closure, from about 14 in 100 at 7 to
+ * 10 points to 50 in 100 at 19 to 25 points)"; "" when no group's finer counts differ.
+ */
+function spreadText(card) {
+  if (!card) return "";
+  const hundred = (x) => Math.round(x * 100);
+  const parts = [];
+  for (const [c, who] of [[card.curve, "curve_closure" in card ? " whose two scored years include no closure" : ""], [card.curve_closure, " whose two years include a closure"]]) {
+    for (const s of curveGroupSpread(c)) {
+      parts.push(`in the group from ${s.lo} to ${s.hi} points${who}, from about ${hundred(s.min.rate)} in 100 at ${pointsSpan(s.min.min_points, s.min.max_points)} ` +
+        `to ${hundred(s.max.rate)} in 100 at ${pointsSpan(s.max.min_points, s.max.max_points)}`);
+    }
+  }
+  return parts.length ? ` (${parts.join("; ")})` : "";
 }
 
 /**
@@ -327,10 +404,14 @@ function curveRows(card) {
  * how many had a major, the district's share of the wrongly named over its share of the labelled
  * scored places with its 95% and family-wise intervals (the family-wise one also widened for an
  * assumed design effect of 2, allowing for inspectors, when the export has it), and the
- * false-positive rate against the City's. A column the export has no figure for is left out.
+ * false-positive rate against the City's. A column the export has no figure for is left out. Under
+ * it, the public-release check's district lines, then which districts are above even under which
+ * interval (lib/staff.js districtStatus, from the export's fields), so the page says why the banner
+ * names only the districts with evidence; an older export without `evidence_above_even` keeps the lines alone.
  */
 function DistrictTable({ meta }) {
   const f = meta.fairness;
+  const status = districtStatus(meta);
   const rows = Object.entries(f.by_district).filter(([d]) => d !== "None");
   const any = (test) => rows.some(([, r]) => test(r ?? {}));
   const family = any((r) => isRange(r.interval_family));
@@ -367,9 +448,13 @@ function DistrictTable({ meta }) {
           ". 1 is even."
         }
       />
-      {Array.isArray(f.problems) && f.problems.length > 0 && (
-        <p>Uneven: {f.problems.join("; ")}. Part of a district&rsquo;s gap may be how its inspectors cite, not its restaurants: the record does not say which inspector made a visit.</p>
-      )}
+      {Array.isArray(f.problems) && f.problems.length > 0 && (status ? (
+        <p>The check a public release would need finds these above even on at least one measure: {f.problems.join("; ")}.</p>
+      ) : (
+        <p>Uneven: {f.problems.join("; ")}.</p>
+      ))}
+      {status && <p>{status.join(" ")}</p>}
+      <p>Part of a district&rsquo;s gap may be how its inspectors cite, not its restaurants: the record does not say which inspector made a visit.</p>
       <p>{CUISINE_NOTE}</p>
     </Section>
   );

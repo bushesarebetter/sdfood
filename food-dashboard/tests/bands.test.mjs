@@ -5,6 +5,7 @@ import {
   estimateSentence, persistenceSentence, backtestPeriod, districtSentence, GROUP_NOTE, SAME_AS_PERSISTENCE, DRIFT_NOTE,
   scoreUsedText, scoresRead, utilityRows, frozenLine, driftLine, band1ByRoute, routeSentence, isOutside,
   CLOSURE_GROUP, DRIFT_NOT_YET, driftNote, driftLines, costLimit, costLimitSentence, districtPrecision, auditedBandsName, auditedGroup,
+  driftNotYet, curveFor, curveGroups, curveGroupFor, curveGroupRows, curveGroupSpread, pointsSpan,
 } from "../src/lib/bands.js";
 import { bandsMeta, staffMeta } from "./fixtures/bandsMeta.mjs";
 
@@ -184,8 +185,12 @@ test("the export's drift note follows the estimate, after the sampling and refit
 });
 
 test("the About page's drift lines: not yet comparable, the refit with its reasons, and the note", () => {
-  assert.equal(DRIFT_NOT_YET, "Drift: the County's record since the backtest year cannot be compared yet (no complete quarter after it).");
-  assert.deepEqual(driftLines({ drift: { status: "not_yet_measurable", refit_needed: false, reasons: [], note: NOTE } }), [DRIFT_NOT_YET, NOTE]);
+  assert.equal(DRIFT_NOT_YET,
+    "Drift: the formal check compares complete quarters after the backtest year, each counted 30 days after it ends, and none is complete yet.");
+  const MEANWHILE = `Meanwhile, i${NOTE.slice(1)}`;
+  assert.deepEqual(driftLines({ drift: { status: "not_yet_measurable", refit_needed: false, reasons: [], note: NOTE } }), [DRIFT_NOT_YET, MEANWHILE],
+    "the formal check cannot run; the latest quarter's note is what can be said meanwhile, not a contradiction");
+  assert.doesNotMatch(driftLines({ drift: { status: "not_yet_measurable", note: NOTE } }).join(" "), /cannot be compared/);
   assert.deepEqual(driftLines({ drift: { status: "not_yet_measurable", refit_needed: false, reasons: [], note: null } }), [DRIFT_NOT_YET]);
   assert.deepEqual(
     driftLines({ drift: { status: "refit", refit_needed: true, reasons: ["routine major rate 26.5% in 2026Q1, 2026Q2 against 20.0% over the backtest year"], note: NOTE } }),
@@ -236,4 +241,117 @@ test("outside the City, the band line says when recent major violations alone pi
     /^Sorting the same restaurants outside the City by their recent major violations, .* with a similar rate \(about 31 in 100\)\./);
   assert.equal(persistenceSentence(outside(undefined), "1", { outside: true }), null);
   assert.match(persistenceSentence(staffMeta, "1", { outside: false }), /^Sorting the same restaurants by their recent major violations/);
+});
+
+test("the drift check's dates: the first quarter after the backtest year, counted 30 days after it ends", () => {
+  assert.equal(driftNotYet({ catch_run: { label_window: "2025-09-01 to 2026-08-31" } }),
+    "Drift: the formal check compares complete quarters after the backtest year, each counted 30 days after it ends; " +
+      "the first is October to December 2026, counted from January 30, 2027.");
+  assert.match(driftNotYet({ catch_run: { label_window: "2025-10-01 to 2026-09-30" } }), /the first is October to December 2026, counted from January 30, 2027\.$/,
+    "a year ending on a quarter's last day");
+  assert.match(driftNotYet({ catch_run: { label_window: "2025-12-01 to 2026-11-30" } }), /the first is January to March 2027, counted from April 30, 2027\.$/);
+  assert.equal(driftNotYet({}), DRIFT_NOT_YET);
+  assert.equal(driftNotYet({ catch_run: { label_window: "soon" } }), DRIFT_NOT_YET);
+  const lines = driftLines({ catch_run: { label_window: "2025-09-01 to 2026-08-31" }, drift: { status: "not_yet_measurable", note: NOTE } });
+  assert.match(lines[0], /January 30, 2027\.$/);
+  assert.match(lines[1], /^Meanwhile, in the latest quarter/);
+});
+
+// The shape a real export's curves have (export_site.risk_curve): whole-point groups of at least 200
+// labelled places, an isotonic step over them, and finer bins; the closure curve is one group.
+const rates = (spec, top) => {
+  const out = [];
+  for (let j = 0; j <= top; j += 1) out.push(spec.find(([lo, hi]) => j >= lo && j <= hi)?.[2] ?? spec[0][2]);
+  return out;
+};
+const plainSpec = [[0, 1, 0.0704, 0.0424, 0.0875], [2, 2, 0.1256], [3, 3, 0.158], [4, 5, 0.2107], [6, 6, 0.3037], [7, 7, 0.3194], [8, 16, 0.4044]];
+const curveMeta = {
+  mode: "bands",
+  catch_run: { as_of: "2025-09-01" },
+  card: {
+    curve: {
+      model: "isotonic (monotone) rate by points at the backtest origin, point values pooled into groups of at least 200 places; 95% interval by address-cluster bootstrap",
+      groups: [[0, 0], [1, 1], [2, 2], [3, 3], [4, 4], [5, 5], [6, 6], [7, 7], [8, 16]],
+      rate: rates(plainSpec, 16),
+      low: rates(plainSpec.map(([lo, hi, r]) => [lo, hi, Math.round((r - 0.04) * 1e4) / 1e4]), 16),
+      high: rates(plainSpec.map(([lo, hi, r]) => [lo, hi, Math.round((r + 0.04) * 1e4) / 1e4]), 16),
+      bins: [
+        { min_points: 0, max_points: 0, labelled: 255, positives: 18, rate: 0.0706 },
+        { min_points: 1, max_points: 1, labelled: 370, positives: 26, rate: 0.0703 },
+        { min_points: 2, max_points: 2, labelled: 430, positives: 54, rate: 0.1256 },
+        { min_points: 3, max_points: 3, labelled: 405, positives: 64, rate: 0.158 },
+        { min_points: 4, max_points: 4, labelled: 368, positives: 78, rate: 0.212 },
+        { min_points: 5, max_points: 5, labelled: 344, positives: 72, rate: 0.2093 },
+        { min_points: 6, max_points: 6, labelled: 270, positives: 82, rate: 0.3037 },
+        { min_points: 7, max_points: 16, labelled: 582, positives: 217, rate: 0.3729 },
+      ],
+      labelled: 3024, positives: 611,
+    },
+    curve_closure: {
+      groups: [[7, 25]],
+      rate: Array(26).fill(0.316), low: Array(26).fill(0.263), high: Array(26).fill(0.3723),
+      bins: [
+        { min_points: 7, max_points: 10, labelled: 22, positives: 3, rate: 0.1364 },
+        { min_points: 11, max_points: 18, labelled: 204, positives: 67, rate: 0.3284 },
+        { min_points: 19, max_points: 25, labelled: 42, positives: 21, rate: 0.5 },
+      ],
+      labelled: 268, positives: 91,
+    },
+  },
+};
+
+test("each fitted group is one row, with the rate every place in it is given; counts only where the bins allow", () => {
+  const rows = curveGroupRows(curveMeta.card.curve);
+  assert.deepEqual(rows.map((r) => [r.lo, r.hi]), curveMeta.card.curve.groups);
+  assert.deepEqual(rows[0], { lo: 0, hi: 0, labelled: 255, positives: 18, rate: 0.0704, low: 0.0304, high: 0.1104 },
+    "the rate given, pooled with the group above by the monotone step, not the group's own 7.06%");
+  assert.equal(rows[1].rate, rows[0].rate, "0 and 1 points read the same rate");
+  assert.deepEqual([rows[7].labelled, rows[8].labelled], [null, null], "the 7 to 16 bin runs across the groups' edge");
+  assert.deepEqual(curveGroupRows(curveMeta.card.curve_closure), [{ lo: 7, hi: 25, labelled: 268, positives: 91, rate: 0.316, low: 0.263, high: 0.3723 }]);
+  const counted = { ...curveMeta.card.curve, group_counts: [{ min_points: 7, max_points: 7, labelled: 230, positives: 70 }] };
+  assert.deepEqual([curveGroupRows(counted)[7].labelled, curveGroupRows(counted)[7].positives], [230, 70], "the export's own per-group counts first");
+  assert.equal(curveGroupRows({ rate: [0.1] }), null, "an older export's curve has no groups");
+  assert.equal(curveGroups({ groups: [[3, 1]] }), null);
+});
+
+test("every About row's rate is the rate the estimate gives each place in its points", () => {
+  for (const [curve, group] of [[curveMeta.card.curve, "scores"], [curveMeta.card.curve_closure, "closure"]]) {
+    for (const row of curveGroupRows(curve)) {
+      for (let pts = row.lo; pts <= row.hi; pts += 1) {
+        const s = estimateSentence(curveMeta, pts, { estimate: { rate: curve.rate[pts], low: curve.low[pts], high: curve.high[pts], group } });
+        assert.match(s, new RegExp(`with ${pointsSpan(row.lo, row.hi)}${group === "closure" ? ` ${CLOSURE_GROUP}` : ""}: about ${Math.round(row.rate * 100)} in 100 `),
+          `${group} ${pts} points`);
+      }
+    }
+  }
+});
+
+test("the estimate names the group of points it is read from, not the place's exact points", () => {
+  const closure = estimateSentence(curveMeta, 23, { estimate: { rate: 0.316, low: 0.263, high: 0.3723, group: "closure" } });
+  assert.match(closure, /^Scored restaurants with 7 to 25 points whose last two years include a routine inspection that ended in a closure: about 32 in 100 /);
+  assert.doesNotMatch(closure, /about 23 points/);
+  assert.match(estimateSentence(curveMeta, 12, { estimate: { rate: 0.4044, low: 0.3644, high: 0.4444 } }), /^Scored restaurants with 8 to 16 points: about 40 in 100 /);
+  assert.match(estimateSentence(curveMeta, 7, { estimate: { rate: 0.3194, low: 0.28, high: 0.36, group: "scores" } }), /^Scored restaurants with 7 points: about 32 in 100 /,
+    "a group of one value keeps its value");
+  assert.match(estimateSentence(curveMeta, 1, { estimate: { rate: 0.0704, group: "scores" } }), /^Scored restaurants with 1 point: /);
+  assert.match(estimateSentence(curveMeta, 20, { estimate: { rate: 0.4044, group: "scores" } }),
+    /^Scored restaurants with 8 to 16 points \(the group this place's 20 points are read from\): about 40 in 100 /, "past the backtest's largest");
+  assert.match(estimateSentence(curveMeta, 12), /^Scored restaurants with 8 to 16 points: about 40 in 100 /, "without a place estimate, read from the curve");
+  assert.match(estimateSentence(curveMeta, 9, { estimate: { rate: 0.4, min_points: 8, max_points: 16 } }), /^Scored restaurants with 8 to 16 points: /, "the place's own range first");
+  assert.match(estimateSentence(staffMeta, 9), /^Scored restaurants with about 9 points: /, "an older export's curve without groups");
+});
+
+test("where a group's finer counts run from low to high, and which curve an estimate reads", () => {
+  assert.deepEqual(curveGroupSpread(curveMeta.card.curve), [], "no group of the no-closure curve holds two whole bins that differ");
+  const [s] = curveGroupSpread(curveMeta.card.curve_closure);
+  assert.deepEqual([s.lo, s.hi, s.min.min_points, s.min.max_points, s.max.min_points, s.max.max_points], [7, 25, 7, 10, 19, 25]);
+  assert.equal(pointsSpan(7, 10), "7 to 10 points");
+  assert.equal(pointsSpan(1, 1), "1 point");
+  assert.deepEqual(curveGroupFor(curveMeta.card.curve, 12), { lo: 8, hi: 16, where: "in" });
+  assert.deepEqual(curveGroupFor(curveMeta.card.curve_closure, 3), { lo: 7, hi: 25, where: "below" });
+  assert.deepEqual(curveGroupFor({ groups: [[0, 2], [5, 9]] }, 3), { lo: 0, hi: 2, where: "between" }, "the group below, as the fit reads it");
+  assert.equal(curveGroupFor({ groups: [[0, 2]] }, null), null);
+  assert.equal(curveFor(curveMeta, { group: "closure" }), curveMeta.card.curve_closure);
+  assert.equal(curveFor(curveMeta, { group: "scores" }), curveMeta.card.curve);
+  assert.equal(curveFor({ card: { curve: 1, outside: { curve: 2 } } }, { outside: true }), 2);
 });

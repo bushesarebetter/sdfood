@@ -17,8 +17,13 @@ services:
     healthCheckPath: /healthz      # a new deploy that does not answer never replaces the live one
     envVars:
       - { key: NODE_VERSION, value: "24" }
-      - { key: SITE_USERS, sync: false }        # "name:token,..." one sign-in per person (tokens 16+ characters)
-      - { key: SITE_PASSWORD, sync: false }     # the older shared sign-in, 16+ characters, while migrating
+      - { key: SITE_USERS, sync: false }        # "id:token,..." one sign-in per person (tokens 16+ characters)
+      - { key: SITE_OPERATORS, sync: false }    # the ids that see the named list before the City's request and
+                                                # TRUST answer are on record. Unset: the SITE_PASSWORD sign-in, only
+                                                # while it is the only sign-in (no SITE_USERS)
+      - { key: SITE_PASSWORD, sync: false }     # the operator's own older sign-in, 16+ characters, never given to
+                                                # anyone; remove it once the operator's SITE_USERS id works
+      - { key: SITE_USER, sync: false }         # the SITE_PASSWORD sign-in's user name (default "city")
       - { key: SITE_CONTACT, sync: false }      # who to ask for access, shown on the sign-in page
       - { key: VITE_GOOGLE_MAPS_API_KEY, sync: false }
       - { key: VITE_GOOGLE_MAPS_MAP_ID, sync: false }

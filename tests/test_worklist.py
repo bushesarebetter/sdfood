@@ -161,14 +161,17 @@ def _place_file(site, fid, **d):
     json.dump({"facility_id": fid, **d}, open(os.path.join(place, f"{fid}.json"), "w", encoding="utf-8"))
 
 
-def test_the_countys_escalation_criteria_come_first(data, tmp_path):
+def test_a_place_meeting_an_escalation_fact_comes_first(data, tmp_path):
     insp, info = data
     site = site_export(tmp_path, {"FA0001": (30, "1"), "FA0003": (3, None), "FA0002": (None, None)})
     fc = json.loads(open(os.path.join(site, "facilities.geojson")).read())
     for ft in fc["features"]:
         if ft["properties"]["facility_id"] == "FA0003":
             ft["properties"]["flags"] = ["closures2", "lt90_2"]
-            ft["properties"]["grade"] = {"grade": "A", "date": "2026-05-30", "score": 98}
+            ft["properties"]["grade"] = {"grade": "A", "date": "2026-05-30", "score": 98, "open_closure": None}
+        if ft["properties"]["facility_id"] == "FA0001":
+            ft["properties"]["grade"] = {"grade": "A", "date": "2026-02-10", "score": 94, "replaced": None,
+                                         "open_closure": {"date": "2026-03-02", "reason": "health", "later_ungraded": []}}
     open(os.path.join(site, "facilities.geojson"), "w").write(json.dumps(fc))
     _place_file(site, "FA0003", inspections=[
         {"date": "2024-05-01", "closed": True, "closure": "health", "reopened": True, "reopened_on": "2024-05-03"},
@@ -177,13 +180,23 @@ def test_the_countys_escalation_criteria_come_first(data, tmp_path):
     card = ew.load_card(site, holds=[])
     f = ew.worklist(insp, info, MONTH, lookup, card=card)
     d1 = f[f["due_this_month"] & (f["district"] == 1)].sort_values("rule_order")
-    assert list(d1.index)[0] == 3, "a place meeting the County's criteria comes first, whatever its points"
+    assert list(d1.index)[0] == 3, "a place meeting an escalation fact (our count) comes first, whatever its points"
     r = f.loc[3]
     assert r["escalation"].startswith("two or more health closures in two years; two or more routine scores below 90 in two years")
     assert r["why"].startswith("First: two or more health closures")
     assert "the County sets no count or period" in r["why"] and "not a County finding" in r["why"]
     assert (r["closures_24m"], r["last_closure"], r["reopened_on"], r["posted_grade"]) == (2, "2026-03-02", "", "A (2026-05-30)"), \
         "the export's episodes in the 24 months before its list date (2026-09-20): the 2024 closure is older"
+    assert r["no_reopen_on_record"] == "", "no open closure on its grade"
+    # A last closure nothing on the record ended: its date, beside the letter from before it.
+    fa1 = f[f["facility_id"] == "FA0001"].iloc[0]
+    assert (fa1["posted_grade"], fa1["no_reopen_on_record"]) == ("A (2026-02-10)", "2026-03-02")
+    folder, _ = ew.write_month(f, MONTH, out=str(tmp_path / "wl"), freeze=False, card=card)
+    with open(os.path.join(folder, f"district-{int(fa1['district'])}.csv"), encoding="utf-8") as fh:
+        rows = list(csv.DictReader(fh))
+    assert list(rows[0])[-1] == "no_reopen_on_record"
+    if fa1["due_this_month"]:
+        assert {x["facility_id"]: x["no_reopen_on_record"] for x in rows}["FA0001"] == "2026-03-02"
 
 
 def test_a_held_place_keeps_its_record_and_loses_its_points(data, tmp_path):
@@ -195,6 +208,17 @@ def test_a_held_place_keeps_its_record_and_loses_its_points(data, tmp_path):
     assert pd.isna(f.loc[1, "rule_points"]) and pd.isna(f.loc[1, "rule_mean"]), "no number that gives the points away"
     d1 = f[f["district"] == 1].sort_values("rule_order_all")
     assert list(d1.index)[-1] == 1, "and no place in the order: listed after every other place in its district"
+
+
+def test_holds_are_read_strictly_so_a_broken_file_never_releases_them(tmp_path):
+    path = tmp_path / "holds.json"
+    assert ew.load_holds(path) == set(), "no file: nothing on hold"
+    path.write_text(json.dumps({"facility_ids": ["FA0001 "]}), encoding="utf-8")
+    assert ew.load_holds(path) == {"FA0001"}
+    for broken in ('{"facility_ids": ["FA0001",]}', '{"facility_ids": "FA0001"}', '{"ids": ["FA0001"]}'):
+        path.write_text(broken, encoding="utf-8")
+        with pytest.raises(SystemExit, match="would release every hold"):
+            ew.load_holds(path)
 
 
 def test_a_closure_reads_as_the_rules_70_not_the_countys_score():

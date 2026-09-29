@@ -70,7 +70,7 @@ tbody tr:last-child td{border-bottom:none}
 <div class="wrap">
   <div class="eyebrow">Proof of concept · public data</div>
   <h1>Inspect smarter: ordering San Diego's routine food inspections by each facility's record</h1>
-  <div class="sub" id="sub">Independent analysis by Ayan Pendharkar, not affiliated with or endorsed by the County of San Diego · The County says its inspection methodology "prioritizes inspections based on relative risk". In its published record, how often a place is inspected depends mostly on what <i>kind</i> of place it is, and the order a month's inspections are done in shows no risk ordering. Within a month's schedule, this orders the routine inspections by each facility's own record.</div>
+  <div class="sub" id="sub">By Ayan Pendharkar. Independent student project, not affiliated with or endorsed by the City of San Diego or the County of San Diego. The County says its inspection methodology "prioritizes inspections based on relative risk". In its published record, how often a place is inspected depends mostly on what <i>kind</i> of place it is, and the order a month's inspections are done in shows no risk ordering. Within a month's schedule, this orders the routine inspections by each facility's own record.</div>
 
   <div class="stats" id="stats"></div>
 
@@ -128,5 +128,5 @@ $("#trisk").innerHTML=SUM.risk_bins.map(r=>`<tr><td>${r.from}–${r.to}%</td><td
 $("#foot").innerHTML="Source: San Diego County DEH inspection results via the public sdfoodinfo.org search "+
   `(${S.n_inspections?.toLocaleString()} inspections, ${S.n_facilities?.toLocaleString()} facilities, 2023–2026). `+
   "Order = the one-line rule: lowest mean routine score on record first. Model risk = the research model's probability of a major violation at the next routine inspection, from facility type and prior history (no ZIP code, no permit age), fitted on all data; accuracy is from the held-out test above. "+
-  "Due this month is an estimate from each business type's median interval between routine inspections. This page publishes counts only. Independent analysis, not affiliated with or endorsed by the County of San Diego, and not a finding about any specific business.";
+  "Due this month is an estimate from each business type's median interval between routine inspections. This page publishes counts only, and none of them is a finding about any specific business. Independent student project, not affiliated with or endorsed by the City of San Diego or the County of San Diego.";
 </script>

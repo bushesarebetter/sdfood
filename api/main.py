@@ -9,7 +9,12 @@ band, district summaries and per-district monthly worklists.
 
 Every data endpoint needs an `X-API-Key` header with one of SDFOOD_API_KEYS. The interactive docs
 (/docs, /redoc) and /health carry no data and are open; set SDFOOD_API_DOCS=0 to turn the docs off
-in production. See docs/API.md."""
+in production. See docs/API.md.
+
+A deployed image carries data/site/api_release.json (deploy_api.py writes it): the staff release's
+sunset date and whether the City's request and TRUST answer are on record. Past that sunset (the date
+in San Diego), or without that answer, every data endpoint answers 503, as the staff site closes
+itself; /health says why. Without the file (a local run) nothing is closed."""
 from __future__ import annotations
 
 import csv
@@ -20,7 +25,7 @@ import logging
 import os
 import re
 import secrets
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Literal
@@ -35,6 +40,13 @@ from pydantic import BaseModel, ConfigDict, Field
 ROOT = Path(__file__).resolve().parents[1]
 FLAGS = ("major", "closed", "bc", "repeat")
 MONTH = r"^\d{4}-(0[1-9]|1[0-2])$"
+RELEASE_FILE = "api_release.json"                # = deploy_api.RELEASE_FILE, in the data folder
+ISO_DATE = r"\d{4}-\d{2}-\d{2}"
+POINT_RULE_NOTE = ("band and points: the students' point rule, a summary of the County's inspection record; "
+                   "not a County grade or rating")
+# The one disclaimer, word for word as the site's (food-dashboard/src/site.js STUDENT_NOTE).
+STUDENT_NOTE = ("Independent student project, not affiliated with or endorsed by the City of San Diego or the County of "
+                "San Diego.")
 log = logging.getLogger("sdfood.api")
 if not log.handlers:                         # uvicorn configures only its own loggers: without a handler
     _h = logging.StreamHandler()             # and a level, these INFO lines would never be written
@@ -42,6 +54,34 @@ if not log.handlers:                         # uvicorn configures only its own l
     log.addHandler(_h)
     log.setLevel(logging.INFO)
     log.propagate = False
+
+
+def san_diego_today() -> str:
+    """The date in San Diego (YYYY-MM-DD): a sunset ends at midnight Pacific, as on the staff site. Without
+    a time-zone database, UTC-7 (Pacific daylight time): never an earlier date than San Diego's, so the
+    service closes at worst an hour early, never late."""
+    try:
+        from zoneinfo import ZoneInfo
+        return datetime.now(ZoneInfo("America/Los_Angeles")).date().isoformat()
+    except Exception:
+        return (datetime.now(timezone.utc) - timedelta(hours=7)).date().isoformat()
+
+
+def closed_reason(release, day: str) -> str | None:
+    """Why the image serves no data, or None. `release` is data/site/api_release.json as read (None when
+    there is none: a local run)."""
+    if release is None:
+        return None
+    if not isinstance(release, dict):
+        return "its release record (api_release.json) cannot be read"
+    if release.get("access_approved") is not True:
+        return "the City's request and TRUST Ordinance answer are not on record"
+    sunset = release.get("sunset")
+    if not isinstance(sunset, str) or not re.fullmatch(ISO_DATE, sunset):
+        return "its release record has no sunset date"
+    if day > sunset:
+        return f"its sunset date, {sunset}, has passed"
+    return None
 
 
 def csv_cell(v):
@@ -82,7 +122,12 @@ class Store:
             research = json.loads(self.research_file.read_text(encoding="utf-8")) if self.research_file.exists() else {}
         except (ValueError, KeyError, TypeError) as e:
             raise RuntimeError(f"the export in {self.data_dir} could not be read: {type(e).__name__}") from e
-        self.meta, self.places, self.by_id, self.research = meta, places, by_id, research
+        release_path = self.data_dir / RELEASE_FILE
+        try:
+            release = json.loads(release_path.read_text(encoding="utf-8")) if release_path.exists() else None
+        except (OSError, ValueError):
+            release = "unreadable"           # there, but not readable: closed, never open
+        self.meta, self.places, self.by_id, self.research, self.release = meta, places, by_id, research, release
         self.detail.cache_clear()
 
     @lru_cache(maxsize=2048)
@@ -95,6 +140,10 @@ class Store:
         d = json.loads(path.read_text(encoding="utf-8"))
         p = self.by_id[facility_id]
         return {**d, "lon": p["lon"], "lat": p["lat"]}
+
+    @property
+    def closed(self) -> str | None:
+        return closed_reason(self.release, san_diego_today())
 
     @property
     def stale(self) -> bool:
@@ -133,6 +182,12 @@ def require_key(request: Request, key: str | None = Security(api_key_header)):
     if not key or not ok:
         raise HTTPException(401, "A valid X-API-Key header is required.")
     log.info("key %s %s %s", key_id(key), request.method, request.url.path)
+    try:
+        why = get_store().closed
+    except RuntimeError:                     # no export, or one that cannot be read: the endpoint reports it
+        why = None
+    if why:
+        raise HTTPException(503, f"This service is closed: {why}. No data is served.")
     return key
 
 
@@ -221,8 +276,8 @@ app = FastAPI(
         "For City of San Diego staff: every listed restaurant and market in the City with the County's inspection "
         "record, the students' point rule's points and band (not a County rating), council-district summaries, and monthly worklists.\n\n"
         "Send your key in the `X-API-Key` header (the **Authorize** button above). Data: the County of San Diego's "
-        "published inspection results (SD Food Info) and SANDAG council districts. Independent student project by "
-        "Chenhao Zhang and Ayan Pendharkar; not affiliated with or endorsed by the County of San Diego."
+        "published inspection results (SD Food Info) and SANDAG council districts. By Chenhao Zhang and Ayan "
+        "Pendharkar. " + STUDENT_NOTE
     ),
     docs_url="/docs" if os.environ.get("SDFOOD_API_DOCS", "1") != "0" else None,
     redoc_url="/redoc" if os.environ.get("SDFOOD_API_DOCS", "1") != "0" else None,
@@ -280,8 +335,10 @@ def health():
     build = os.environ.get("SDFOOD_BUILD") or None  # stamped into the image by deploy_api.py
     try:
         s = get_store()
+        release = s.release if isinstance(s.release, dict) else {}
         return {"status": "ok", "run": s.meta.get("run"), "inspections_through": s.meta.get("inspections_through"),
-                "stale": s.stale, "places": len(s.places), "build": build}
+                "stale": s.stale, "places": len(s.places), "build": build, "sunset": release.get("sunset"),
+                "closed": s.closed}
     except RuntimeError as e:
         log.warning("health: %s", e)          # the path stays in the server log, not in the response
         return {"status": "no data", "build": build}
@@ -354,14 +411,14 @@ def export_csv(district: list[int] | None = Query(None), band: list[str] | None 
             "grade_date", "last_visit_date", "last_visit_type", "flags", "lon", "lat"]
     buf = io.StringIO()
     w = csv.writer(buf)
-    w.writerow(cols + ["list_run", "list_expires"])
+    w.writerow(cols + ["list_run", "list_expires", "about_band_points"])
     for p in _sort(_filter(s, district, band, kind, flag, q), "band"):
         g, lv = p.get("grade") or {}, p.get("last_visit") or {}
         w.writerow([csv_cell(v) for v in [
                     p["facility_id"], p["name"], p["address"], p["facility_type"], p.get("council_district"),
                     p.get("band") or "", p.get("points") if p.get("points") is not None else "", g.get("grade", ""),
                     g.get("date", ""), lv.get("date", ""), lv.get("type", ""), " ".join(p.get("flags") or []),
-                    p["lon"], p["lat"], s.meta["run"], s.meta.get("expires") or ""]])
+                    p["lon"], p["lat"], s.meta["run"], s.meta.get("expires") or "", POINT_RULE_NOTE]])
     return Response(buf.getvalue(), media_type="text/csv",
                     headers={"Content-Disposition": f'attachment; filename="sd-food-{s.meta["run"]}.csv"'})
 

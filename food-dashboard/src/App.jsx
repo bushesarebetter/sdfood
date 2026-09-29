@@ -14,7 +14,8 @@ import Corrections from "./Corrections";
 import NotFound from "./NotFound";
 import Notice from "./Notice";
 import SampleBanner from "./SampleBanner";
-import StaffBanner from "./StaffBanner";
+import StaffBanner, { PrintAudit } from "./StaffBanner";
+import StaffWorkspace, { STAFF_TABS } from "./StaffWorkspace";
 import ExpiryBanner from "./ExpiryBanner";
 import { inArea, hasCountyPlaces } from "./AreaToggle";
 import useFacilities from "./useFacilities";
@@ -39,9 +40,10 @@ const defaultFilters = (mode, staff = false) => ({ band: mode === "bands" && !st
  * `/place/<facility_id>` one place as a page, `/privacy`, `/corrections`, and
  * anything else a 404. `/map?place=<facility_id>` opens that place on the map;
  * `?list` opens the list, whenever the address changes to it (the app's own
- * navigation or the back button), not only on the first load. The staff
- * site's `/` is the full list of every listed place, with the name search,
- * the address lookup and the council-district picker beside it. Nothing
+ * navigation or the back button), not only on the first load. On the staff
+ * site the map view is three views of the same filtered places (`tab`,
+ * StaffWorkspace): `/` the full list of every listed place (and `/map?list`),
+ * `/map` the map, `/summary` the district view and the bands. Nothing
  * renders until meta.json has loaded, so no page shows one mode and then
  * another. Once the export has expired, the front page and the map are a
  * notice and a search.
@@ -49,16 +51,17 @@ const defaultFilters = (mode, staff = false) => ({ band: mode === "bands" && !st
 let locationSeq = 0;
 function viewFromLocation(staff = false) {
   const key = ++locationSeq;          // a new key for every read, so asking for the list again opens it again
-  if (typeof window === "undefined") return { view: "landing", place: null, list: false, key };
+  if (typeof window === "undefined") return { view: "landing", place: null, list: false, key, tab: null };
   const { pathname, search } = window.location;
   const q = new URLSearchParams(search);
   const list = q.has("list");
   const path = pathname.replace(/\/+$/, "") || "/";
-  if (path === "/map") return { view: "map", place: null, list, key };
+  if (path === "/map") return { view: "map", place: null, list, key, tab: staff ? (list ? "list" : "map") : null };
   if (path === "/") {
-    if (staff) return { view: "map", place: null, list: true, key };
-    return { view: q.has("place") || q.has("district") || list ? "map" : "landing", place: null, list, key };
+    if (staff) return { view: "map", place: null, list: true, key, tab: "list" };
+    return { view: q.has("place") || q.has("district") || list ? "map" : "landing", place: null, list, key, tab: null };
   }
+  if (staff && path === "/summary") return { view: "map", place: null, list: false, key, tab: "summary" };
   if (path === "/privacy") return { view: "privacy", place: null, list: false, key };
   if (path === "/corrections") return { view: "corrections", place: null, list: false, key };
   const placeKeyInPath = parsePlacePath(path);
@@ -71,6 +74,8 @@ export default function App() {
   return (
     <AdvancedProvider>
       <MetaProvider meta={meta}>
+        {/* The staff site's print log, once for every view and layout (the phone shell included). */}
+        <PrintAudit />
         {status === "loading" ? <LoadingShell /> : status === "error" ? <MetaError onRetry={retry} /> : <Dashboard />}
       </MetaProvider>
     </AdvancedProvider>
@@ -158,6 +163,16 @@ function Dashboard() {
     navigate("/");
   }, [navigate]);
 
+  // The staff site's views: the same place and district in the address, another path.
+  const goTab = useCallback((t) => {
+    const target = STAFF_TABS.find((x) => x.key === t) ?? STAFF_TABS[0];
+    const url = new URL(window.location.href);
+    url.pathname = target.path;
+    url.searchParams.delete("list");
+    window.history.pushState(null, "", url);
+    setLocation(viewFromLocation(staff));
+  }, [staff]);
+
   // A district's "list" action: that district, and the list open.
   const openList = useCallback((d = null) => {
     setFilters((f) => ({ ...f, districts: d == null ? [] : [d] }));
@@ -170,7 +185,7 @@ function Dashboard() {
   const selBand = sel && !expired ? shownBand(sel, { mode }) : null;
   usePageMeta({
     title:
-      view === "map" ? (sel ? sel.name : "Map")
+      view === "map" ? (sel ? sel.name : staff ? STAFF_TABS.find((t) => t.key === loc.tab)?.label ?? "List" : "Map")
         : view === "privacy" ? "Privacy, terms and corrections"
         : view === "corrections" ? "Corrections log"
         : view === "place" ? pageFeature?.properties.name ?? "A place"
@@ -227,7 +242,8 @@ function Dashboard() {
   if (isPhone) {
     return (
       <>
-        <WelcomeModal />
+        {/* On the staff site the notice opens by itself instead (StaffBanner). */}
+        {!staff && <WelcomeModal />}
         <MobileShell
           facilities={shown}
           filters={{ ...defaultFilters(mode, staff), county: filters.county, districts: filters.districts }}
@@ -246,8 +262,31 @@ function Dashboard() {
     );
   }
 
+  if (staff) {
+    return (
+      <StaffWorkspace
+        facilities={shown}
+        filters={filters}
+        defaults={{ ...defaultFilters(mode, staff), county: filters.county }}
+        onFiltersChange={setFilters}
+        hasCounty={hasCounty}
+        selected={selected}
+        onSelect={setSelected}
+        tab={loc.tab ?? "list"}
+        onTab={goTab}
+        pointOverlay={pointOverlay}
+        onPoint={setPointOverlay}
+        onMapError={setMapError}
+        onHome={goHome}
+        onNavigate={navigate}
+      />
+    );
+  }
+
+  // In print the page is released from the screen's one-viewport frame (print-release, index.css), so
+  // the list's printout or a place's sheet flows across pages; the map and the sidebar never print.
   return (
-    <div className="flex h-dvh flex-col bg-paper">
+    <div className="print-release flex h-dvh flex-col bg-paper">
       <WelcomeModal />
 
       <a href="#map-area" className="sr-only focus:not-sr-only focus:absolute focus:left-3 focus:top-3 focus:z-[90] focus:bg-ink focus:px-3 focus:py-2 focus:text-[13px] focus:text-paper">
@@ -259,15 +298,18 @@ function Dashboard() {
       <StaffBanner fixed />
       <ExpiryBanner fixed />
 
-      <main className="relative flex flex-1 overflow-hidden">
+      <main className="print-release relative flex flex-1 overflow-hidden">
         <aside aria-label="Filters and summary" className="print-hide w-[20.5rem] shrink-0 border-r border-rule-strong">
           <Sidebar facilities={shown} hasCounty={hasCounty} filters={filters} onFiltersChange={setFilters} onPoint={setPointOverlay} onSelect={setSelected} onOpenList={openList} />
         </aside>
 
         <div id="map-area" tabIndex={-1} className="print-hide relative min-w-0 flex-1 focus:outline-none">
           <MapView facilities={shown} filters={filters} selected={selected} onSelect={setSelected} pointOverlay={pointOverlay} onError={setMapError} />
-          <PlaceTable facilities={shown} filters={filters} onSelect={setSelected} openKey={listKey} openWhen={Boolean(mapError)} />
         </div>
+
+        {/* Outside the map's print-hide (the drawer is fixed, so where it sits in the tree does not move it):
+            its "Print this list" prints every listed row. */}
+        <PlaceTable facilities={shown} filters={filters} onSelect={setSelected} openKey={listKey} openWhen={Boolean(mapError)} />
 
         <PlacePanel feature={selected} onClose={() => setSelected(null)} facilities={shown} onSelect={setSelected} onNavigate={navigate} />
       </main>

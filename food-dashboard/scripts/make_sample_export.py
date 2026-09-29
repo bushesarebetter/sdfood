@@ -1,6 +1,6 @@
 """Write an invented export for the food-inspection site, in the shape the real one takes
-(docs/FOOD_DATA_CONTRACT.md, version 3.4), so the site can be built and reviewed without
-naming a real business.
+(docs/FOOD_DATA_CONTRACT.md), so the site can be built and reviewed without naming a real
+business.
 
 Every place is fictional. Names carry the word "Sample", streets are made-up names ("Sample
 Row", "Example Avenue"), meta.json carries ``"sample": true``, and the site shows a notice on
@@ -13,10 +13,13 @@ What it writes, like the real export (``--out``, default food-dashboard/public/d
     visit, the grade on record, record flags counted back from the list date, and in ``bands``
     mode band and points);
   * ``place/<facility_id>.json``, one file per place: the index entry plus the County's type,
-    every County record (one entry per record, with the County's status text; a closure carries
+    every County record (one entry per record, with the County's status text, its inspection
+    type as ``county_type`` and its notes as ``notes``, all verbatim; a closure carries
     ``reopened_on``), the items cited in the 36 months before the last visit, each under the
-    section of the County's report its item number falls in, and in ``bands`` mode the worksheet
-    (``scores_used`` with a health closure read as 70 and the County's own score beside it);
+    section of the County's report its item number falls in (at most 60, majors first), the
+    counts by theme of every item in that window before the cut (``theme_counts``,
+    ``violations_total``), and in ``bands`` mode the worksheet (``scores_used`` with a health
+    closure read as 70 and the County's own score beside it);
   * ``meta.json``: what the export is. In ``bands`` mode, a sample of the students' point rule,
     two counts with whole-number weights (``meta.card``), bands cut at tie boundaries so equal
     points are never split, and a backtest: the same rule as of an earlier date, checked against
@@ -28,6 +31,16 @@ What it writes, like the real export (``--out``, default food-dashboard/public/d
     district's precision and share of the wrongly named with bootstrap intervals (95%, family-wise,
     and family-wise widened for an assumed design effect of 2), and the frozen-rule and drift fields
     the real export carries (drift quarter by quarter, as export_site.drift_check).
+
+The record also shows, on a few places each, what the real export keeps and reads since round 5:
+a closure only a later "Approved to Reopen" shows (``closure_inferred``), an "Approved to Reopen"
+no closure could be placed before (``reopen_without_closure``), the County's "Status Verification"
+records that cite items or are "Ordered Closed" (type ``status_check``), "Self Closed" records
+(one citing a major starts a closure, read as the operator's own), and a grade whose last closure
+has no reopening on record (``grade.open_closure``). They come from their own random stream, and
+the records added fall where no count the rule, the flags or the backtest reads can see them, so
+the rest of the sample is what it was. In ``bands`` mode, ``monitor_summary.json`` says the
+forward test is "too early": the sample has no forward runs.
 
 Only restaurants with a scored routine inspection in the year before the list date are scored;
 markets, limited-preparation places and other restaurants carry neither points nor a band. One
@@ -160,18 +173,25 @@ THEMES_BY_SEVERITY = {
               ("water", 3), ("sewage", 2), ("supplier", 3), ("condition", 3), ("process", 1), ("advisory", 3), ("hsp", 1)],
     "grp": [("grp_facility", 30), ("grp_equipment", 30), ("grp_storage", 12), ("grp_food", 12), ("grp_staff", 6), ("grp_signs", 8)],
 }
-VISIT_TYPES = ("routine", "reinspection", "followup", "complaint")
+VISIT_TYPES = ("routine", "reinspection", "followup", "complaint", "status_check")
+# The County's own inspection type for each visit type (a complaint visit is one of two).
+COUNTY_TYPES = {"routine": "Routine", "followup": "Routine", "reinspection": "Re-inspection", "status_check": "Status Verification"}
+FIELD_TYPES = ("Site Investigation", "Environmental")
+NOTE_PERMIT, NOTE_IMPOUND = "No Valid Permit", "Impoundment"
 SEVERITIES = ("major", "minor", "grp")
 CLOSURES = ("health", "permit", "other")
 ESCALATION_FLAGS = ("major_2", "closures2", "repeat_item", "lt90_2")
 RECORD_FLAGS = ("major", "closed", "bc", "repeat", *ESCALATION_FLAGS)
 CLOSURE_SCORE = 70   # a routine inspection that ended in a health closure order is read as this score
+MAX_ITEMS = 60       # items listed per place, majors first (export_site.MAX_VIOLATIONS)
 
 RECORD_START = date(2023, 1, 1)
 THROUGH = date(2026, 8, 31)
 LIST_DATE = THROUGH + timedelta(days=1)
 BACKTEST_AS_OF = date(2025, 9, 1)
 YEAR = timedelta(days=365)
+# Records added before this day fall outside every window the rule, the flags and the backtest read.
+QUIET_BEFORE = BACKTEST_AS_OF - YEAR
 TWO_YEARS = timedelta(days=730)   # the escalation facts' window, as export_site.ELIGIBLE_DAYS
 SHARES = ((0.025, "1"), (0.075, "2"), (0.175, "3"))
 INTERIM_DAYS = (90, 180, 270)      # the monitor's interim label windows, as export_site.INTERIM_DAYS
@@ -293,25 +313,169 @@ def make_violations(rng: random.Random, inspections):
     return rows
 
 
-def exported(violations, inspections):
-    """Items cited in the 36 months before the last visit, majors first, then newest, at most 60."""
+def in_window(violations, inspections):
+    """Items cited in the 36 months before the last visit."""
     last = date.fromisoformat(inspections[-1]["date"])
     cutoff = (last - timedelta(days=int(36 * 30.44))).isoformat()
-    keep = [v for v in violations if v["date"] >= cutoff]
+    return [v for v in violations if v["date"] >= cutoff]
+
+
+def exported(violations, inspections):
+    """Items cited in the 36 months before the last visit, majors first, then newest, at most 60."""
+    keep = in_window(violations, inspections)
     rank = {s: i for i, s in enumerate(SEVERITIES)}
     keep.sort(key=lambda v: v["date"], reverse=True)
     keep.sort(key=lambda v: rank[v["severity"]])
-    return keep[:60]
+    return keep[:MAX_ITEMS]
+
+
+def theme_counts(items):
+    """{theme: {major, minor, grp, complaint, latest}} over every item in the window, before the cut."""
+    out = {}
+    for v in items:
+        t = out.setdefault(v["theme"], {"major": 0, "minor": 0, "grp": 0, "complaint": 0, "latest": v["date"]})
+        t[v["severity"]] += 1
+        t["complaint"] += v["visit"] == "complaint"
+        t["latest"] = max(t["latest"], v["date"])
+    return {k: out[k] for k in THEMES if k in out}
+
+
+def _day(r):
+    return date.fromisoformat(r["date"])
+
+
+def _free(inspections, d: date, before: int, after: int) -> bool:
+    """No record from `before` days before `d` to `after` days after it."""
+    return not any(-before <= (_day(r) - d).days <= after for r in inspections)
+
+
+def _items(rng: random.Random, visit: str, d: date, major=0, minor=0, grp=0, themes=None):
+    """Invented items for an added record, as make_violations writes them; `themes` ({severity:
+    [themes]}) narrows the sections an added record's items of that severity come from."""
+    rows = []
+    for sev, n in (("major", major), ("minor", minor), ("grp", grp)):
+        for _ in range(n):
+            pick = (themes or {}).get(sev)
+            theme = rng.choice(pick) if pick else weighted(rng, THEMES_BY_SEVERITY[sev])
+            code, desc = rng.choice(ITEMS[theme])
+            rows.append({"date": d.isoformat(), "visit": visit, "code": code, "theme": theme, "severity": sev, "description": desc})
+    return rows
+
+
+def add_county_detail(rng: random.Random, inspections, violations):
+    """The County's own words on every record, and the rarer records the real export keeps.
+
+    Every record gets ``county_type`` (a complaint visit is a "Site Investigation" or an
+    "Environmental" record) and ``notes`` (a permit closure's "No Valid Permit", now and then an
+    "Impoundment"). Then, on a few places each: a health closure at an unscored routine becomes one
+    only its "Approved to Reopen" shows (``closure_inferred``: the County's status is "Complete");
+    a last closure's re-grade is published as "Complete" with no score or grade, so nothing on the
+    record ends the closure (``grade.open_closure``); a reinspection becomes an "Approved to Reopen" no closure could be placed before
+    (``reopen_without_closure``); a "Status Verification" record is kept ("Ordered Closed" for a
+    permit and reopened, or citing good-retail-practice items); and a "Self Closed" routine is kept
+    (with a major it starts a closure, which a re-grade a week later ends).
+
+    Nothing here changes a routine score, a label or a count the rule, the flags or the backtest
+    read: the converted records keep their type and closure, a Status Verification record is never
+    scored and cites only good-retail-practice items, and the closures added (a Status Verification
+    "Ordered Closed" and its reopening, a Self Closed routine and its re-grade) fall before
+    QUIET_BEFORE."""
+    for r in inspections:
+        r["county_type"] = COUNTY_TYPES.get(r["type"]) or (FIELD_TYPES[0] if rng.random() < 0.65 else FIELD_TYPES[1])
+        notes = []
+        if r["closed"] and r["closure"] == "permit":
+            notes.append(NOTE_PERMIT)
+        elif r["type"] == "complaint" and rng.random() < 0.05:
+            notes.append(NOTE_IMPOUND)
+        elif r["type"] == "routine" and r["status"] == "Complete" and rng.random() < 0.01:
+            notes.append(NOTE_PERMIT)
+        r["notes"] = notes
+    # A last closure whose reopening the published record does not show: the re-grade after it is
+    # "Complete" with no score or grade, so no "Approved to Reopen" and no graded visit end it.
+    closed = [k for k, r in enumerate(inspections) if r["closed"]]
+    if closed and rng.random() < 0.4:
+        c, later = inspections[closed[-1]], inspections[closed[-1] + 1:]
+        back = next((r for r in later if r["date"] == c.get("reopened_on") and r["status"] == "Approved to Reopen" and r["type"] == "followup"), None)
+        if c["closure"] == "health" and back and not any(r["type"] in ("routine", "followup") and r["grade"] and r is not back for r in later):
+            back.update(status="Complete", score=None, grade=None)
+            c["reopened"], c["reopened_on"] = False, None
+    for r in inspections:
+        # The County's pattern: an unscored routine with a major, and "Approved to Reopen" days later.
+        if (r["closed"] and r["closure"] == "health" and r["type"] == "routine" and r["score"] is None and r["reopened"]
+                and (date.fromisoformat(r["reopened_on"]) - _day(r)).days <= 3 and rng.random() < 0.25):
+            r["status"], r["closure_inferred"] = "Complete", True
+    last = _day(inspections[-1])
+    first = _day(inspections[0])
+    added = []
+    if rng.random() < 0.02:
+        closures = [r for r in inspections if r["closed"]]
+        cands = [r for r in inspections if r["type"] == "reinspection" and r["status"] == "Complete"
+                 and not any(c["date"] <= r["date"] and (not c["reopened"] or (_day(r) - _day(c)).days <= 60) for c in closures)]
+        if cands:
+            r = rng.choice(cands)
+            r["status"], r["reopen_without_closure"] = "Approved to Reopen", True
+    if rng.random() < 0.02:
+        d = RECORD_START + timedelta(days=rng.randint(0, (QUIET_BEFORE - RECORD_START).days - 40))
+        if d + timedelta(days=2) < min(last, QUIET_BEFORE) and _free(inspections + added, d, 3, 35):
+            on = d + timedelta(days=2)
+            added.append(record(d, "status_check", "Ordered Closed", closure="permit", reopened=True, reopened_on=on) | {"notes": [NOTE_PERMIT]})
+            added.append(record(on, "reinspection", "Approved to Reopen") | {"notes": []})
+    if rng.random() < 0.015:
+        d = first + timedelta(days=rng.randint(10, 500))
+        if d < last and _free(inspections + added, d, 3, 3):
+            grp = rng.randint(1, 2)
+            added.append(record(d, "status_check", "Complete", grp=grp) | {"notes": [NOTE_PERMIT] if rng.random() < 0.5 else []})
+            violations += _items(rng, "status_check", d, grp=grp, themes={"grp": ["grp_signs"]})
+    if rng.random() < 0.035:
+        d = RECORD_START + timedelta(days=rng.randint(0, (QUIET_BEFORE - RECORD_START).days - 20))
+        if d + timedelta(days=8) < min(last, QUIET_BEFORE) and _free(inspections + added, d, 3, 40):
+            if rng.random() < 0.7:
+                minor, grp = poisson(rng, 0.8), poisson(rng, 1.2)
+                added.append(record(d, "routine", "Self Closed", None, 1, minor, grp, closure="health", reopened=False, graded=False) | {"notes": []})
+                violations += _items(rng, "routine", d, major=1, minor=minor, grp=grp, themes={"major": ["vermin", "water", "sewage"]})
+                added.append(record(d + timedelta(days=7), "reinspection", "Complete") | {"notes": []})
+                added.append(record(d + timedelta(days=8), "followup", "Complete", rng.randint(96, 100), 0, 0, poisson(rng, 0.5)) | {"notes": []})
+                violations += _items(rng, "followup", d + timedelta(days=8), grp=added[-1]["grp"])
+            else:
+                minor = rng.randint(1, 2)
+                added.append(record(d, "routine", "Self Closed", None, 0, minor, 0, graded=False) | {"notes": []})
+                violations += _items(rng, "routine", d, minor=minor)
+    for r in added:
+        r["county_type"] = COUNTY_TYPES[r["type"]]
+    inspections += added
+    order = {"routine": 0, "followup": 1, "reinspection": 2, "complaint": 3, "status_check": 4}
+    inspections.sort(key=lambda x: (x["date"], order[x["type"]]))
+
+
+def open_closure(inspections):
+    """The place's last closure when no "Approved to Reopen" and no graded routine or re-grade on a
+    later day follow it: {date, reason, later_ungraded: [dates of the records after it], status: the
+    County's status text on the record that started it}; else None."""
+    closed = [k for k, i in enumerate(inspections) if i["closed"]]
+    if not closed:
+        return None
+    k = closed[-1]
+    c, later = inspections[k], inspections[k + 1:]
+    if c["reopened"] or any(i["status"] == "Approved to Reopen" for i in later):
+        return None
+    if any(i["type"] in ("routine", "followup") and i["grade"] and i["date"] > c["date"] for i in later):
+        return None
+    out = {"date": c["date"], "reason": c["closure"], "later_ungraded": sorted({i["date"] for i in later if not i["grade"]})}
+    if not c.get("closure_inferred") and c["status"] in ("Ordered Closed", "Self Closed"):
+        out["status"] = c["status"]
+    return out
 
 
 def grade_on_record(inspections):
     """The latest letter from a routine or re-grade record; `replaced` is the routine B or C a
-    re-grade replaced."""
+    re-grade replaced, and `open_closure` the place's last closure when nothing after it on the
+    record ended it."""
     graded = [i for i in inspections if i["grade"] and i["type"] in ("routine", "followup")]
     if not graded:
         return None
     latest = graded[-1]
-    out = {"grade": latest["grade"], "score": latest["score"], "date": latest["date"], "replaced": None}
+    out = {"grade": latest["grade"], "score": latest["score"], "date": latest["date"], "replaced": None,
+           "open_closure": open_closure(inspections)}
     if latest["type"] == "followup":
         before = [i for i in graded[:-1] if i["type"] == "routine"]
         if before and before[-1]["grade"] in ("B", "C"):
@@ -323,11 +487,12 @@ def grade_on_record(inspections):
 def record_flags(inspections, violations, as_of: date = LIST_DATE):
     """Record facts counted back from the list date, as the index carries them: over the 12 months
     before it, a major, a health closure, a routine B or C, two or more reinspections, and the theme
-    of each major; over the 24 months before it, the escalation facts, the County's own criteria for
-    a closer look ("recurring major violations, recurring scores of less than 90%, or recurring
-    facility closures", Retail Food Facility Operator's Guide p. 8): two or more health-closure
-    episodes, the same major item at two or more routine inspection dates, and two or more routine
-    inspections scored below 90."""
+    of each major; over the 24 months before it, the escalation facts, our counts of the patterns the
+    County's Retail Food Facility Operator's Guide names (p. 8: "recurring major violations, recurring
+    scores of less than 90%, or recurring facility closures"; the County sets no count or period, and
+    meeting one is not a County finding): major violations at two or more routine inspection dates,
+    two or more health-closure episodes, the same major item at two or more routine inspection
+    dates, and two or more routine inspections scored below 90."""
     hi, lo1, lo2 = as_of.isoformat(), (as_of - YEAR).isoformat(), (as_of - TWO_YEARS).isoformat()
     year = [i for i in inspections if lo1 <= i["date"] <= hi]
     two = [i for i in inspections if lo2 <= i["date"] <= hi]
@@ -437,12 +602,15 @@ def next_routine(place, as_of: date, days: int = 365):
     return None
 
 
-def make_place(rng: random.Random, i: int):
+def make_place(rng: random.Random, i: int, seed: int = 9):
     lat, lon, district, zipcode, _ = weighted(rng, [(a, a[4]) for a in ANCHORS])
     ftype = weighted(rng, TYPES)
     latent = min(0.98, max(0.02, rng.betavariate(2, 5) + {"restaurant": 0.06, "limited": -0.08}.get(ftype, 0.0)))
     inspections = make_visits(rng, latent)
     violations_all = make_violations(rng, inspections)
+    # Its own stream, so the main one (and every place after this one) is what it was.
+    add_county_detail(random.Random(f"county-detail:{seed}:{i}"), inspections, violations_all)
+    window = in_window(violations_all, inspections)
     return {
         "id": f"SAMPLE-FFPP-{i:05d}",
         "name": f"Sample {rng.choice(KINDS[ftype])} {i:04d}",
@@ -454,6 +622,8 @@ def make_place(rng: random.Random, i: int):
         "inspections": inspections,
         "all_violations": violations_all,
         "violations": exported(violations_all, inspections),
+        "theme_counts": theme_counts(window),
+        "violations_total": len(window),
     }
 
 
@@ -758,9 +928,11 @@ def risk_curve(pairs, n_boot=60, seed=5, min_n=30):
     lo = [min(col(j)[int(0.025 * (n_boot - 1))], fit[j]) for j in range(top + 1)]
     hi_ = [max(col(j)[int(round(0.975 * (n_boot - 1)))], fit[j]) for j in range(top + 1)]
     r4 = lambda v: [round(x, 4) for x in v]
+    group_counts = [{"min_points": g_lo, "max_points": g_hi, "labelled": sum(1 for p, _ in pairs if g_lo <= p <= g_hi),
+                     "positives": sum(y for p, y in pairs if g_lo <= p <= g_hi)} for g_lo, g_hi in groups]
     return {"model": "sample: isotonic rate by points on the invented backtest", "rate": r4(fit), "low": r4(lo),
-            "high": r4(hi_), "groups": [list(g) for g in groups], "bins": curve_bins(pairs), "labelled": len(pairs),
-            "positives": sum(y for _, y in pairs)}
+            "high": r4(hi_), "groups": [list(g) for g in groups], "group_counts": group_counts, "bins": curve_bins(pairs),
+            "labelled": len(pairs), "positives": sum(y for _, y in pairs)}
 
 
 def curve_bins(pairs, bins=8):
@@ -782,11 +954,18 @@ def curve_bins(pairs, bins=8):
 
 
 def estimate(curve, pts, group):
-    """The curve read at a place's points, with the group whose curve it is; None without a curve."""
+    """The curve read at a place's points, with the group whose curve it is and, as
+    export_site.estimate, the fitted group of points it is read from (min_points, max_points: the
+    group holding its points, else the one below; the lowest below every group); None without a curve."""
     if not curve or not curve.get("rate"):
         return None
     j = min(max(int(pts), 0), len(curve["rate"]) - 1)
-    return {"rate": curve["rate"][j], "low": curve["low"][j], "high": curve["high"][j], "group": group}
+    out = {"rate": curve["rate"][j], "low": curve["low"][j], "high": curve["high"][j], "group": group}
+    groups = sorted(tuple(g) for g in curve.get("groups") or [])
+    if groups:
+        g = next((g for g in reversed(groups) if g[0] <= int(pts)), groups[0])
+        out["min_points"], out["max_points"] = g
+    return out
 
 
 def rule_tag(meta_bands) -> str:
@@ -800,7 +979,7 @@ def build(n_places: int = 1400, seed: int = 9, mode: str = "bands"):
     if mode not in ("bands", "record"):
         raise ValueError(f"mode must be bands or record, not {mode!r}")
     rng = random.Random(seed)
-    places = [make_place(rng, i + 1) for i in range(n_places)]
+    places = [make_place(rng, i + 1, seed) for i in range(n_places)]
 
     band_of, points_of, sheet_of, stability_of, used_of = {}, {}, {}, {}, {}
     meta_bands, rest_row, cr = [], None, None
@@ -849,7 +1028,8 @@ def build(n_places: int = 1400, seed: int = 9, mode: str = "bands"):
             "grade": grade_on_record(p["inspections"]),
             "flags": record_flags(p["inspections"], p["all_violations"]),
         }
-        detail = {"business_type": p["business_type"], "inspections": p["inspections"], "violations": p["violations"]}
+        detail = {"business_type": p["business_type"], "inspections": p["inspections"], "violations": p["violations"],
+                  "theme_counts": p["theme_counts"], "violations_total": p["violations_total"]}
         if p["id"] in held:
             props["on_hold"] = True
         elif p["id"] in points_of:
@@ -935,11 +1115,23 @@ def build(n_places: int = 1400, seed: int = 9, mode: str = "bands"):
     return {"type": "FeatureCollection", "features": features}, place_files, meta
 
 
+def monitor_summary(meta):
+    """What export_site.monitor writes, for the sample: the forward test has had no runs, so it is too
+    early to say anything, and there is nothing to alert on."""
+    return {"status": "too early", "runs": 0, "alerts": [], "next_window_date": None}
+
+
 def write(out: Path, fc, place_files, meta) -> None:
-    """Write the export in the v3 layout, replacing any earlier place files."""
+    """Write the export in the v3 layout, replacing any earlier place files (and, in bands mode, the
+    monitor summary; a record export has none)."""
     out.mkdir(parents=True, exist_ok=True)
     (out / "facilities.geojson").write_text(json.dumps(fc, separators=(",", ":")), encoding="utf-8")
     (out / "meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
+    monitor = out / "monitor_summary.json"
+    if meta.get("mode") == "bands":
+        monitor.write_text(json.dumps(monitor_summary(meta), indent=2), encoding="utf-8")
+    elif monitor.exists():
+        monitor.unlink()
     pdir = out / "place"
     pdir.mkdir(exist_ok=True)
     for old in pdir.glob("*.json"):       # emptied, not removed: a synced folder (OneDrive) may hold the directory

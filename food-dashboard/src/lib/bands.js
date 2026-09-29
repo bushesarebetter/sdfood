@@ -134,8 +134,36 @@ export const SAME_AS_PERSISTENCE = "Sorting by recent major violations alone pic
 /** Added to an estimate when the export's drift check says the rates should be measured again. */
 export const DRIFT_NOTE = "The County's record has changed since these rates were measured.";
 
-/** On the About page when the export's drift check has no complete quarter after the backtest year to compare. */
-export const DRIFT_NOT_YET = "Drift: the County's record since the backtest year cannot be compared yet (no complete quarter after it).";
+/**
+ * On the About page when the export's drift check has no complete quarter after the backtest year to
+ * compare (`status` "not_yet_measurable"). It speaks of the formal check only, so the latest quarter's
+ * note that follows it ("Meanwhile, ...") does not contradict it. driftNotYet adds the dates.
+ */
+export const DRIFT_NOT_YET =
+  "Drift: the formal check compares complete quarters after the backtest year, each counted 30 days after it ends, and none is complete yet.";
+
+const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+const isoDay = (d) => d.toISOString().slice(0, 10);
+
+/**
+ * DRIFT_NOT_YET with its dates, from the backtest's label window (`meta.catch_run.label_window`,
+ * "2025-09-01 to 2026-08-31"): the first quarter that starts after it, and the day it can be counted,
+ * 30 days after it ends, as the export's drift check does. "Drift: the formal check compares complete
+ * quarters after the backtest year, each counted 30 days after it ends; the first is October to
+ * December 2026, counted from January 30, 2027." DRIFT_NOT_YET itself without a label window.
+ */
+export function driftNotYet(meta) {
+  const end = /to (\d{4}-\d{2}-\d{2})\s*$/.exec(String(meta?.catch_run?.label_window ?? ""))?.[1];
+  const e = end ? new Date(`${end}T00:00:00Z`) : null;
+  if (!e || Number.isNaN(e.getTime())) return DRIFT_NOT_YET;
+  let y = e.getUTCFullYear(), q = Math.floor(e.getUTCMonth() / 3) + 1;       // the quarter after the one holding the end
+  if (++q > 4) { q = 1; y += 1; }
+  const first = 3 * (q - 1);
+  const qEnd = new Date(Date.UTC(y, first + 3, 0));
+  const countable = new Date(qEnd.getTime() + 30 * 864e5);
+  return "Drift: the formal check compares complete quarters after the backtest year, each counted 30 days after it ends; " +
+    `the first is ${MONTH_NAMES[first]} to ${MONTH_NAMES[first + 2]} ${y}, counted from ${fmtDate(isoDay(countable))}.`;
+}
 
 /** Who an estimate describes when it is read from the curve for places with a closure in their two years. */
 export const CLOSURE_GROUP = "whose last two years include a routine inspection that ended in a closure";
@@ -252,12 +280,64 @@ export function driftNote(meta) {
 }
 
 /**
+ * The curve an estimate is read from: for a place in the closure group (`estimate.group` "closure")
+ * `curve_closure`, otherwise `curve`; for a place outside the City, the curves measured outside it.
+ */
+export function curveFor(meta, { group = null, outside = false } = {}) {
+  const o = outside ? outsideOf(meta) : meta?.card;
+  return (group === "closure" && o?.curve_closure) || o?.curve || null;
+}
+
+const isRange = (g) => Array.isArray(g) && g.length === 2 && g.every(Number.isInteger) && g[0] <= g[1];
+
+/** A curve's fitted groups (`groups`, [lo, hi] point ranges), low to high; null for a curve without them. */
+export function curveGroups(curve) {
+  const g = curve?.groups;
+  return Array.isArray(g) && g.length && g.every(isRange) ? [...g].sort((a, b) => a[0] - b[0]) : null;
+}
+
+/**
+ * The fitted group a place's points are read from, as the export reads them: `{lo, hi, where}`, where
+ * is "in" (its points are in the group), "above" (more points than any place in the backtest: read at
+ * the top group), "below" (read at the lowest group) or "between" (a value no backtest place had, read
+ * at the group below). Null without groups or points.
+ */
+export function curveGroupFor(curve, points) {
+  const groups = curveGroups(curve);
+  if (!groups || typeof points !== "number" || !Number.isFinite(points)) return null;
+  const p = Math.round(points);
+  const hit = groups.find(([lo, hi]) => lo <= p && p <= hi);
+  if (hit) return { lo: hit[0], hi: hit[1], where: "in" };
+  if (p < groups[0][0]) return { lo: groups[0][0], hi: groups[0][1], where: "below" };
+  const under = groups.filter(([, hi]) => hi < p).at(-1);
+  return { lo: under[0], hi: under[1], where: p > groups.at(-1)[1] ? "above" : "between" };
+}
+
+/** "7 points", "1 point", "7 to 25 points". */
+const pointsRange = (lo, hi) => (lo === hi ? `${lo} ${lo === 1 ? "point" : "points"}` : `${lo} to ${hi} points`);
+
+/**
+ * Who an estimate describes, by points: the fitted group the place is read from (the place file's
+ * `estimate.min_points`/`max_points` when it has them, else the curve's `groups`), since every place
+ * in a group is given the group's rate; "about N points" for an older export's curve without groups.
+ */
+function pointsPhrase(meta, points, e, outside) {
+  const own = Number.isInteger(e?.min_points) && Number.isInteger(e?.max_points) && e.min_points <= e.max_points;
+  const g = own ? { lo: e.min_points, hi: e.max_points, where: points >= e.min_points && points <= e.max_points ? "in" : "out" }
+    : curveGroupFor(curveFor(meta, { group: e?.group ?? null, outside }), points);
+  if (!g) return `with about ${points} points`;
+  const range = pointsRange(g.lo, g.hi);
+  return g.where === "in" ? `with ${range}` : `with ${range} (the group this place's ${points} ${points === 1 ? "point is" : "points are"} read from)`;
+}
+
+/**
  * What a place's points say as a rate, from its place file's `estimate` or read from the export's
- * curve, dated to the backtest list it comes from: "Scored restaurants with about 12 points: about
- * 39 in 100 had a major violation at their next routine inspection in the backtest of the list drawn
- * up on September 1, 2025 (likely 35 to 41). The likely range reflects sampling only, not changes
- * since then." An estimate the export read from the curve for places with a closure in their two
- * years (`estimate.group` "closure", `meta.card.curve_closure`) says so (CLOSURE_GROUP). Then
+ * curve, dated to the backtest list it comes from, and naming the group of points it is read from
+ * (every place in a fitted group gets the group's rate): "Scored restaurants with 8 to 16 points:
+ * about 40 in 100 had a major violation at their next routine inspection in the backtest of the list
+ * drawn up on September 1, 2025 (likely 36 to 45). The likely range reflects sampling only, not
+ * changes since then." An estimate the export read from the curve for places with a closure in their
+ * two years (`estimate.group` "closure", `meta.card.curve_closure`) says so (CLOSURE_GROUP). Then
  * DRIFT_NOTE when the export's drift check asks for a refit, and the export's drift note when it has
  * one. Without a place estimate the site reads `curve`. Null without points or a curve.
  */
@@ -274,7 +354,7 @@ export function estimateSentence(meta, points, { estimate = null, outside = fals
   const where = outside ? " outside the City" : "";
   const who = e.group === "closure" ? ` ${CLOSURE_GROUP}` : "";
   const range = likely([e.low, e.high]);
-  const out = [`Scored restaurants${where} with about ${points} points${who}: about ${inHundred(e.rate)} in 100 had a major violation at their next routine inspection in ${estimatePeriod(meta)}${range}.`];
+  const out = [`Scored restaurants${where} ${pointsPhrase(meta, points, e, outside)}${who}: about ${inHundred(e.rate)} in 100 had a major violation at their next routine inspection in ${estimatePeriod(meta)}${range}.`];
   if (range) out.push("The likely range reflects sampling only, not changes since then.");
   if (meta?.drift?.refit_needed === true) out.push(DRIFT_NOTE);
   const note = driftNote(meta);
@@ -395,19 +475,70 @@ export function driftLine(meta) {
 }
 
 /**
- * What the About page says about drift, in order: DRIFT_NOT_YET when the drift check has no
- * complete quarter after the backtest year (`status` "not_yet_measurable"), driftLine when it asks
- * for a refit, and the export's drift note when it has one. Empty when there is nothing to say.
+ * What the About page says about drift, in order: driftNotYet when the drift check has no complete
+ * quarter after the backtest year (`status` "not_yet_measurable"), driftLine when it asks for a refit,
+ * and the export's drift note when it has one, after the first as what can be said meanwhile ("Meanwhile,
+ * in the latest quarter ..."), so the two never read as a contradiction. Empty when there is nothing to say.
  */
 export function driftLines(meta) {
   const out = [];
-  if (meta?.drift?.status === "not_yet_measurable") out.push(DRIFT_NOT_YET);
+  const notYet = meta?.drift?.status === "not_yet_measurable";
+  if (notYet) out.push(driftNotYet(meta));
   const refit = driftLine(meta);
   if (refit) out.push(refit);
   const note = driftNote(meta);
-  if (note) out.push(note);
+  if (note) out.push(notYet ? `Meanwhile, ${note.charAt(0).toLowerCase()}${note.slice(1)}` : note);
   return out;
 }
+
+/**
+ * One row per fitted group of an estimate curve, as places are told it (What the points say, on the
+ * About page): `{lo, hi, labelled, positives, rate, low, high}`. The rate and its range are the
+ * curve's at the group's lowest points, which every place in the group reads. The counts come from
+ * the export's `group_counts` when it has them, else from the finer `bins` when every bin that touches
+ * the group lies wholly inside it; otherwise they are null. Null for a curve without `groups`.
+ */
+export function curveGroupRows(curve) {
+  const groups = curveGroups(curve);
+  if (!groups) return null;
+  const at = (arr, j) => (Array.isArray(arr) && arr.length ? arr[Math.min(j, arr.length - 1)] : null);
+  const num = (x) => (typeof x === "number" ? x : null);
+  const bins = (Array.isArray(curve.bins) ? curve.bins : []).filter((b) => Number.isInteger(b?.min_points) && Number.isInteger(b?.max_points));
+  const counted = Array.isArray(curve.group_counts) ? curve.group_counts : [];
+  return groups.map(([lo, hi]) => {
+    const own = counted.find((c) => c?.min_points === lo && c?.max_points === hi);
+    let labelled = num(own?.labelled), positives = num(own?.positives);
+    if (labelled == null || positives == null) {
+      const touching = bins.filter((b) => b.min_points <= hi && b.max_points >= lo);
+      const inside = touching.length > 0 && touching.every((b) => b.min_points >= lo && b.max_points <= hi && typeof b.labelled === "number" && typeof b.positives === "number");
+      labelled = inside ? touching.reduce((s, b) => s + b.labelled, 0) : null;
+      positives = inside ? touching.reduce((s, b) => s + b.positives, 0) : null;
+    }
+    return { lo, hi, labelled, positives, rate: num(at(curve.rate, lo)), low: num(at(curve.low, lo)), high: num(at(curve.high, lo)) };
+  });
+}
+
+/**
+ * Where the finer counts inside one fitted group differ, the lowest and highest of them:
+ * `[{lo, hi, min: bin, max: bin}]` for each group holding two or more whole `bins` whose rates differ.
+ * Empty without groups or bins.
+ */
+export function curveGroupSpread(curve) {
+  const groups = curveGroups(curve) ?? [];
+  const bins = (Array.isArray(curve?.bins) ? curve.bins : []).filter((b) => Number.isInteger(b?.min_points) && Number.isInteger(b?.max_points) && typeof b?.rate === "number");
+  const out = [];
+  for (const [lo, hi] of groups) {
+    const inside = bins.filter((b) => b.min_points >= lo && b.max_points <= hi);
+    if (inside.length < 2) continue;
+    const min = inside.reduce((a, b) => (b.rate < a.rate ? b : a));
+    const max = inside.reduce((a, b) => (b.rate > a.rate ? b : a));
+    if (inHundred(min.rate) !== inHundred(max.rate)) out.push({ lo, hi, min, max });
+  }
+  return out;
+}
+
+/** "7 to 10 points", "11 points": a bin's or a group's points, for a sentence. */
+export const pointsSpan = pointsRange;
 
 /**
  * Band 1's backtest rate by how its places got there (`meta.card.band_1_by_route`): through a

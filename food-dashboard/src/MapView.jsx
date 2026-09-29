@@ -31,6 +31,8 @@ export default function MapView({
   // {point: [lon, lat]} from the address check, drawn as an ink ring.
   pointOverlay = null,
   onError = null,
+  // Where the list is its own view (the staff site), a way to it from the map's error.
+  onShowList = null,
 }) {
   const containerRef = useRef(null);
   const overlayRef = useRef(null);
@@ -167,6 +169,11 @@ export default function MapView({
           <div className="max-w-md border border-rule-strong bg-paper-sunk px-6 py-5" role="status">
             <p className="label mb-2">The map did not load</p>
             <p className="font-serif text-[15px] leading-[1.55] text-ink-2">{error}</p>
+            {onShowList && (
+              <button type="button" onClick={onShowList} className="mt-4 bg-ink px-4 py-2 text-[13px] font-semibold text-paper hover:bg-ink-2">
+                Open the list
+              </button>
+            )}
           </div>
         </div>
       )}

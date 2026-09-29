@@ -91,13 +91,38 @@
 }
 
 /* ── Print ──────────────────────────────────────────────────────────────────
-   A corner's detail panel prints as a one-page sheet: everything else on the
-   map view is hidden and the panel becomes ordinary flowing text. Pages that
-   are already documents (district report, privacy) print as they are, minus
-   their navigation. */
+   On the map view the map, the sidebar and every control are hidden. A
+   place's detail panel prints as ordinary flowing text; the list prints as its
+   printout (PlaceTable: every listed row, with the list's date, scope and use
+   rule), and while the list is printing a place's panel does not. The frame
+   that holds the map view to one screen (print-release) is let go, so either
+   runs across as many pages as it needs. Pages that are already documents (a
+   place's page, privacy, corrections) print as they are, minus their
+   navigation. */
+.print-only {
+  display: none;
+}
 @media print {
   .print-hide {
     display: none !important;
+  }
+  .print-only {
+    display: block !important;
+  }
+  .print-release {
+    display: block !important;
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+  }
+  .printing-list .print-sheet {
+    display: none !important;
+  }
+  .print-list thead {
+    display: table-header-group;
+  }
+  .print-list tr {
+    break-inside: avoid;
   }
   .print-sheet {
     position: static !important;

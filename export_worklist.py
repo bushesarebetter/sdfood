@@ -10,7 +10,7 @@ Writes data/worklists/<yyyy-mm>/ (gitignored under /data/):
   district-<n>.csv   n = 1..9, a header row, then facility_id, name, address, business_type,
                      last_routine_date, last_routine_score, rule_mean, due_estimate, rule_order,
                      rule_points, why, last_routine_outcome, closures_24m, escalation, last_closure,
-                     reopened_on, posted_grade (COLUMNS)
+                     reopened_on, posted_grade, no_reopen_on_record (COLUMNS)
   manifest.json      {month, generated, method, rule, files: {district: sha256}}
   frozen/<stamp>/    a read-only copy of the above plus scoring.csv (every active City facility
                      with each ordering's inputs and positions), with its own manifest.json, so a
@@ -56,7 +56,12 @@ The order within a district
   * rule_mean is the mean that ordering read (the points' two-year mean, or the one-line rule's
     mean since 2023-01), closures counted as 70. closures_24m, last_closure and reopened_on are the
     export's closure episodes (one per closure, ended by the County's "Approved to Reopen"), in the
-    24 months before the export's list date; posted_grade is the grade on the County's card.
+    24 months before the export's list date; posted_grade is the latest letter on the County's record
+    (the export's grade), with its date. no_reopen_on_record is the date of the place's last closure
+    when no "Approved to Reopen" and no graded routine or re-grade follow it on the published record
+    (the export's grade.open_closure): the County posts no grade card while it has a place closed, so
+    posted_grade is then the letter from before that closure. It does not say the place is closed now:
+    a later visit the County did not grade may have been its reopening.
 
 The research model's order (model_food.HEADLINE, fitted on every routine inspection before the
 month) and the one-line rule's inputs go only into the frozen scoring.csv, for the pilot's arms."""
@@ -73,7 +78,8 @@ MIN_GAPS = 30             # a type needs this many routine-to-routine gaps for i
 DISTRICTS = range(1, 10)
 COLUMNS = ["facility_id", "name", "address", "business_type", "last_routine_date", "last_routine_score",
            "rule_mean", "due_estimate", "rule_order", "rule_points", "why",
-           "last_routine_outcome", "closures_24m", "escalation", "last_closure", "reopened_on", "posted_grade"]
+           "last_routine_outcome", "closures_24m", "escalation", "last_closure", "reopened_on", "posted_grade",
+           "no_reopen_on_record"]
 # Patterns the County's Operator's Guide names (p. 8), as our counts: by closure episode and by distinct
 # routine inspection day, two or more in the 24 months before the list date. Not County findings.
 ESCALATION = {"major_2": "major violations at two or more routine inspections in two years",
@@ -122,10 +128,12 @@ HOLDS = os.path.join("docs", "holds.json")
 
 
 def load_holds(path=HOLDS):
-    try:
-        return set(json.load(open(path, encoding="utf-8")).get("facility_ids", []))
-    except (OSError, ValueError):
-        return set()
+    """The ids on hold, read strictly (publish_city_site.load_holds_strict, the one loader the publish
+    and the API deploy use too): no file is no hold, and a file that cannot be read, or is not
+    {"facility_ids": [...]}, stops the run. Read loosely, it would give every held place back its
+    points, band and position in the order."""
+    import publish_city_site as pcs
+    return pcs.load_holds_strict(path)
 
 
 def closure_facts(detail, list_date):
@@ -142,7 +150,8 @@ def closure_facts(detail, list_date):
 
 def load_card(site=SITE, holds=None):
     """The students' point rule's export (export_site.py, data/site): facility_id -> points, band,
-    flags, the scores the points average, closure facts and posted grade, and the rule. None when
+    flags, the scores the points average, closure facts, the latest letter on record and the date of
+    a last closure nothing on the record ended (grade.open_closure), and the rule. None when
     there is no real export (missing, or the invented sample). A place on hold keeps its record and
     loses its points and band."""
     fc_path, meta_path = os.path.join(site, "facilities.geojson"), os.path.join(site, "meta.json")
@@ -173,6 +182,9 @@ def load_card(site=SITE, holds=None):
             "held": held & {p["facility_id"] for p in props},
             "flags": {p["facility_id"]: p.get("flags") or [] for p in props}, "scores": scores, "facts": facts,
             "grade": {p["facility_id"]: grade(p.get("grade")) for p in props},
+            "open_closure": {p["facility_id"]: p["grade"]["open_closure"]["date"] for p in props
+                             if isinstance(p.get("grade"), dict) and isinstance(p["grade"].get("open_closure"), dict)
+                             and p["grade"]["open_closure"].get("date")},
             "rule": card.get("rule", ""), "eligibility": card.get("eligibility", ""),
             "run": meta.get("run") or meta.get("generated"), "through": through, "list_date": list_date}
 
@@ -327,13 +339,14 @@ def worklist(insp, info, month, lookup, *, card=None, use_status=True, why=True,
     f["rule_mean"] = [used_mean.get(fid, m) for fid, m in zip(f["facility_id"], f["mean_rated"].fillna(mf.FILL_SCORE))]
     f["escalation"] = (["; ".join(v for k, v in ESCALATION.items() if k in card["flags"].get(fid, []))
                         for fid in f["facility_id"]] if card else "")
-    f["last_closure"], f["reopened_on"], f["posted_grade"] = "", "", ""
+    f["last_closure"], f["reopened_on"], f["posted_grade"], f["no_reopen_on_record"] = "", "", "", ""
     if card:
         facts = [card["facts"].get(fid) for fid in f["facility_id"]]
         f["closures_24m"] = [x["closures_24m"] if x else c for x, c in zip(facts, f["closures_24m"])]
         f["last_closure"] = [x["last_closure"] if x else "" for x in facts]
         f["reopened_on"] = [x["reopened_on"] if x else "" for x in facts]
         f["posted_grade"] = [card["grade"].get(fid, "") for fid in f["facility_id"]]
+        f["no_reopen_on_record"] = [card.get("open_closure", {}).get(fid, "") for fid in f["facility_id"]]
         f["last_routine_outcome"] = [o + (f"; reopened {r}" if lc and r and lc == d.strftime("%Y-%m-%d") else "")
                                      for o, lc, r, d in zip(f["last_routine_outcome"], f["last_closure"], f["reopened_on"],
                                                             f["last_routine_date"])]
@@ -454,7 +467,8 @@ def write_month(f, month, out=OUT, generated=None, freeze=True, card=None):
                              int(r["rule_order"]), _points(r), csv_text(r["why"]),
                              csv_text(r.get("last_routine_outcome", "")), _fmt(r.get("closures_24m"), 0),
                              csv_text(r.get("escalation", "")), csv_text(r.get("last_closure", "")),
-                             csv_text(r.get("reopened_on", "")), csv_text(r.get("posted_grade", ""))])
+                             csv_text(r.get("reopened_on", "")), csv_text(r.get("posted_grade", "")),
+                             csv_text(r.get("no_reopen_on_record", ""))])
         files[str(n)] = sha256(path)
     manifest = {"month": month, "generated": generated.isoformat(),
                 "method": METHOD + (FALLBACK if card is None else ""), "rule": rule_text(card),

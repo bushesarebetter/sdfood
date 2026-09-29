@@ -89,7 +89,7 @@ test("the grade-context figure always carries the County's rule", () => {
     "Most routine inspections that find a major violation still end with an A: 94% of them did. The County requires each major violation to be corrected immediately, or a suitable alternative put in place until it is; otherwise the affected area or process can be closed.",
   );
   assert.match(gradeContextSentence({}), /corrected immediately, or a suitable alternative put in place/);
-  assert.match(siteDescription(bandsMeta), /Independent student project, not affiliated with or endorsed by the County of San Diego\.$/);
+  assert.match(siteDescription(bandsMeta), /Independent student project, not affiliated with or endorsed by the City of San Diego or the County of San Diego\.$/);
 });
 
 test("the CSV has band and points columns only in bands mode, and always the list dates", () => {

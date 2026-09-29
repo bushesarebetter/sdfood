@@ -1,0 +1,4 @@
+{
+ "_note": "Copy to docs/holds.json (gitignored) and list the facility ids on hold. Ids are case-sensitive: copy each exactly as the list shows it (the County's permit record id, such as DEH2022-FFPP-000001). The file must stay in this format: publish_city_site.py (and --holds-only), export_site.py, export_worklist.py and deploy_api.py all stop when it cannot be read, because a holds file read as empty would release every hold. --holds-only refuses an id that is not on the live list, or that differs from a listed id only in case, before it changes anything.",
+ "facility_ids": ["DEH2022-FFPP-000001"]
+}

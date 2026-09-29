@@ -63,13 +63,30 @@ test("src/, index.html and the 404 page carry none of the reviewed-out words", (
 test("the site is the San Diego Food Inspection Record everywhere it names itself", () => {
   const html = readFileSync(join(root, "index.html"), "utf8");
   assert.match(html, /<title>San Diego Food Inspection Record<\/title>/);
-  assert.match(html, /not affiliated with or endorsed by the County of San Diego/);
   assert.match(html, /<noscript>[\s\S]*sandiegocounty\.gov[\s\S]*<\/noscript>/);
   const vite = readFileSync(join(root, "vite.config.js"), "utf8");
   assert.match(vite, /name: "San Diego Food Inspection Record"/);
-  assert.match(vite, /not affiliated with or endorsed by the County of San Diego/);
   assert.match(vite, /handler: "NetworkFirst"/);
   assert.doesNotMatch(vite + html, /Food Safety Risk|fonts\.googleapis/);
   assert.match(readFileSync(join(root, "public", "robots.txt"), "utf8"), /^Disallow: \/data\/$/m);
   assert.equal(JSON.parse(readFileSync(join(root, "package.json"), "utf8")).scripts.prebuild, "node scripts/check-expiry.mjs && node scripts/check-export.mjs");
+});
+
+const DISCLAIMER = "Independent student project, not affiliated with or endorsed by the City of San Diego or the County of San Diego.";
+
+test("one disclaimer, word for word, names both the City and the County wherever the site describes itself", async () => {
+  const { STUDENT_NOTE } = await import("../src/site.js");
+  assert.equal(STUDENT_NOTE, DISCLAIMER);
+  const count = (text) => text.split(DISCLAIMER).length - 1;
+  assert.equal(count(readFileSync(join(root, "index.html"), "utf8")), 4, "description, og, twitter and noscript");
+  assert.equal(count(readFileSync(join(root, "vite.config.js"), "utf8")), 1, "the app manifest");
+  for (const name of ["dashboard.template.html", "dashboard.html"]) {
+    const text = readFileSync(join(root, "..", name), "utf8");
+    assert.equal(count(text), 2, `${name}: under the title and in the footnote`);
+  }
+  // No disclaimer anywhere names only the County.
+  const oneSided = /not affiliated with or endorsed by the County of San Diego/;
+  for (const path of [...files(join(root, "src")), join(root, "index.html"), join(root, "vite.config.js"), join(root, "..", "dashboard.template.html")]) {
+    assert.doesNotMatch(readFileSync(path, "utf8"), oneSided, relative(root, path));
+  }
 });

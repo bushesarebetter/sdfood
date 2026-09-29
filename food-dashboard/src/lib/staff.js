@@ -5,7 +5,8 @@
  * that downloads are public records, whom to write to, and which checks the list has not passed.
  */
 /* global __STAFF__ */
-import { auditedGroup } from "./bands.js";
+import { auditedGroup, driftNote } from "./bands.js";
+import { SITE } from "../site.js";
 
 /** True in the staff build itself (vite.config.js), whatever meta says. */
 export const staffBuild = () => typeof __STAFF__ !== "undefined" && __STAFF__ === true;
@@ -52,6 +53,11 @@ export const USE_NOTE =
   "Do not forward names or bands outside the City, and do not contact a business about its band or use a band for any permit, " +
   "license, enforcement, grant, procurement or public-statement decision. That is a use rule, not a promise of confidentiality.";
 
+/** USE_NOTE in one sentence, for the phone banner, which shows USE_NOTE itself one tap away. */
+export const USE_NOTE_SHORT =
+  "A student analysis, not a City or County finding: do not forward names or bands outside the City, contact a business " +
+  "about its band, or use a band for any decision about a business.";
+
 /** The guidance sentences, so the banner, the district view and the tests share one wording. */
 export const GUIDANCE = {
   demonstration: "The City has not recorded a request for this site or a TRUST Ordinance determination. Until it does, treat the site as a demonstration, not a City tool.",
@@ -59,9 +65,28 @@ export const GUIDANCE = {
   persistence: "The points do no better than a place's recent major violations alone at picking out places with a major next time. Read them as a summary of the County's record, not a forecast for one place.",
   nothingToName: "No band is strong enough to justify singling out a business.",
   drift: "The County's record has changed since the rule was checked, so the rates on this site may be out of date.",
+  driftLow: "In the latest quarter the County's inspectors found major violations more often than in the backtest the rates come from, so every rate on this site is probably low.",
+  driftHigh: "In the latest quarter the County's inspectors found major violations less often than in the backtest the rates come from, so every rate on this site is probably high.",
   prospective: "The rule has not yet been tested on inspections made after it was frozen.",
   adult: "No independent adult has signed off on this list; its operator is a student author.",
 };
+
+/**
+ * What the export's drift note (`meta.drift.note`, the latest quarter against the backtest) means for
+ * the rates, as an instruction: GUIDANCE.driftLow or driftHigh, by the note's own "may be low" or "may
+ * be high", else by `latest_rate` against `major_rate_backtest`. Null without a note. It is not a
+ * refit alarm (GUIDANCE.drift is): the formal check cannot run until a quarter after the backtest year
+ * is complete.
+ */
+export function driftNoteGuidance(meta) {
+  const note = driftNote(meta);
+  if (!note) return null;
+  const said = /\bmay be (low|high)\b/i.exec(note)?.[1]?.toLowerCase();
+  if (said) return said === "low" ? GUIDANCE.driftLow : GUIDANCE.driftHigh;
+  const now = meta?.drift?.latest_rate, then = meta?.drift?.major_rate_backtest;
+  if (typeof now !== "number" || typeof then !== "number" || now === then) return null;
+  return now > then ? GUIDANCE.driftLow : GUIDANCE.driftHigh;
+}
 
 const APOS = "['’]";
 const LINES = {
@@ -80,7 +105,7 @@ function flaggedDistricts(status) {
 }
 
 /** "District 4", "Districts 4 and 9", "Districts 4, 5 and 9". */
-function districtsPhrase(districts) {
+export function districtsPhrase(districts) {
   const list = districts.length > 1 ? `${districts.slice(0, -1).join(", ")} and ${districts.at(-1)}` : `${districts[0]}`;
   return `District${districts.length > 1 ? "s" : ""} ${list}`;
 }
@@ -132,6 +157,49 @@ function auditedBandsPhrase(meta) {
   return auditedGroup(meta).replace(/^places in /, "").replace(/ places$/, "");
 }
 
+const NUMBER_WORDS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve"];
+const lowAboveEven = (iv) => Array.isArray(iv) && typeof iv[0] === "number" && iv[0] > 1;
+
+/**
+ * Which districts are above even under which interval, for the About page's district table, from
+ * `meta.fairness.by_district` (never from district numbers typed in): the districts whose
+ * `evidence_above_even` is true stay above even on both wider intervals (family-wise, and widened for
+ * inspectors), and fairnessLine names only them; of the rest, those whose 95% `interval` for the
+ * district alone starts above 1, split by whether the family-wise one does too. Sentences, in that
+ * order; null for an export without `evidence_above_even` (one from before it existed). `staff` says
+ * that the banner and the district view name only the first group.
+ */
+export function districtStatus(meta, { staff = isStaff(meta) } = {}) {
+  const ev = evidenceDistricts(meta);
+  if (ev === null) return null;
+  const alone = [], family = [];
+  for (const [d, f] of Object.entries(meta.fairness.by_district)) {
+    if (!/^\d+$/.test(d) || f?.evidence_above_even === true || !lowAboveEven(f?.interval)) continue;
+    (lowAboveEven(f?.interval_family) ? family : alone).push(Number(d));
+  }
+  const n = SITE.districts.count;
+  const across = `chance across the ${NUMBER_WORDS[n] ?? n} districts`;
+  const is = (list) => (list.length > 1 ? "are" : "is");
+  const out = [];
+  if (ev.length) {
+    const named = staff ? `, so the banner and the district view name ${ev.length > 1 ? "only these" : "only it"}` : "";
+    out.push(`Only ${districtsPhrase(ev)} ${ev.length > 1 ? "stay" : "stays"} above even on both wider intervals, allowing for ${across} and for inspectors${named}.`);
+  } else {
+    out.push(`No district stays above even on both wider intervals, allowing for ${across} and for inspectors${staff ? ", so the banner and the district view name none" : ""}.`);
+  }
+  family.sort((a, b) => a - b);
+  alone.sort((a, b) => a - b);
+  if (family.length) {
+    out.push(`${districtsPhrase(family)} ${is(family)} above even on the 95% interval for the district alone and on the family-wise one, ` +
+      "but not once inspectors are allowed for too.");
+  }
+  if (alone.length) {
+    out.push(`${districtsPhrase(alone)} ${is(alone)} above even on the 95% interval for the district alone, but not on the family-wise one, ` +
+      `which allows for ${across}.`);
+  }
+  return out;
+}
+
 /**
  * What the checks the list has not passed mean for someone using it, one sentence each: a count of
  * open checks is ignored by the second week; an instruction is not. When the City has recorded no
@@ -153,21 +221,96 @@ export function reviewGuidance(meta) {
   const d = fairnessLine(meta);
   if (d) out.push(d);
   if (has(LINES.drift)) out.push(GUIDANCE.drift);
+  // Not an open check: the export's own note on the latest quarter, as an instruction.
+  const note = driftNoteGuidance(meta);
+  if (note) out.push(note);
   if (has(/prospective test/)) out.push(GUIDANCE.prospective);
   if (has(/responsible adult|student author/)) out.push(GUIDANCE.adult);
   return out;
 }
 
+/** "This list has not passed 7 of the checks a public release would need.", or null when none is open. */
+export function openChecksSentence(meta) {
+  const n = reviewStatus(meta).length;
+  return n > 0 ? `This list has not passed ${n} of the checks a public release would need.` : null;
+}
+
+/**
+ * The phone banner (and a desktop window under 768px): short enough to sit over the map, yet never
+ * without the rules. Always shown: the demonstration line while it applies, USE_NOTE_SHORT,
+ * PUBLIC_RECORD_NOTE and whom to write to. One tap away (`summary`, a <details> in the banner): USE_NOTE
+ * in full, the open checks, and every instruction the full banner lists, in the same words.
+ */
+export function compactBanner(meta) {
+  const guidance = reviewGuidance(meta);
+  const contact = contactLine(meta);
+  const n = guidance.length;
+  return {
+    lead: [guidance[0] === GUIDANCE.demonstration ? guidance[0] : null, USE_NOTE_SHORT, PUBLIC_RECORD_NOTE].filter(Boolean),
+    contact: contact ? `Questions and corrections: ${contact}.` : null,
+    summary: n ? `The full use rule and all ${n} ${n === 1 ? "instruction" : "instructions"}` : "The full use rule",
+    use: USE_NOTE,
+    open: openChecksSentence(meta),
+    guidance,
+  };
+}
+
+/**
+ * The one-line staff bar at the top of every page (StaffBanner): each rule in a few words, always in view,
+ * and the whole notice one click away in the same words as compactBanner (the full use rule, the
+ * public-record note, whom to write to, the open checks and every instruction). The panel opens by itself
+ * on the first page of each browser session until it is acknowledged. `points` stand for sentences the
+ * panel gives in full: the demonstration point while the City has recorded no request or TRUST answer,
+ * and the count of open checks while there are any.
+ */
+export function staffBar(meta) {
+  const b = compactBanner(meta);
+  const n = reviewStatus(meta).length;
+  const k = b.guidance.length;
+  return {
+    ...b,
+    points: [
+      "For City of San Diego staff",
+      "Downloads are likely public records",
+      "A student analysis, not a City or County finding",
+      ...(b.guidance[0] === GUIDANCE.demonstration ? ["A demonstration, not a City tool"] : []),
+      ...(n ? [`${n} open ${n === 1 ? "check" : "checks"}`] : []),
+    ],
+    toggle: k ? `The notice and ${k} ${k === 1 ? "instruction" : "instructions"}` : "The notice",
+  };
+}
+
+/** Beside the district view's counts: majors, closures and grades are what inspectors cite. */
+export const DISTRICT_CITING_NOTE =
+  "Majors, closures and B or C grades are what the County's inspectors cite, and the record does not say which inspector made a visit, " +
+  "so a gap between districts may be how they are cited. Take a district's pattern to the County as a question, not as a ranking of districts.";
+
+/**
+ * For the one district selected in the district view, and only for it (a rate on every row would rank
+ * districts): each fact as a share of its listed places. `r` is the view's row, `{n, major, closed, bc}`.
+ * "District 3, out of its 1,336 listed places: a major violation at 21 in 100, ordered closed at 2 in
+ * 100, a B or C grade at 3 in 100." Null without places.
+ */
+export function districtShareLine(name, r) {
+  const n = r?.n;
+  if (!Number.isInteger(n) || n <= 0) return null;
+  const share = (k) => `${Math.round((100 * (Number(r[k]) || 0)) / n)} in 100`;
+  return `${name}, out of its ${n.toLocaleString("en-US")} listed ${n === 1 ? "place" : "places"}: a major violation at ${share("major")}, ` +
+    `ordered closed at ${share("closed")}, a B or C grade at ${share("bc")}.`;
+}
+
 /**
  * "What to do" at the top of the district view on the staff site: how to use a district's list,
- * where a question about a place goes, and, when the fairness figures show districts above even
- * (fairnessLine), not to compare districts by their bands.
+ * where a question about a place goes, that the district counts are what inspectors cite
+ * (DISTRICT_CITING_NOTE, on every staff export), and, when the fairness figures show districts above
+ * even (fairnessLine), not to compare districts by their bands.
  */
 export function districtGuidance(meta) {
   if (!isStaff(meta)) return [];
   const out = [
     "Open a district's list to see its places; each place's page shows its County record, which is the record of reference.",
     "A resident's report, an illness or a question about a place's record goes to the County: each place's page says where.",
+    DISTRICT_CITING_NOTE,
   ];
   const d = fairnessLine(meta);
   if (d) out.push(d);
@@ -182,9 +325,52 @@ export function auditCsv(meta, rows, name, nav = typeof navigator !== "undefined
   return audit(meta, { event: "csv", rows, name }, nav);
 }
 
-/** A print on the staff site, logged like a download: a printout is a City record too. */
-export function auditPrint(meta, name, nav = typeof navigator !== "undefined" ? navigator : null) {
-  return audit(meta, { event: "print", name }, nav);
+/**
+ * A print on the staff site, logged like a download: a printout is a City record too. `rows`, when
+ * given, is how many places the printout lists.
+ */
+export function auditPrint(meta, name, nav = typeof navigator !== "undefined" ? navigator : null, rows = undefined) {
+  return audit(meta, { event: "print", ...(Number.isSafeInteger(rows) && rows >= 0 ? { rows } : {}), name }, nav);
+}
+
+// The view that can say what a print holds (the list's printout), asked at the moment of printing.
+let describer = null;
+
+/**
+ * Registers `fn`, `() => ({name, rows}) | null`, as what a print holds while the view that knows is
+ * open; returns the function that unregisters it. With none (or a null answer) a print is logged under
+ * the page's address.
+ */
+export function describePrints(fn) {
+  describer = fn;
+  return () => { if (describer === fn) describer = null; };
+}
+
+/** The name (at most 120 characters, as the server takes) and row count a print is logged under. */
+export function printSubject(loc = typeof window !== "undefined" ? window.location : null) {
+  let s = null;
+  try {
+    s = describer?.() ?? null;
+  } catch {
+    s = null;
+  }
+  const name = String(s?.name || `${loc?.pathname ?? "/"}${loc?.search ?? ""}`).slice(0, 120);
+  return { name, rows: Number.isSafeInteger(s?.rows) ? s.rows : undefined };
+}
+
+/**
+ * Logs every print on the staff site once, whatever the layout (the phone shell, the map, a page):
+ * mounted once at the root of the app (StaffBanner.jsx PrintAudit), never by a banner, so no layout
+ * goes unlogged and none logs twice. Returns the function that stops it; nothing on the public site.
+ */
+export function watchPrints(meta, win = typeof window !== "undefined" ? window : null, nav = typeof navigator !== "undefined" ? navigator : null) {
+  if (!isStaff(meta) || typeof win?.addEventListener !== "function") return () => {};
+  const onPrint = () => {
+    const s = printSubject(win.location);
+    auditPrint(meta, s.name, nav, s.rows);
+  };
+  win.addEventListener("beforeprint", onPrint);
+  return () => win.removeEventListener("beforeprint", onPrint);
 }
 
 function audit(meta, payload, nav) {

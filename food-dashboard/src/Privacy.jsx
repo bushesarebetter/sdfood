@@ -9,7 +9,7 @@ const ANALYTICS_SRC = import.meta.env.VITE_ANALYTICS_SRC || "";
 
 // A dated record of what changed on the site, newest first.
 const CHANGES = [
-  ["2026-09-29", "Version 4. The rule is now the simplest one that did as well as the others: points are how far a restaurant's average routine score over two years fell below 100, and the worksheet lists the scores it averages. Bands are kept only where they held at every backtest date, and every scored place shows what places with about its points did. Places outside the City are described by rates measured outside the City. The City staff site shows who is responsible, that downloads are likely public records, and every check the list has not passed; it keeps no offline copy. An owner or manager may ask whether their business is on the staff site, and every such request puts its points and band on hold the same business day."],
+  ["2026-09-29", "Version 4. The rule is now the simplest one that did as well as the others: points are how far a restaurant's average routine score over two years fell below 100, and the worksheet lists the scores it averages. Bands are kept only where they held at every backtest date, and every scored place shows what places in its group of points did; a place whose two years include a routine inspection that ended in a closure is read from a separate estimate for such places. Places outside the City are described by rates measured outside the City. The City staff site shows who is responsible, that downloads are likely public records, and every check the list has not passed; it keeps no offline copy. An owner or manager may ask whether their business is on the staff site, and every such request puts its points and band on hold the same business day."],
   ["2026-09-24", "Version 3. Every listed place's County records are shown one record at a time with the County's own status text, and the site's readings are labelled \"Our reading\". Each place's record loads on its own. No list shows a position. The students' point rule and its bands appear only in a bands export. System fonts replace Google Fonts, and the offline copy checks the network first for data."],
   ["2026-09-21", "First version, with invented sample data."],
 ];
@@ -65,11 +65,21 @@ export default function Privacy({ onNavigate }) {
       {staff && (
         <Section heading="The City staff site">
           <p>
-            You sign in with a City staff sign-in. Under your sign-in id the server logs each sign-in and sign-out with its network
-            address, each unsuccessful sign-in with the name typed and the address, each place record opened and each list file fetched, each
-            address lookup (not what you typed), and each CSV download and print. The logs are kept by the site&rsquo;s host. The site keeps no offline copy: it removes
-            any service worker and marks every data file not to be stored. On a shared computer, use Sign out at the top of any page, then
-            close the browser.
+            You sign in with the site id (such as u07) and access token this site&rsquo;s operator sent you. It is not your City network
+            account: never enter your City user name or password here. Under your sign-in id the server logs each sign-in (with its network
+            address) and each sign-out, each unsuccessful sign-in with the name typed and the address, each place record opened and each
+            list file fetched, each address lookup (not what you typed), and each CSV download and print.
+          </p>
+          <p>
+            The log is kept in the site&rsquo;s hosting account at {SITE.host.name}. The site&rsquo;s operator, named under
+            &ldquo;Operator and legal notices&rdquo; below, reads it there, and so can anyone else with access to that account.{" "}
+            {SITE.host.name} keeps it only briefly unless it is sent on to a log store, which then keeps it for as long as that
+            store&rsquo;s owner sets. During a pilot of the list, the record of which place records each sign-in opened is used, by
+            sign-in id, to report the pilot&rsquo;s result with and without the inspections at places staff had opened.
+          </p>
+          <p>
+            The site keeps no offline copy: it removes any service worker and marks every data file not to be stored. On a shared
+            computer, use Sign out at the top of any page, then close the browser.
           </p>
           <p>
             &ldquo;Near an address&rdquo; sends what you type to this site&rsquo;s own server, which looks it up with OpenStreetMap&rsquo;s
@@ -81,7 +91,7 @@ export default function Privacy({ onNavigate }) {
       <Section heading="What this site collects">
         {staff ? (
           <p>
-            Nothing of its own beyond the staff sign-in above. There is no account apart from that sign-in. {COOKIE_NOTE_STAFF} The one
+            Nothing of its own beyond the site sign-in above. There is no account apart from that sign-in. {COOKIE_NOTE_STAFF} The one
             form, &ldquo;Near an address&rdquo;, goes through this site&rsquo;s own server, as described above; the server keeps only the
             access log, which records by sign-in each data file fetched and each list downloaded or printed. Three
             settings live in your browser&rsquo;s local storage: whether you have seen the first-visit note, whether you dismissed the
@@ -183,8 +193,8 @@ export default function Privacy({ onNavigate }) {
 
       <Section heading="The City staff version">
         <p>
-          The authors also run a sign-in site for City of San Diego staff that shows, for each restaurant, the County&rsquo;s record and
-          points from the students&rsquo; point rule. An owner or manager may ask whether their business appears and see exactly what it
+          The authors also run a sign-in site offered to City of San Diego staff (not a City site) that shows, for each restaurant, the
+          County&rsquo;s record and points from the students&rsquo; point rule. An owner or manager may ask whether their business appears and see exactly what it
           shows: {ownerRoute} with its name and address. {NOT_ISSUES} We answer by email within five business days, and from the day
           we receive the request its points and band are withheld from the staff site and its worklists.
         </p>

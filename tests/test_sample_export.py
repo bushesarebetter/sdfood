@@ -5,9 +5,14 @@ flags counted back from the list date, the students' point rule with worksheet r
 health closure read as 70), bands cut so equal points are never split, the frozen-rule, drift, route
 and district fields the real meta carries (drift quarter by quarter; family-wise district intervals,
 also widened for an assumed design effect), two estimate curves with each place reading its own
-group's, interim rates, and nothing that reads as a real address."""
+group's, interim rates, and nothing that reads as a real address. Its records carry the County's own
+type and notes verbatim, and a few places show each of the rarer records the real export keeps (a
+closure only an "Approved to Reopen" shows, a reopening no closure could be placed before, Status
+Verification and Self Closed records, a closure with no reopening on record), without moving the
+rule, the flags or the backtest."""
 import importlib.util
 import json
+import random
 import re
 import shutil
 import subprocess
@@ -16,11 +21,11 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SITE = ROOT / "food-dashboard"
-VISIT_TYPES = {"routine", "reinspection", "followup", "complaint"}
+VISIT_TYPES = {"routine", "reinspection", "followup", "complaint", "status_check"}
 SEVERITIES = {"major", "minor", "grp"}
 CLOSURES = {"health", "permit", "other"}
 INDEX_KEYS = {"facility_id", "name", "address", "facility_type", "council_district", "last_visit", "grade", "flags", "band", "points", "on_hold"}
-DETAIL_KEYS = {"business_type", "inspections", "violations", "score_card", "band_stability", "scores_used", "estimate"}
+DETAIL_KEYS = {"business_type", "inspections", "violations", "theme_counts", "violations_total", "score_card", "band_stability", "scores_used", "estimate"}
 FORBIDDEN = {"rank", "percentile", "oof_rank", "score", "shap_features", "is_known_positive"}
 REAL_STREETS = ("Convoy", "Garnet", "University Ave", "5th Ave", "India St", "El Cajon", "Adams Ave", "Rosecrans")
 # The sections of the County's inspection report (food-dashboard/src/lib/inspections.js THEMES).
@@ -81,7 +86,9 @@ def test_records_carry_the_county_status_and_single_record_grades():
             assert i["closure"] is None or i["closure"] in CLOSURES
             assert (i["reopened"] is None) == (i["closure"] is None)
             if i["status"] == "Approved to Reopen":
-                assert i["type"] == "followup"
+                # the County's re-grade after a closure; a reinspection after a Status Verification
+                # closure, or when no closure could be placed before it (never scored)
+                assert i["type"] == "followup" or (i["type"] == "reinspection" and i["score"] is None)
             # A closure carries the date of the County's "Approved to Reopen" record that ended it, or None.
             assert ("reopened_on" in i) == i["closed"]
             if i["closed"] and i["reopened"]:
@@ -102,6 +109,124 @@ def test_records_carry_the_county_status_and_single_record_grades():
             assert v["theme"] == mod.FIXED_FORM[v["code"]], "an item's theme is its section on the County's form"
             assert v["theme"].startswith("grp_") == (v["severity"] == "grp")
     assert {"Complete", "Ordered Closed", "Approved to Reopen"} <= statuses
+
+
+COUNTY_TYPES = {"routine": {"Routine"}, "followup": {"Routine"}, "reinspection": {"Re-inspection"},
+                "complaint": {"Site Investigation", "Environmental"}, "status_check": {"Status Verification"}}
+
+
+def test_records_carry_the_countys_own_type_and_notes():
+    mod = load()
+    _, places, _ = mod.build(1400, seed=9)
+    seen_types, seen_notes = set(), set()
+    for d in places.values():
+        for i in d["inspections"]:
+            assert i["county_type"] in COUNTY_TYPES[i["type"]], (i["type"], i["county_type"])
+            assert isinstance(i["notes"], list) and all(isinstance(n, str) and n for n in i["notes"])
+            seen_types.add(i["county_type"])
+            seen_notes |= set(i["notes"])
+            if i["closed"] and i["closure"] == "permit":
+                assert "No Valid Permit" in i["notes"], "a permit closure shows the note it is read from"
+    assert seen_types == {"Routine", "Re-inspection", "Site Investigation", "Environmental", "Status Verification"}
+    assert seen_notes == {"No Valid Permit", "Impoundment"}
+
+
+def test_the_rarer_records_the_real_export_keeps():
+    mod = load()
+    fc, places, _ = mod.build(1400, seed=9)
+    found = {k: 0 for k in ("inferred", "reopen_only", "sv_closed", "sv_items", "self_closure", "self_items", "open")}
+    for f in fc["features"]:
+        d = places[f["properties"]["facility_id"]]
+        recs = d["inspections"]
+        for k, i in enumerate(recs):
+            if i.get("closure_inferred"):
+                # no closure order on the record: an unscored routine with a major, and the County's reopening days later
+                found["inferred"] += 1
+                assert i["closed"] and i["status"] == "Complete" and i["type"] == "routine" and i["score"] is None and i["major"]
+                assert i["reopened"] and any(j["date"] == i["reopened_on"] and j["status"] == "Approved to Reopen" for j in recs)
+            if i.get("reopen_without_closure"):
+                found["reopen_only"] += 1
+                assert i["status"] == "Approved to Reopen" and not i["closed"] and i["type"] == "reinspection"
+                assert not any(j["closed"] and j["date"] <= i["date"] and (not j["reopened"] or j["reopened_on"] == i["date"]) for j in recs[:k])
+            if i["type"] == "status_check":
+                assert i["score"] is None and i["grade"] is None, "a status verification is never scored"
+                if i["status"] == "Ordered Closed":
+                    found["sv_closed"] += 1
+                    assert i["closed"] and i["closure"] == "permit" and i["notes"] == ["No Valid Permit"] and i["reopened"]
+                else:
+                    found["sv_items"] += 1
+                    assert i["grp"] > 0, "a status verification is kept only with items, or ordered closed"
+            if i["status"] == "Self Closed":
+                assert i["type"] == "routine" and i["score"] is None and i["grade"] is None and i["major"] + i["minor"] > 0
+                assert i["date"] < mod.QUIET_BEFORE.isoformat()
+                if i["major"]:
+                    # the operator's own closure: a health closure a re-grade days later ends
+                    found["self_closure"] += 1
+                    assert i["closed"] and i["closure"] == "health" and i["reopened"] is False
+                    assert any(j["type"] == "followup" and j["grade"] and 0 < (date.fromisoformat(j["date"]) - date.fromisoformat(i["date"])).days <= 30 for j in recs)
+                else:
+                    found["self_items"] += 1
+                    assert not i["closed"]
+        g = f["properties"]["grade"]
+        assert g is None or "open_closure" in g
+        assert d["grade"] == g
+        if g and g["open_closure"]:
+            found["open"] += 1
+            oc = g["open_closure"]
+            last = [i for i in recs if i["closed"]][-1]
+            assert oc["date"] == last["date"] and oc["reason"] == last["closure"] and last["reopened"] is False
+            after = recs[recs.index(last) + 1:]
+            assert not any(i["status"] == "Approved to Reopen" for i in after)
+            assert not any(i["type"] in ("routine", "followup") and i["grade"] and i["date"] > oc["date"] for i in after)
+            assert oc["later_ungraded"] == sorted({i["date"] for i in after if not i["grade"]})
+            assert oc["date"] >= g["date"]
+            assert oc.get("status") == last["status"] in ("Ordered Closed", "Self Closed"), \
+                "the County's status text on the record that started it, so a Self Closed one is never called an order"
+    assert all(found.values()), found
+
+
+def test_theme_counts_count_every_item_before_the_cut():
+    mod = load()
+    _, places, _ = mod.build(400, seed=9)
+    for d in places.values():
+        tc, listed = d["theme_counts"], d["violations"]
+        assert d["violations_total"] == sum(c["major"] + c["minor"] + c["grp"] for c in tc.values())
+        assert d["violations_total"] >= len(listed) and (len(listed) == 60 or d["violations_total"] == len(listed))
+        if len(listed) == 60:
+            continue                                        # cut: the counts hold more than the list
+        for theme, c in tc.items():
+            items = [v for v in listed if v["theme"] == theme]
+            assert (c["major"], c["minor"], c["grp"]) == tuple(sum(v["severity"] == s for v in items) for s in ("major", "minor", "grp"))
+            assert c["complaint"] == sum(v["visit"] == "complaint" for v in items)
+            assert c["latest"] == max(v["date"] for v in items)
+    # Past the cut, the counts keep what the list drops.
+    items = [{"date": f"2026-0{1 + k % 8}-01", "visit": "routine", "code": "40", "theme": "grp_equipment", "severity": "grp",
+              "description": "x"} for k in range(70)] + [{"date": "2026-02-01", "visit": "complaint", "code": "7", "theme": "temperature",
+                                                         "severity": "major", "description": "y"}]
+    inspections = [{"date": "2026-08-01"}]
+    assert len(mod.exported(items, inspections)) == 60
+    tc = mod.theme_counts(mod.in_window(items, inspections))
+    assert tc["grp_equipment"]["grp"] == 70 and tc["temperature"] == {"major": 1, "minor": 0, "grp": 0, "complaint": 1, "latest": "2026-02-01"}
+
+
+def test_the_added_records_leave_the_rule_the_flags_and_the_backtest_as_they_were(monkeypatch):
+    mod = load()
+    fc, places, meta = mod.build(1400, seed=9)
+
+    class NoExtras(random.Random):
+        """Every draw above every threshold: the County's types and notes only, nothing added or converted."""
+        def random(self):
+            return 0.99
+
+    real = mod.add_county_detail
+    monkeypatch.setattr(mod, "add_county_detail", lambda rng, ins, vio: real(NoExtras(0), ins, vio))
+    fc0, places0, meta0 = mod.build(1400, seed=9)
+    assert meta == meta0, "the rule, its bands, the backtest, drift and the district figures are unchanged"
+    for f, f0 in zip(fc["features"], fc0["features"]):
+        p, p0 = f["properties"], f0["properties"]
+        assert {k: v for k, v in p.items() if k != "grade"} == {k: v for k, v in p0.items() if k != "grade"}
+        for k in ("score_card", "scores_used", "estimate"):
+            assert places[p["facility_id"]].get(k) == places0[p0["facility_id"]].get(k)
 
 
 def test_themes_follow_the_county_forms():
@@ -235,6 +360,10 @@ def test_each_place_reads_the_estimate_curve_for_its_own_group():
         assert all(lo <= r <= hi for r, lo, hi in zip(c["rate"], c["low"], c["high"]))
         assert all(a <= b for a, b in zip(c["rate"], c["rate"][1:])), "monotone"
         assert sum(b["labelled"] for b in c["bins"]) == c["labelled"]
+        # the counts each fitted group pools, as export_site.risk_curve's group_counts
+        assert [[g["min_points"], g["max_points"]] for g in c["group_counts"]] == c["groups"]
+        assert sum(g["labelled"] for g in c["group_counts"]) == c["labelled"]
+        assert sum(g["positives"] for g in c["group_counts"]) == c["positives"]
     assert card["curve"]["labelled"] + card["curve_closure"]["labelled"] == meta["catch_run"]["labelled"]
     seen = set()
     for d in places.values():
@@ -247,6 +376,9 @@ def test_each_place_reads_the_estimate_curve_for_its_own_group():
         c = card["curve_closure" if group == "closure" else "curve"]
         j = min(d["points"], len(c["rate"]) - 1)
         assert (e["rate"], e["low"], e["high"]) == (c["rate"][j], c["low"][j], c["high"][j])
+        # the fitted group it is read from: every place in it gets the rate at its lowest points
+        assert [e["min_points"], e["max_points"]] in c["groups"] and e["rate"] == c["rate"][e["min_points"]]
+        assert e["min_points"] <= d["points"] <= e["max_points"] or d["points"] > e["max_points"]
         seen.add(group)
     assert seen == {"scores", "closure"}, "the sample shows both groups"
 
@@ -322,6 +454,11 @@ def test_written_export_passes_the_site_check(tmp_path):
         out = tmp_path / mode
         mod.write(out, *mod.build(250, seed=4, mode=mode))
         assert len(list((out / "place").glob("*.json"))) == 250
+        monitor = out / "monitor_summary.json"
+        if mode == "bands":
+            assert json.loads(monitor.read_text(encoding="utf-8")) == {"status": "too early", "runs": 0, "alerts": [], "next_window_date": None}
+        else:
+            assert not monitor.exists(), "a record export has no forward test"
         node = shutil.which("node")
         if node:
             r = subprocess.run([node, str(SITE / "scripts" / "check-export.mjs"), str(out)], capture_output=True, text=True)

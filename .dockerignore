@@ -6,6 +6,8 @@
 !data/research_results.json
 data/site/archive/
 data/site/publish/
+# the pilot's frozen worklists keep a place's points from before any hold; they are not served
+data/worklists/*/frozen/
 **/__pycache__/
 # never bake secrets into the image, whatever sits in api/ or data/ on the build machine
 **/.env

@@ -155,6 +155,43 @@ test("the staff build stops unless meta.json is the staff copy with a sunset tha
   }
 });
 
+test("a public build on the host stops without the owner contact; a local build only warns", async () => {
+  const { ownerContactProblem } = await import("../scripts/exportGate.mjs");
+  const tmp = mkdtempSync(join(tmpdir(), "gate-owner-"));
+  /** buildStart on the committed sample: [error message or null, warnings]. */
+  const run = (env, config = {}) => {
+    const warnings = [];
+    const gate = exportGate(env, tmp);
+    gate.configResolved({ publicDir: join(root, "public"), root: tmp, build: { outDir: "dist" }, ...config });
+    try {
+      gate.buildStart.call({ error: (m) => { throw new Error(m); }, warn: (m) => warnings.push(m) });
+      return [null, warnings];
+    } catch (e) {
+      return [e.message, warnings];
+    }
+  };
+  try {
+    const [onHost] = run({ RENDER: "true" });
+    assert.match(onHost ?? "", /the privacy page promises owners an email route to ask about the staff site/);
+    assert.match(onHost, /VITE_OWNER_CONTACT is not set/);
+    assert.match(run({ SDFOOD_REQUIRE_OWNER_CONTACT: "1" })[0] ?? "", /VITE_OWNER_CONTACT is not set/, "asked for off the host too");
+    assert.match(run({ RENDER: "true", VITE_OWNER_CONTACT: "the authors" })[0] ?? "", /"the authors", not an email address/);
+    assert.deepEqual(run({ RENDER: "true", VITE_OWNER_CONTACT: "owners@example.org" }), [null, []]);
+    assert.deepEqual(run({ RENDER: "true" }, { env: { VITE_OWNER_CONTACT: "owners@example.org" } }), [null, []], "from a .env file");
+    const [local, warned] = run({});
+    assert.equal(local, null, "a local or test build still builds");
+    assert.equal(warned.length, 1);
+    assert.match(warned[0], /VITE_OWNER_CONTACT is not set/);
+    // the staff build (its contact is in meta.json) and a review build are never asked
+    assert.equal(ownerContactProblem({ RENDER: "true" }, undefined, { staff: true }), null);
+    assert.equal(ownerContactProblem({ RENDER: "true" }, undefined, { review: true }), null);
+    assert.equal(ownerContactProblem({ RENDER: "true" }, " owners@example.org "), null);
+    assert.equal(ownerContactProblem({ RENDER: "false" }, "").level, "warn");
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
 test("staffProblems: the staff copy, and a real sunset date on or after the day it is given", async () => {
   const { staffProblems } = await import("../scripts/exportGate.mjs");
   const tmp = mkdtempSync(join(tmpdir(), "gate-staff-"));

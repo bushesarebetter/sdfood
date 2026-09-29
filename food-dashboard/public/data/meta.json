@@ -274,6 +274,68 @@
           30
         ]
       ],
+      "group_counts": [
+        {
+          "min_points": 0,
+          "max_points": 0,
+          "labelled": 88,
+          "positives": 11
+        },
+        {
+          "min_points": 1,
+          "max_points": 1,
+          "labelled": 86,
+          "positives": 9
+        },
+        {
+          "min_points": 2,
+          "max_points": 2,
+          "labelled": 212,
+          "positives": 37
+        },
+        {
+          "min_points": 3,
+          "max_points": 3,
+          "labelled": 83,
+          "positives": 19
+        },
+        {
+          "min_points": 4,
+          "max_points": 4,
+          "labelled": 127,
+          "positives": 31
+        },
+        {
+          "min_points": 5,
+          "max_points": 5,
+          "labelled": 39,
+          "positives": 11
+        },
+        {
+          "min_points": 6,
+          "max_points": 6,
+          "labelled": 75,
+          "positives": 16
+        },
+        {
+          "min_points": 7,
+          "max_points": 8,
+          "labelled": 56,
+          "positives": 10
+        },
+        {
+          "min_points": 9,
+          "max_points": 10,
+          "labelled": 38,
+          "positives": 12
+        },
+        {
+          "min_points": 11,
+          "max_points": 30,
+          "labelled": 35,
+          "positives": 15
+        }
+      ],
       "bins": [
         {
           "min_points": 0,
@@ -480,6 +542,14 @@
           14,
           36
         ]
+      ],
+      "group_counts": [
+        {
+          "min_points": 14,
+          "max_points": 36,
+          "labelled": 30,
+          "positives": 12
+        }
       ],
       "bins": [
         {

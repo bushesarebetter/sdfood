@@ -417,3 +417,194 @@ test("malformed drift fields, curve_closure, interim, outside baselines, eligibl
     assert.match(r.err, re, why);
   }
 });
+
+/**
+ * A place with every field the export gained in round 5: the County's type and notes, a Self Closed
+ * closure, a kept Status Verification, a closure only an Approved to Reopen shows, a reopening no
+ * closure could be placed before, an open last closure, and the counts by theme before the cut.
+ */
+function roundFivePlace() {
+  const r5 = (date, extra) => record(date, { score: null, grade: null, minor: 0, grp: 0, notes: [], ...extra });
+  const inspections = [
+    r5("2025-11-17", { status: "Self Closed", major: 1, closed: true, closure: "health", reopened: false, reopened_on: null, county_type: "Routine" }),
+    r5("2025-11-24", { type: "followup", score: 100, grade: "A", county_type: "Routine" }),
+    r5("2026-01-06", { status: "Ordered Closed", type: "status_check", closed: true, closure: "permit", reopened: true, reopened_on: "2026-01-08", county_type: "Status Verification", notes: ["No Valid Permit"] }),
+    r5("2026-01-08", { status: "Approved to Reopen", type: "reinspection", county_type: "Re-inspection" }),
+    r5("2026-03-03", { major: 1, closed: true, closure: "health", closure_inferred: true, reopened: true, reopened_on: "2026-03-04", county_type: "Routine" }),
+    r5("2026-03-04", { status: "Approved to Reopen", type: "followup", score: 95, grade: "A", county_type: "Routine" }),
+    r5("2026-04-02", { status: "Approved to Reopen", type: "reinspection", reopen_without_closure: true, county_type: "Re-inspection" }),
+    r5("2026-04-20", { type: "status_check", grp: 1, county_type: "Status Verification" }),
+    r5("2026-05-01", { score: 95, grade: "A", minor: 1, county_type: "Routine" }),
+    r5("2026-06-10", { type: "complaint", county_type: "Environmental", notes: ["Impoundment"] }),
+    r5("2026-08-21", { status: "Ordered Closed", major: 1, closed: true, closure: "health", reopened: false, reopened_on: null, county_type: "Routine" }),
+    r5("2026-08-28", { type: "reinspection", county_type: "Re-inspection" }),
+  ];
+  const item = (date, visit, code, theme, severity) => ({ date, visit, code, theme, severity, description: "x" });
+  const violations = [
+    item("2026-08-21", "routine", "23", "vermin", "major"),
+    item("2026-03-03", "routine", "23", "vermin", "major"),
+    item("2025-11-17", "routine", "21", "water", "major"),
+    item("2026-05-01", "routine", "7", "temperature", "minor"),
+    item("2026-04-20", "status_check", "49", "grp_signs", "grp"),
+  ];
+  const grade = { grade: "A", score: 95, date: "2026-05-01", replaced: null, open_closure: { date: "2026-08-21", reason: "health", later_ungraded: ["2026-08-28"] } };
+  return place(1, {
+    band: "1", points: 21,
+    index: { last_visit: { date: "2026-08-28", type: "reinspection" }, grade },
+    detail: {
+      inspections, violations, violations_total: 5,
+      theme_counts: {
+        vermin: { major: 2, minor: 0, grp: 0, complaint: 0, latest: "2026-08-21" },
+        water: { major: 1, minor: 0, grp: 0, complaint: 0, latest: "2025-11-17" },
+        temperature: { major: 0, minor: 1, grp: 0, complaint: 0, latest: "2026-05-01" },
+        grp_signs: { major: 0, minor: 0, grp: 1, complaint: 0, latest: "2026-04-20" },
+      },
+    },
+  });
+}
+
+test("the round-5 record fields pass when well formed, and an export without them still passes", () => {
+  const r = check([roundFivePlace()], reviewMeta(1), { args: ["--review"] });
+  assert.ok(r.ok, r.err);
+  assert.ok(check(banded(), reviewMeta(2), { args: ["--review"] }).ok, "an export from before them");
+  const nullOpen = roundFivePlace();
+  nullOpen.feature.properties.grade = { ...nullOpen.feature.properties.grade, open_closure: null };
+  nullOpen.file.grade = nullOpen.feature.properties.grade;
+  assert.ok(check([nullOpen], reviewMeta(1), { args: ["--review"] }).ok, "open_closure may be null");
+  const withStatus = roundFivePlace();
+  withStatus.feature.properties.grade = { ...withStatus.feature.properties.grade,
+    open_closure: { ...withStatus.feature.properties.grade.open_closure, status: "Ordered Closed" } };
+  withStatus.file.grade = withStatus.feature.properties.grade;
+  const r2 = check([withStatus], reviewMeta(1), { args: ["--review"] });
+  assert.ok(r2.ok, `open_closure may name the County's status text on the record that started it: ${r2.err}`);
+});
+
+test("malformed round-5 record fields fail", () => {
+  const edit = (fn) => {
+    const p = roundFivePlace();
+    fn(p.file, p.feature.properties);
+    return p;
+  };
+  const at = (k, patch) => edit((f) => Object.assign(f.inspections[k], patch));
+  const openAs = (patch) => edit((f, idx) => {
+    idx.grade = { ...idx.grade, open_closure: { ...idx.grade.open_closure, ...patch } };
+    f.grade = idx.grade;
+  });
+  const cases = [
+    [at(8, { notes: "No Valid Permit" }), /notes that are not a list of the County's note texts/],
+    [at(8, { notes: [""] }), /notes that are not a list/],
+    [at(8, { county_type: "" }), /county_type that is not the County's inspection type text/],
+    [at(9, { county_type: "Routine" }), /county_type that is not one of the County's types for its visit type/],
+    [at(7, { county_type: "Re-inspection" }), /county_type that is not one of the County's types/],
+    [at(4, { closure_inferred: "yes" }), /closure_inferred outside true\|false/],
+    [at(4, { status: "Ordered Closed" }), /closure_inferred on an "Ordered Closed" record/],
+    [at(8, { closure_inferred: true }), /closure_inferred on a record that does not start a closure/],
+    [at(4, { reopened: false, reopened_on: null }), /closure_inferred without the "Approved to Reopen" that shows it/],
+    [at(6, { reopen_without_closure: 1 }), /reopen_without_closure outside true\|false/],
+    [at(8, { reopen_without_closure: true }), /reopen_without_closure on a record that is not an "Approved to Reopen"/],
+    [at(4, { closure_inferred: false }), /a closure on a record that is not "Ordered Closed" or "Self Closed" and not marked closure_inferred/],
+    [at(0, { major: 0, minor: 1 }), /a "Self Closed" closure with no major violation/],
+    [at(7, { grp: 0 }), /a "Self Closed" or status-verification record kept with no items and no closure order/],
+    [at(7, { score: 90 }), /a status verification with a score/],
+    [openAs({ date: "Aug 21" }), /grade\.open_closure outside null\|\{ date, reason/],
+    [openAs({ reason: "fire" }), /grade\.open_closure outside/],
+    [openAs({ later_ungraded: ["2026-08-01"] }), /grade\.open_closure outside/, "a later record before the closure"],
+    [openAs({ date: "2026-03-03" }), /grade\.open_closure that is not the date of the place's last closure/],
+    [openAs({ reason: "permit" }), /grade\.open_closure whose reason is not its closure's/],
+    [openAs({ status: "Self Closed" }), /grade\.open_closure whose status is not the County's status text on the record that started it/],
+    [openAs({ status: "" }), /grade\.open_closure outside/],
+    [
+      edit((f) => {
+        Object.assign(f.inspections[10], { reopened: true, reopened_on: "2026-08-28" });
+        f.inspections[11].status = "Approved to Reopen";
+      }),
+      /grade\.open_closure on a closure an "Approved to Reopen" ended/,
+    ],
+    [edit((f) => Object.assign(f.inspections[11], { type: "routine", county_type: "Routine", score: 96, grade: "A" })), /grade\.open_closure with a graded visit after it/],
+    [
+      edit((f, idx) => {
+        idx.grade = { ...idx.grade, date: "2026-09-01" };
+        f.grade = idx.grade;
+      }),
+      /grade\.open_closure before the grade it follows/,
+    ],
+    [edit((f) => { f.violations_total = 4; }), /violations_total that is not a count at least the number of items listed/],
+    [edit((f) => { f.violations_total = 9; }), /violations_total above the items listed, although the list was not cut at 60/],
+    [edit((f) => { f.theme_counts.vermin.major = 1; f.theme_counts.water.major = 2; }), /theme_counts below the items listed \(vermin\)/],
+    [edit((f) => { f.theme_counts.vermin.latest = "2026-03-03"; }), /theme_counts below the items listed \(vermin\)/],
+    [edit((f) => { f.theme_counts.grp_signs.grp = 2; }), /theme_counts that do not add up to violations_total \(6 against 5\)/],
+    [edit((f) => { f.theme_counts.dirt = { major: 0, minor: 0, grp: 0, complaint: 0, latest: "2026-01-01" }; }), /theme_counts outside \{ theme: \{ major, minor, grp, complaint, latest \} \}/],
+    [edit((f) => { f.theme_counts.vermin.complaint = 3; }), /theme_counts outside/],
+    [edit((f) => { f.theme_counts = [1]; }), /theme_counts outside/],
+  ];
+  for (const [p, re, why] of cases) {
+    const r = check([p], reviewMeta(1), { args: ["--review"] });
+    assert.equal(r.ok, false, why ?? String(re));
+    assert.match(r.err, re, why);
+  }
+});
+
+test("past the 60-item cut, the counts hold more than the list", () => {
+  const p = roundFivePlace();
+  const extra = Array.from({ length: 55 }, (_, k) => ({ date: "2026-05-01", visit: "routine", code: "44", theme: "grp_facility", severity: "grp", description: `x${k}` }));
+  p.file.violations = [...p.file.violations, ...extra];
+  p.file.theme_counts.grp_facility = { major: 0, minor: 0, grp: 70, complaint: 0, latest: "2026-05-01" };
+  p.file.violations_total = 75;
+  const r = check([p], reviewMeta(1), { args: ["--review"] });
+  assert.ok(r.ok, r.err);
+  p.file.violations.push(extra[0]);
+  assert.match(check([p], reviewMeta(1), { args: ["--review"] }).err, /violations missing or more than 60/);
+});
+
+test("a monitor summary, where the export has one, is { status, runs, alerts, next_window_date }", () => {
+  const withMonitor = (body) => {
+    const dir = mkdtempSync(join(tmpdir(), "food-check-"));
+    try {
+      mkdirSync(join(dir, "place"));
+      const places = banded();
+      writeFileSync(join(dir, "facilities.geojson"), JSON.stringify({ type: "FeatureCollection", features: places.map((p) => p.feature) }));
+      for (const p of places) writeFileSync(join(dir, "place", `${p.feature.properties.facility_id}.json`), JSON.stringify(p.file));
+      writeFileSync(join(dir, "meta.json"), JSON.stringify(reviewMeta(2)));
+      writeFileSync(join(dir, "monitor_summary.json"), typeof body === "string" ? body : JSON.stringify(body));
+      const r = spawnSync(process.execPath, [script, dir, "--review"], { encoding: "utf8" });
+      return { ok: r.status === 0, err: r.stderr };
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  };
+  const good = { status: "interim", runs: 2, alerts: ["Band 1's City rate after 90 days is below what its curve expects."], next_window_date: "2026-12-28" };
+  assert.ok(withMonitor(good).ok);
+  assert.ok(withMonitor({ status: "too early", runs: 0, alerts: [], next_window_date: null }).ok);
+  for (const bad of [{ ...good, status: "fine" }, { ...good, runs: -1 }, { ...good, alerts: "none" }, { ...good, alerts: [""] }, { ...good, next_window_date: "soon" }]) {
+    assert.match(withMonitor(bad).err, /monitor_summary\.json is not \{ status: too early\|interim\|complete\|failed/, JSON.stringify(bad));
+  }
+  assert.match(withMonitor("{").err, /monitor_summary\.json does not parse/);
+});
+
+test("an estimate may name the fitted group it is read from, and a curve the counts each group pools", () => {
+  const counted = { ...curve, groups: [[0, 1], [2, 2]], group_counts: [{ min_points: 0, max_points: 1, labelled: 200, positives: 30 }, { min_points: 2, max_points: 2, labelled: 100, positives: 30 }] };
+  const meta = { ...reviewMeta(2), ...latestMeta, card: { ...latestMeta.card, curve: counted, curve_closure: counted } };
+  const ranged = (patch) => {
+    const places = withEstimate("scores");
+    Object.assign(places[0].file.estimate, patch);
+    return places;
+  };
+  const r = check(ranged({ min_points: 2, max_points: 2 }), meta, { args: ["--review"] });
+  assert.ok(r.ok, r.err);
+  const cases = [
+    [ranged({ min_points: 2 }), meta, /an estimate whose fitted group is not \{ min_points <= max_points \}, whole points/],
+    [ranged({ min_points: 3, max_points: 2 }), meta, /an estimate whose fitted group is not/],
+    [ranged({ min_points: 1.5, max_points: 2 }), meta, /an estimate whose fitted group is not/],
+    [withEstimate("scores"), { ...meta, card: { ...meta.card, curve: { ...counted, group_counts: counted.group_counts.slice(1) } } },
+      /meta\.card\.curve\.group_counts is not one \{ min_points, max_points, labelled, positives \} per fitted group/],
+    [withEstimate("scores"), { ...meta, card: { ...meta.card, curve_closure: { ...counted, group_counts: [counted.group_counts[0], { ...counted.group_counts[1], positives: 101 }] } } },
+      /meta\.card\.curve_closure\.group_counts is not/],
+    [withEstimate("scores"), { ...meta, card: { ...meta.card, outside: { ...meta.card.outside, curve: { ...counted, group_counts: [...counted.group_counts].reverse() } } } },
+      /meta\.card\.outside\.curve\.group_counts is not/],
+  ];
+  for (const [places, m, re] of cases) {
+    const got = check(places, m, { args: ["--review"] });
+    assert.equal(got.ok, false, String(re));
+    assert.match(got.err, re);
+  }
+});

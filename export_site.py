@@ -44,16 +44,24 @@ Formulation (bands)
     frozen run that held up on later inspections. Nothing is named today.
 
 Data rules (checked against the pull; counts in report.md)
-  * "No Access", "Self Closed" and "Status Verification" are not inspections.
+  * "No Access" and "Incomplete" records are not inspections. A "Self Closed" record (the operator
+    closed) or a "Status Verification" record is kept when it cites items (a status check also when
+    it is a closure order), with no score or letter, and dropped otherwise. A status check is shown
+    ("status_check"), never read by the features.
   * A routine visit within 30 days after a B/C or a closure is the County's re-grade or reopening
-    ("followup"): never a label, and its score is not the place's routine score.
+    ("followup"): never a label, and its score is not the place's routine score. So is a routine
+    soon after an "Approved to Reopen" that no closure could be placed before.
   * For the model, same-day records of one type are one visit; for display, every County record is
-    shown as published, with the County's own status text.
+    shown as published, with the County's own status text, inspection type and notes.
   * 0 is "not scored". Grades are the County's letters, never derived. Tiers come from the status
     text; themes from the item text (the mobile-unit report numbers its items differently).
-  * A closure is an episode with a reason (a major that day, or a permit note). It ends only at the
-    County's "Approved to Reopen" (`reopened`, `reopened_on`), a graded routine or re-grade on a
-    later day, or a gap of more than 30 days before the next order, so one closure counts once.
+  * A closure is an episode with a reason (a major that day, or a permit note). It starts at a
+    County closure order, at a "Self Closed" record that cited a major (the operator's own closure,
+    read as health), or, when an "Approved to Reopen" has no closure before it, at the latest
+    unscored visit in the 14 days before that cited a major (our reading, `closure_inferred`). It
+    ends only at the County's "Approved to Reopen" (`reopened`, `reopened_on`), a graded routine or
+    re-grade on a later day, or a gap of more than 30 days before the next order, so one closure
+    counts once.
   * Themes are the County's inspection-report sections (THEME_RULES), read from the item text.
   * Flags are measured back from the list date; the escalation facts (major_2, closures2, repeat_item, lt90_2)
     are our counts of the patterns the County's Operator's Guide names (p. 8; the County sets no count or
@@ -128,9 +136,14 @@ REFITS = 30
 SEED = 0
 
 OK_STATUS = {"Complete", "Ordered Closed", "Approved to Reopen"}
+# Kept only when the record cites items: the County's "Self Closed" (the operator closed; with a major
+# cited it is read as a closure), and a "Status Verification" (also kept when it is a closure order).
+# Itemless ones, "No Access" and "Incomplete" are not inspections.
+ITEM_STATUS = {"Self Closed"}
 VISIT_TYPES = {"Routine": "routine", "Re-inspection": "reinspection", "Site Investigation": "complaint",
-               "Environmental": "complaint"}
-RECORD_TYPES = ("routine", "reinspection", "followup")   # the visits features read; complaint visits are shown, not used
+               "Environmental": "complaint", "Status Verification": "status_check"}
+RECORD_TYPES = ("routine", "reinspection", "followup")   # the visits features read; complaint visits and status
+                                                         # checks are shown, not used
 
 # Themes are the sections of the County's own inspection report (Retail Food Facility Operator's Guide,
 # pp. 8-28): items 1-23 are the foodborne-illness items that can be major, 24 and up good retail
@@ -237,10 +250,26 @@ def parse_item(v):
 class Stats:
     """What the data rules did, for report.md."""
     dropped: Counter = field(default_factory=Counter)
+    kept: Counter = field(default_factory=Counter)          # Self Closed / Status Verification records kept
     merged: int = 0
     followups: int = 0
     closures: Counter = field(default_factory=Counter)
+    inferred: int = 0                # closures read from an "Approved to Reopen" with no closure on record
+    unplaced: int = 0                # "Approved to Reopen" records no closure could be placed before
     items_by_theme: Counter = field(default_factory=Counter)
+
+
+def kept_record(kind, status, items):
+    """Whether a County record is kept: an inspection, or a Self Closed or Status Verification record
+    that carries information (cited items, or for a status check a closure order)."""
+    if kind is None:
+        return False
+    if kind == "status_check":
+        return status == "Ordered Closed" or (status in OK_STATUS | ITEM_STATUS and bool(items))
+    return status in OK_STATUS or (status in ITEM_STATUS and bool(items))
+
+
+STATUS_RANK = {"Ordered Closed": 3, "Self Closed": 2, "Approved to Reopen": 1}   # a merged visit's status: the strongest
 
 
 def load_places(raw: list[dict], stats: Stats | None = None) -> list[dict]:
@@ -252,26 +281,35 @@ def load_places(raw: list[dict], stats: Stats | None = None) -> list[dict]:
         for i in b.get("inspections") or []:
             status, day = (i.get("status") or "").strip(), (i.get("completed_date") or "")[:10]
             kind = VISIT_TYPES.get(i.get("type"))
-            if not day or not kind or status not in OK_STATUS:
-                stats.dropped[f"{i.get('type')}/{status or 'blank'}"] += 1
-                continue
-            items, notes = [], []
+            items, notes, raw_notes = [], [], []
             for v in i.get("violations") or []:
                 it = parse_item(v)
                 if it:
                     items.append(it)
                 else:
-                    notes.append(_norm(v.get("violation_accela") or v.get("violation")))
+                    text = (v.get("violation_accela") or v.get("violation") or "").strip()
+                    notes.append(_norm(text))
+                    if text:
+                        raw_notes.append(text)            # the County's own words, as published
+            if not day or not kept_record(kind, status, items):
+                stats.dropped[f"{i.get('type')}/{status or 'blank'}"] += 1
+                continue
+            if kind == "status_check" or status in ITEM_STATUS:
+                stats.kept[f"{i.get('type')}/{status}"] += 1
             score = _int(i.get("score"))
             grade = (i.get("grade") or "").strip().upper()
+            # A closure: the County's order, or the operator's own ("Self Closed") on a day a major was cited.
+            order = status == "Ordered Closed" or (status in ITEM_STATUS and any(it["severity"] == "major" for it in items))
             visit = {"date": day, "type": kind, "status": status,
                      "score": score if kind == "routine" and status == "Complete" and score and score > 0 else None,
-                     "grade": grade if grade in ("A", "B", "C") else None,
-                     "_items": items, "_notes": notes, "_id": str(i.get("inspection_id") or "")}
+                     "grade": grade if grade in ("A", "B", "C") and status not in ITEM_STATUS else None,
+                     "_items": items, "_notes": notes, "_id": str(i.get("inspection_id") or ""), "_order": order}
             # The County's own record, kept whole for display: the model reads merged visits, the
-            # site shows every record as the County published it (one letter per record).
+            # site shows every record as the County published it (one letter per record), with the
+            # County's inspection type and notes verbatim.
             visit["_records"] = [{"date": day, "status": status, "score": visit["score"], "grade": visit["grade"],
-                                  "_items": list(items), "_id": visit["_id"]}]
+                                  "county_type": i.get("type"), "notes": raw_notes, "_items": list(items),
+                                  "_id": visit["_id"], "_order": order}]
             key = (day, kind)
             if key in by_key:                       # same day, same type: one visit
                 stats.merged += 1
@@ -282,16 +320,17 @@ def load_places(raw: list[dict], stats: Stats | None = None) -> list[dict]:
                 scores = [s for s in (w["score"], visit["score"]) if s is not None]
                 w["score"] = min(scores) if scores else None
                 w["grade"] = max((g for g in (w["grade"], visit["grade"]) if g), default=None)
-                if status == "Ordered Closed" or (status == "Approved to Reopen" and w["status"] == "Complete"):
+                if STATUS_RANK.get(status, 0) > STATUS_RANK.get(w["status"], 0) or status == "Ordered Closed":
                     w["status"] = status
+                w["_order"] = w["_order"] or order
                 w["_reopen"] = w.get("_reopen") or status == "Approved to Reopen"
             else:
                 visit["_reopen"] = status == "Approved to Reopen"
                 by_key[key] = visit
-        # On one day: the closure order first, then the reopening, then the rest (a re-score on the
+        # On one day: the closure first, then the reopening, then the rest (a re-score on the
         # reopening day must not end the episode before the County's reopening does).
-        visits = sorted(by_key.values(), key=lambda v: (v["date"], 0 if v["status"] == "Ordered Closed" else
-                                                        1 if v["_reopen"] else 2, v["_id"]))
+        visits = sorted(by_key.values(), key=lambda v: (v["date"], 0 if v["_order"] else 1 if v["_reopen"] else 2, v["_id"]))
+        _infer_closures(visits, stats)
         _followups_and_closures(visits, stats)
         for v in visits:
             v["major"] = sum(it["severity"] == "major" for it in v["_items"])
@@ -316,25 +355,86 @@ def load_places(raw: list[dict], stats: Stats | None = None) -> list[dict]:
 
 
 EPISODE_GAP_DAYS = 30   # a closure order this long after the last one, with no reopening between, starts a new episode
+INFER_DAYS = 14         # an "Approved to Reopen" with no closure on record closes the latest unscored visit this soon
+                        # before it that cited a major (the County does not score a routine that ends in a closure)
+
+
+def _infer_closures(visits, stats):
+    """A pre-pass over one place's sorted visits, before any is retyped or read as a closure. The
+    County's "Approved to Reopen" shows a place was closed. It belongs to the latest closure episode
+    when that episode is still open, or when its latest closure came at most EPISODE_GAP_DAYS before
+    and nothing has reopened it (a graded routine may have ended it first, as
+    _followups_and_closures reads episodes). Otherwise the closure is placed at the latest visit in
+    the INFER_DAYS before the reopening that cited a major and carries no County score, when there is
+    one with no closure, reopening or graded routine between them. That visit is then read like a
+    closure order (`_order`, `_inferred`; its record says so as `closure_inferred`). A reopening with
+    no such visit, and no closure in the EPISODE_GAP_DAYS before it (it would be a second reopening
+    of that closure), is marked `_unplaced`: nothing is guessed, and its record says
+    `reopen_without_closure`."""
+    last, is_open, reopened = None, False, True     # the latest episode: its latest closure, open, reopened
+    for k, v in enumerate(visits):
+        d = date.fromisoformat(v["date"])
+        if v["_order"]:
+            if not is_open or (d - last).days > EPISODE_GAP_DAYS:
+                reopened = False                     # a new episode
+            last, is_open = d, True
+            if v["_reopen"]:
+                is_open, reopened = False, True
+            continue
+        if v["_reopen"]:
+            if not is_open and (reopened or last is None or (d - last).days > EPISODE_GAP_DAYS):
+                found = None
+                for w in reversed(visits[:k]):
+                    if (d - date.fromisoformat(w["date"])).days > INFER_DAYS or w["_order"] or w["_reopen"] or \
+                            (w["type"] == "routine" and w["grade"]):
+                        break
+                    if w["score"] is None and any(it["severity"] == "major" for it in w["_items"]):
+                        found = w
+                        break
+                if found is not None:
+                    found["_order"] = found["_inferred"] = True
+                    rec = next(r for r in found["_records"] if any(it["severity"] == "major" for it in r["_items"]))
+                    rec["_order"] = rec["_inferred"] = True
+                    stats.inferred += 1
+                    last = date.fromisoformat(found["date"])
+                elif last is not None and (d - last).days <= EPISODE_GAP_DAYS:
+                    pass                             # a second reopening of a closure already reopened
+                else:
+                    v["_unplaced"] = True
+                    for r in v["_records"]:
+                        if r["status"] == "Approved to Reopen":
+                            r["_unplaced"] = True
+                    stats.unplaced += 1
+            is_open, reopened = False, True
+        elif is_open and v["type"] == "routine" and v["grade"] and d > last:
+            is_open = False
 
 
 def _followups_and_closures(visits, stats):
-    """Retype re-grade visits, and read closure episodes. Every visit that ended in a closure order
-    carries its reason (`closure_order`: health, permit or other). An episode starts at a closure
-    order and ends only at the County's "Approved to Reopen" (`reopened`, `reopened_on`), at a graded
-    routine or re-grade on a later day, or when the next order comes more than EPISODE_GAP_DAYS after
-    the last: a complaint visit or an ungraded reinspection while a place is closed does not end it,
-    so one closure is never counted twice. The visit that starts an episode is marked `closed`."""
-    trigger = None          # date of the last B/C routine or closure order
+    """Retype re-grade visits, and read closure episodes. Every visit that ended in a closure carries
+    its reason (`closure_order`: health, permit or other): a County closure order, a "Self Closed"
+    record that cited a major (the operator's own closure, read as health), or a closure placed by
+    _infer_closures (`closure_inferred`). An episode starts at a closure and ends only at the County's
+    "Approved to Reopen" (`reopened`, `reopened_on`), at a graded routine or re-grade on a later day,
+    or when the next closure comes more than EPISODE_GAP_DAYS after the last: a complaint visit or an
+    ungraded reinspection while a place is closed does not end it, so one closure is never counted
+    twice. The visit that starts an episode is marked `closed`; a last episode still open at the end
+    of the record is marked `_open`. A reopening within EPISODE_GAP_DAYS of an episode a graded
+    routine ended, and nothing reopened, is that episode's reopening. A reopening no closure could be
+    placed before still makes the routine re-score soon after it a re-grade (`followup`), never a
+    routine score, unless the place's record starts at it."""
+    trigger = None          # date of the last B/C routine, closure, or reopening with no closure placed
     episode = None          # the visit that started the open closure episode
-    last_order = None       # the date of the open episode's latest closure order
-    for v in visits:
+    last_ep = None          # the visit that started the latest episode, open or not
+    last_order = None       # the date of the latest episode's latest closure
+    for k, v in enumerate(visits):
         d = date.fromisoformat(v["date"])
         if v["type"] == "routine" and trigger and (d - trigger).days <= FOLLOWUP_DAYS:
             v["type"] = "followup"
             stats.followups += 1
         v["closed"], v["closure"], v["reopened"], v["reopened_on"], v["closure_order"] = False, None, None, None, None
-        if v["status"] == "Ordered Closed":
+        v["closure_inferred"], v["_open"] = bool(v.get("_inferred")), False
+        if v["_order"]:
             majors = any(it["severity"] == "major" for it in v["_items"])
             permit = any("permit" in n for n in v["_notes"])
             reason = "health" if majors else "permit" if permit else "other"
@@ -342,7 +442,7 @@ def _followups_and_closures(visits, stats):
             if episode is None or (d - last_order).days > EPISODE_GAP_DAYS:
                 v["closed"], v["closure"], v["reopened"] = True, reason, False
                 stats.closures[reason] += 1
-                episode = v
+                episode = last_ep = v
             elif reason == "health" and episode["closure"] != "health":
                 stats.closures[episode["closure"]] -= 1       # a later order in the episode cited a major
                 stats.closures["health"] += 1
@@ -359,8 +459,15 @@ def _followups_and_closures(visits, stats):
                     episode = None
                 elif v["type"] in ("routine", "followup") and v["grade"] and d > last_order:
                     episode = None      # graded again on a later day: open, whether or not a reopening was recorded
+            elif v["_reopen"]:
+                if last_ep is not None and not last_ep["reopened"] and (d - last_order).days <= EPISODE_GAP_DAYS:
+                    last_ep["reopened"], last_ep["reopened_on"] = True, v["date"]   # the County's reopening of it
+                elif v.get("_unplaced") and k > 0:
+                    trigger = d         # a reopening no closure could be placed before: its re-score is a re-grade
             if v["type"] == "routine" and ((v["score"] is not None and v["score"] < 90) or v["grade"] in ("B", "C")):
                 trigger = d
+    if episode is not None:
+        episode["_open"] = True
 
 
 def district_lookup(geojson: dict):
@@ -1120,19 +1227,40 @@ def risk_curve(points, positive, labelled, elig, cl, n_boot=200, seed=SEED, bins
         if n:
             table.append({"min_points": int(pm[inb].min()), "max_points": int(pm[inb].max()), "labelled": n,
                           "positives": k, "rate": round(k / n, 4), "interval": wilson(k, n)})
+    # The counts behind each fitted group, so a reader can see what every place in the group is read
+    # from (the finer `bins` can straddle a group's edge).
+    pm_i = points[m].astype(int)
+    group_counts = [{"min_points": int(lo_), "max_points": int(hi_),
+                     "labelled": int(((pm_i >= lo_) & (pm_i <= hi_)).sum()),
+                     "positives": int(y[(pm_i >= lo_) & (pm_i <= hi_)].sum())} for lo_, hi_ in groups] if m.any() else []
     return {"model": (f"isotonic (monotone) rate by points at the backtest origin, point values pooled into groups of at "
                       f"least {CURVE_MIN} places; 95% interval by address-cluster bootstrap"),
-            "groups": [[lo_, hi_] for lo_, hi_ in groups],
+            "groups": [[lo_, hi_] for lo_, hi_ in groups], "group_counts": group_counts,
             "rate": [round(float(v), 4) for v in fit], "low": [round(float(v), 4) for v in lo],
             "high": [round(float(v), 4) for v in hi], "bins": table, "labelled": int(m.sum()), "positives": int(y.sum())}
 
 
+def curve_group(curve, pts):
+    """The fitted group (lo, hi) a place's points are read from, as _step_fit reads them: the group
+    holding its points; below the lowest, the lowest; between groups (a value no backtest place had),
+    the group below; above the highest, the highest. None for a curve without groups."""
+    groups = sorted(tuple(g) for g in (curve or {}).get("groups") or [])
+    if not groups:
+        return None
+    return next((g for g in reversed(groups) if g[0] <= pts), groups[0])
+
+
 def estimate(curve, pts):
-    """The curve read at a place's points: {rate, low, high}."""
+    """The curve read at a place's points: {rate, low, high}, and the fitted group it is read from
+    (min_points, max_points): every place in a group is given the group's rate."""
     if not curve or not curve.get("rate"):
         return None
     j = int(min(max(pts, 0), len(curve["rate"]) - 1))
-    return {"rate": curve["rate"][j], "low": curve["low"][j], "high": curve["high"][j]}
+    out = {"rate": curve["rate"][j], "low": curve["low"][j], "high": curve["high"][j]}
+    g = curve_group(curve, int(pts))
+    if g is not None:
+        out["min_points"], out["max_points"] = int(g[0]), int(g[1])
+    return out
 
 
 def named_bands(rows, cost_ratio):
@@ -1316,30 +1444,61 @@ def measurement(places):
 # ── what the site shows ────────────────────────────────────────────────────────────────
 
 def display_records(place):
-    """One entry per County record, in date order, with the County's own status text. The type
-    (followup), closure reason and reopening are the pipeline's readings of the merged visit."""
+    """One entry per County record, in date order, with the County's own status text, inspection type
+    (`county_type`) and notes (`notes`: "No Valid Permit", "Impoundment", ...), verbatim. The type
+    (followup, complaint, status_check), closure reason and reopening are the pipeline's readings of
+    the merged visit; `closure_inferred` marks a closure read from a later "Approved to Reopen" (no
+    closure order is on the record), and `reopen_without_closure` a reopening no closure could be
+    placed before. Both keys appear only when true."""
     out = []
     for v in place["visits"]:
         first_closed = True
         for r in v["_records"]:
-            closed = v["closed"] and r["status"] == "Ordered Closed" and first_closed
+            closed = v["closed"] and bool(r.get("_order")) and first_closed
             if closed:
                 first_closed = False
             items = r["_items"]
-            out.append({"date": r["date"], "status": r["status"], "type": v["type"],
-                        "score": r["score"] if v["type"] in ("routine", "followup") else None, "grade": r["grade"],
-                        "major": sum(i["severity"] == "major" for i in items),
-                        "minor": sum(i["severity"] == "minor" for i in items),
-                        "grp": sum(i["severity"] == "grp" for i in items),
-                        "closed": closed, "closure": v["closure"] if closed else None,
-                        "reopened": v["reopened"] if closed else None,
-                        "reopened_on": v["reopened_on"] if closed else None, "_items": items})
+            row = {"date": r["date"], "status": r["status"], "type": v["type"], "county_type": r.get("county_type"),
+                   "score": r["score"] if v["type"] in ("routine", "followup") else None, "grade": r["grade"],
+                   "major": sum(i["severity"] == "major" for i in items),
+                   "minor": sum(i["severity"] == "minor" for i in items),
+                   "grp": sum(i["severity"] == "grp" for i in items),
+                   "notes": list(r.get("notes") or []),
+                   "closed": closed, "closure": v["closure"] if closed else None,
+                   "reopened": v["reopened"] if closed else None,
+                   "reopened_on": v["reopened_on"] if closed else None, "_items": items}
+            if closed and r.get("_inferred"):
+                row["closure_inferred"] = True
+            if r.get("_unplaced"):
+                row["reopen_without_closure"] = True
+            out.append(row)
     return out
 
 
-def posted_grade(records):
-    """The grade on the County's card in the window: the latest letter from a routine or re-grade
-    record; `replaced` is the routine B or C that a re-grade directly followed."""
+def open_closure(visits):
+    """The place's last closure episode when nothing on the record ended it (no "Approved to Reopen",
+    no graded routine or re-grade on a later day): {date, reason, later_ungraded, status?}, with the
+    dates of the ungraded records after it (a reinspection marked Complete may be an unpublished
+    reopening), and the County's status text on the record that started it ("Ordered Closed" or "Self
+    Closed") when it has one, so the site never presents the operator's own closure as a County
+    order. None otherwise."""
+    ep = next((v for v in reversed(visits) if v.get("_open")), None)
+    if ep is None or any(v["type"] in ("routine", "followup") and v["grade"] and v["date"] > ep["date"] for v in visits):
+        return None
+    later = sorted({r["date"] for v in visits if v["date"] > ep["date"] for r in v["_records"]
+                    if not r.get("_order") and not r["grade"]})
+    out = {"date": ep["date"], "reason": ep["closure"], "later_ungraded": later}
+    start = next((r for r in ep["_records"] if r.get("_order")), None)
+    if start is not None and not start.get("_inferred") and start["status"] in ("Ordered Closed", *ITEM_STATUS):
+        out["status"] = start["status"]
+    return out
+
+
+def posted_grade(records, visits=None):
+    """The latest letter on the County's record in the window: from a routine or re-grade record;
+    `replaced` is the routine B or C that a re-grade directly followed. `open_closure` (from the
+    place's visits) is the last closure when nothing on the record ended it: the County posts no card
+    while it has a place closed, so the letter then is the last one before the closure."""
     graded = [r for r in records if r["grade"] and r["type"] in ("routine", "followup")]
     if not graded:
         return None
@@ -1348,7 +1507,8 @@ def posted_grade(records):
     if g["type"] == "followup" and len(graded) > 1 and graded[-2]["type"] == "routine" and graded[-2]["grade"] in ("B", "C"):
         prev = graded[-2]
         replaced = {"grade": prev["grade"], "score": prev["score"], "date": prev["date"]}
-    return {"grade": g["grade"], "score": g["score"], "date": g["date"], "replaced": replaced}
+    return {"grade": g["grade"], "score": g["score"], "date": g["date"], "replaced": replaced,
+            "open_closure": open_closure(visits) if visits is not None else None}
 
 
 ESCALATION_FLAGS = ("major_2", "closures2", "repeat_item", "lt90_2")
@@ -1396,14 +1556,34 @@ def flags(records, visits, as_of=None):
     return out
 
 
-def violations_shown(records):
+def _window_items(records):
+    """Every item cited in the RECORD_DAYS before the last record, in date order."""
     if not records:
         return []
     cutoff = (_d(records[-1]["date"]) - timedelta(days=RECORD_DAYS)).isoformat()
-    viol = [{"date": r["date"], "visit": r["type"], **i} for r in records if r["date"] >= cutoff for i in r["_items"]]
-    majors = [x for x in viol if x["severity"] == "major"]
+    return [{"date": r["date"], "visit": r["type"], **i} for r in records if r["date"] >= cutoff for i in r["_items"]]
+
+
+def violations_shown(records):
+    """The items in the window, majors first, then the rest, each in date order; at most
+    MAX_VIOLATIONS, and when the cap cuts, it drops the oldest non-major items, never the newest."""
+    viol = _window_items(records)
+    majors = [x for x in viol if x["severity"] == "major"][-MAX_VIOLATIONS:]
     rest = [x for x in viol if x["severity"] != "major"]
-    return (majors + rest)[:MAX_VIOLATIONS]
+    room = MAX_VIOLATIONS - len(majors)
+    return majors + (rest[max(len(rest) - room, 0):] if room else [])
+
+
+def theme_counts(records):
+    """Per theme, over every item in the window (before the MAX_VIOLATIONS cap): items by severity,
+    those found at complaint visits, and the latest date."""
+    out = {}
+    for x in _window_items(records):
+        t = out.setdefault(x["theme"], {"major": 0, "minor": 0, "grp": 0, "complaint": 0, "latest": None})
+        t[x["severity"]] += 1
+        t["complaint"] += x["visit"] == "complaint"
+        t["latest"] = max(t["latest"] or x["date"], x["date"])
+    return out
 
 
 def entry(place, extra=None, as_of=None):
@@ -1413,7 +1593,7 @@ def entry(place, extra=None, as_of=None):
     idx_props = {"facility_id": place["facility_id"], "name": place["name"], "address": place["address"],
                  "facility_type": place["kind"], "council_district": place["district"],
                  "last_visit": {"date": last["date"], "type": last["type"]} if last else None,
-                 "grade": posted_grade(recs), "flags": flags(recs, place["visits"], as_of)}
+                 "grade": posted_grade(recs, place["visits"]), "flags": flags(recs, place["visits"], as_of)}
     detail_only = {}
     for k, v in (extra or {}).items():
         (idx_props if k in ("band", "points", "on_hold") else detail_only).__setitem__(k, v)
@@ -1421,7 +1601,8 @@ def entry(place, extra=None, as_of=None):
                "properties": idx_props}
     detail = {**idx_props, "business_type": place["business_type"],
               "inspections": [{k: v for k, v in r.items() if k != "_items"} for r in recs],
-              "violations": violations_shown(recs), **detail_only}
+              "violations": violations_shown(recs), "violations_total": len(_window_items(recs)),
+              "theme_counts": theme_counts(recs), **detail_only}
     return feature, detail
 
 
@@ -1517,7 +1698,12 @@ def _json(path, default):
 
 
 def load_holds(path=HOLDS):
-    return set(_json(path, {}).get("facility_ids", []))
+    """The ids on hold, read strictly (publish_city_site.load_holds_strict, the one loader the publish,
+    the worklists and the API deploy use too): no file is no hold, and a file that cannot be read, or
+    is not {"facility_ids": [non-empty strings]}, stops the export. Read loosely, it would give every
+    held place its points and band back."""
+    import publish_city_site as pcs
+    return pcs.load_holds_strict(path)
 
 
 def load_corrections(path=CORRECTIONS):
@@ -1637,8 +1823,11 @@ def _common_meta(mode, run, today, through, pull, places_n, measurement_, stats,
                    "url": RESULTS_URL},
         "grade_context": {"majors_graded_A_share": measurement_["majors_graded_A_share"],
                           "graded_A_share": measurement_["graded_A_share"]},
-        "data_rules": {"dropped": dict(stats.dropped.most_common()), "same_day_merged_for_the_model": stats.merged,
+        "data_rules": {"dropped": dict(stats.dropped.most_common()), "self_closed_and_status_checks_kept": dict(stats.kept.most_common()),
+                       "same_day_merged_for_the_model": stats.merged,
                        "followups_retyped": stats.followups, "closure_episodes": dict(stats.closures),
+                       "closures_read_from_a_reopening": stats.inferred,
+                       "reopenings_with_no_closure_placed": stats.unplaced,
                        "unknown_business_types": unknown},
         "survivorship": "SD Food Info lists only facilities that exist today, so the test list holds only places that "
                         "survived until the data was collected. Places that closed earlier are missing. Places whose "
@@ -1865,11 +2054,12 @@ FROZEN_KEYS = ("chosen", "rule", "cuts", "outside_ok", "confirm", "validate", "l
 # What a point means lives in these constants and functions as much as in the weights: a change to
 # any of them changes every place's points under the same rule, so they are frozen with it.
 FEATURE_CONSTANTS = ("CLOSURE_SCORE", "CLOSURE_VALUE", "SCORE_WINDOW_DAYS", "WINDOW_DAYS", "ELIGIBLE_DAYS", "FOLLOWUP_DAYS",
-                     "EPISODE_GAP_DAYS", "COMPLAINT_DAYS", "LABEL_DAYS", "ACTIVE_DAYS", "VISIT_TYPES", "RECORD_TYPES",
-                     "KINDS", "EXCLUDED_TYPES", "PUBLIC_KINDS", "BAND_KINDS", "MODEL_KINDS", "RISK_THEMES", "NUMERIC")
-FEATURE_FUNCTIONS = ("load_places", "_followups_and_closures", "rated_score", "county_formula", "features_at", "history",
-                     "eligible", "label_at", "scores_used", "parse_item", "theme_of", "active_at", "frame", "persistence",
-                     "assign_bands", "Score")
+                     "EPISODE_GAP_DAYS", "INFER_DAYS", "COMPLAINT_DAYS", "LABEL_DAYS", "ACTIVE_DAYS", "VISIT_TYPES",
+                     "RECORD_TYPES", "ITEM_STATUS", "STATUS_RANK", "KINDS", "EXCLUDED_TYPES", "PUBLIC_KINDS", "BAND_KINDS",
+                     "MODEL_KINDS", "RISK_THEMES", "NUMERIC")
+FEATURE_FUNCTIONS = ("load_places", "kept_record", "_infer_closures", "_followups_and_closures", "rated_score",
+                     "county_formula", "features_at", "history", "eligible", "label_at", "scores_used", "parse_item",
+                     "theme_of", "active_at", "frame", "persistence", "assign_bands", "Score")
 
 
 def feature_spec():
@@ -1887,7 +2077,9 @@ def feature_spec():
 def _fingerprint_county():
     """A small fixed county that exercises every rule a point depends on: visit types, same-day
     records, re-grades, closure episodes and reopenings, complaint-prompted reinspections, the kinds
-    of place, mobile-form items, zero scores. Invented; no real business."""
+    of place, mobile-form items, zero scores, a Self Closed routine that cited a major, a reopening
+    with no closure order before it (the closure placed at the unscored routine before it), one no
+    closure can be placed before, and status checks kept or dropped. Invented; no real business."""
     def insp(day, kind="Routine", score="95", grade="A", status="Complete", viol=()):
         return {"inspection_id": f"{day}-{kind}-{score}-{status}", "type": kind, "score": score, "grade": grade,
                 "completed_date": day, "status": status,
@@ -1913,6 +2105,21 @@ def _fingerprint_county():
                                      insp("2025-01-20", kind="Re-inspection", score="0", grade="", viol=[(PESTS, MAJ)])]),
         ("Mobile Food Facility Prep Unit", [insp("2024-07-07", score="90", viol=[(MOBILE_PESTS, MAJ)]), insp("2025-02-02", score="96")]),
         ("Restaurant Food Facility", [insp("2024-10-10", score="100"), insp("2025-05-05", score="0", grade="", status="No Access")]),
+        # the operator closed at a routine with a major; the routine a week later is the reopening's re-score
+        ("Restaurant Food Facility", [insp("2024-04-15", score="96"),
+                                      insp("2024-10-17", score="0", grade="", status="Self Closed", viol=[(PESTS, MAJ)]),
+                                      insp("2024-10-24", kind="Re-inspection", score="0", grade=""),
+                                      insp("2024-10-24", score="100"),
+                                      insp("2025-01-10", kind="Status Verification", score="0", grade="", viol=[(HANDS, MIN)]),
+                                      insp("2025-02-10", kind="Status Verification", score="0", grade=""),
+                                      insp("2025-03-12", score="0", grade="", status="Self Closed")]),
+        # an unscored routine with a major, then the County's reopening and the re-score, with no closure order
+        ("Restaurant Food Facility", [insp("2024-06-20", score="97"),
+                                      insp("2025-03-03", score="0", grade="", viol=[(PESTS, MAJ)]),
+                                      insp("2025-03-04", kind="Re-inspection", score="0", grade="", status="Approved to Reopen"),
+                                      insp("2025-03-04", score="98"),
+                                      insp("2025-04-20", kind="Re-inspection", score="0", grade="", status="Approved to Reopen"),
+                                      insp("2025-04-20", score="95")]),
     ]
     return [{"business_id": str(n), "name": f"Fingerprint {n}", "business_type": t, "address": f"{n} Test Way",
              "status": "Permit Renewed", "lat": "32.7", "long": "-117.1", "zip": "92101",
@@ -1978,25 +2185,45 @@ def _pooled(qs, by_q, n_q):
     return (k / n, n) if n else (None, 0)
 
 
+def _month_name(ym):
+    """"2025-09" -> "September 2025"."""
+    return f"{date(int(ym[:4]), int(ym[5:7]), 1).strftime('%B')} {ym[:4]}"
+
+
 def drift_check(measurement_, fitted, share_now, through=None, n_now=None):
     """Two weekly signals that need no new labels, each against a threshold scaled to its counts
     (max(DRIFT_MIN, 3 standard errors)):
       * the routine major rate in complete quarters that start after the backtest's label year ends,
-        against the rate over the label year's quarters. Until such a quarter exists the check cannot
+        against the rate over the label year's months. Until such a quarter exists the check cannot
         be made, and says so (status "not_yet_measurable"), never "fine";
       * band 1's share of scored City restaurants now, against its share at the backtest.
     The latest quarter's rate is also set against the backtest's; a clear difference gets a note the
-    site shows beside every estimate, even before a refit can be judged."""
+    site shows beside every estimate, even before a refit can be judged. The note's baseline is the
+    label year's months that fall before that quarter, and their count, so the two samples it
+    compares never share an inspection."""
     by_q = measurement_.get("major_rate_by_quarter") or {}
     n_q = measurement_.get("routine_n_by_quarter") or {}
     by_m = measurement_.get("routine_by_month") or {}
     label_end = (_d(fitted["confirm"]) + timedelta(days=LABEL_DAYS - 1)) if fitted.get("confirm") else None
+    latest = sorted(by_q)[-1] if by_q else None
+    latest_start = _quarter_bounds(latest)[0].isoformat()[:7] if latest else None
+    label_months = []
     if by_m and fitted.get("confirm"):            # exactly the label year's months, not whole quarters around it
-        months = [m for m in by_m if fitted["confirm"][:7] <= m <= label_end.isoformat()[:7]]
-        n_then = sum(by_m[m][0] for m in months)
-        base_then = sum(by_m[m][1] for m in months) / n_then if n_then else None
+        label_months = sorted(m for m in by_m if fitted["confirm"][:7] <= m <= label_end.isoformat()[:7])
+        n_then = sum(by_m[m][0] for m in label_months)
+        base_then = sum(by_m[m][1] for m in label_months) / n_then if n_then else None
+        before = [m for m in label_months if latest_start is None or m < latest_start]
+        n_note = sum(by_m[m][0] for m in before)
+        base_note = sum(by_m[m][1] for m in before) / n_note if n_note else None
+        span_note = f"{_month_name(before[0])} to {_month_name(before[-1])}" if before else None
     else:
-        base_then, n_then = _pooled([q for q in fitted.get("label_quarters", []) if q in by_q], by_q, n_q)
+        label_q = [q for q in fitted.get("label_quarters", []) if q in by_q]
+        base_then, n_then = _pooled(label_q, by_q, n_q)
+        before_q = [q for q in label_q if latest is None or q < latest]
+        base_note, n_note = _pooled(before_q, by_q, n_q)
+        span_note = (f"{before_q[0][:4]} Q{before_q[0][-1]} to {before_q[-1][:4]} Q{before_q[-1][-1]}"
+                     if before_q else None)
+    span_then = f"{_month_name(label_months[0])} to {_month_name(label_months[-1])}" if label_months else None
     through_d = _d(through) if through else None
     # A quarter is compared once it is over and the County's reporting has had REPORT_LAG_DAYS to catch up.
     after = [q for q in sorted(by_q) if label_end and through_d and _quarter_bounds(q)[0] > label_end
@@ -2009,25 +2236,28 @@ def drift_check(measurement_, fitted, share_now, through=None, n_now=None):
     reasons = []
     measurable = base_now is not None and base_then is not None
     if measurable and abs(base_now - base_then) > thr(base_now, n_recent, base_then, n_then):
-        reasons.append(f"routine major rate {base_now:.1%} in {', '.join(after)} against {base_then:.1%} over the backtest year")
+        reasons.append(f"routine major rate {base_now:.1%} in {', '.join(after)} against {base_then:.1%} over the backtest's "
+                       f"label year" + (f" ({span_then})" if span_then else ""))
     if share_then is not None and share_now is not None and n_now and n_share_then and \
             abs(share_now - share_then) > thr(share_now, n_now, share_then, n_share_then):
         reasons.append(f"band 1 holds {share_now:.1%} of scored City restaurants against {share_then:.1%} in the backtest")
-    latest = sorted(by_q)[-1] if by_q else None
     note = None
-    if latest and base_then is not None and n_q.get(latest):
+    if latest and base_note is not None and n_q.get(latest):
         lr, ln = by_q[latest], n_q[latest]
-        if abs(lr - base_then) > thr(lr, ln, base_then, n_then):
+        if abs(lr - base_note) > thr(lr, ln, base_note, n_note):
             start, end = _quarter_bounds(latest)
             upto = "" if not through_d or through_d >= end else f", through {through_d.strftime('%B')} {through_d.day}"
             note = (f"In the latest quarter ({latest[:4]} Q{latest[-1]}{upto}) {lr:.1%} of routine inspections found a major "
-                    f"violation, against {base_then:.1%} over the backtest year, so the rates here may be "
-                    f"{'low' if lr > base_then else 'high'}.")
+                    f"violation, against {base_note:.1%} over the backtest's label year before that quarter ({span_note}), "
+                    f"so the rates here may be {'low' if lr > base_note else 'high'}.")
     status = "refit" if reasons else ("ok" if measurable else "not_yet_measurable")
     return {"major_rate_backtest": round(base_then, 4) if base_then is not None else None,
+            "major_rate_backtest_n": n_then or None, "backtest_span": span_then,
             "major_rate_recent": round(base_now, 4) if base_now is not None else None, "recent_quarters": after,
             "band_1_share_backtest": share_then, "band_1_share_now": share_now,
             "latest_quarter": latest, "latest_rate": by_q.get(latest) if latest else None, "latest_n": n_q.get(latest) if latest else None,
+            "latest_baseline": round(base_note, 4) if base_note is not None else None, "latest_baseline_n": n_note or None,
+            "latest_baseline_span": span_note,
             "status": status, "refit_needed": bool(reasons), "reasons": reasons, "note": note,
             "thresholds": {"min": DRIFT_MIN, "standard_errors": DRIFT_SE}}
 
@@ -2399,7 +2629,8 @@ def monitor(out: Path, places, today=None, log=print):
     average-score rule. A run is complete once its label year has passed in the pull (not by the
     calendar); before then its rates are set against the backtest's rates for the same shorter
     window (card.interim). Places are matched on the County's business id; a place gone from the
-    later pull is counted, never dropped. Writes monitor.md and monitor.json."""
+    later pull is counted, never dropped. Writes monitor.md, monitor.json and monitor_summary.json
+    (monitor_summary: its status, alerts and next window), even when no list can be scored yet."""
     today = today or date.today()
     by_id = {p["id"]: p for p in places}
     by_fid = {p["facility_id"]: p for p in places}
@@ -2497,8 +2728,78 @@ def monitor(out: Path, places, today=None, log=print):
            f"{_fmt(r.get('rule_auc'))} | {_fmt(r.get('average_rule_auc'))} | {r.get('rule_minus_average', '')} |" for r in results]) + "\n"
     (out / "monitor.md").write_text(text, encoding="utf-8")
     (out / "monitor.json").write_text(json.dumps(results, indent=2), encoding="utf-8")
+    write_monitor_summary(out, monitor_summary(results))
     log(text)
     return results
+
+
+OE_RANGE = (0.85, 1.15)   # observed over expected outside this: the estimates were not calibrated on later inspections
+MONITOR_SUMMARY = "monitor_summary.json"
+
+
+def _pct(x):
+    return "n/a" if x is None else f"{100 * x:.1f}%"
+
+
+def monitor_summary(results):
+    """What the monitor found, in a few fields a reader or a check can act on:
+    {status, runs, alerts, next_window_date}. status is "complete" once any archived list's label
+    year has passed in the record, "interim" when a list has only a shorter window so far, "too
+    early" before any has one (and with no archived list). alerts are plain sentences, one per
+    kind of finding, naming the latest list that shows it and how many earlier ones do too:
+      * band 1's City rate, interim or complete, with its 95% upper bound below its expectation;
+      * observed over expected outside OE_RANGE (a complete list, the City or outside it);
+      * band 1 minus the same number of places with the most recent majors clearly negative (the
+        upper end of its 95% interval below 0).
+    next_window_date is the date the County's record must reach for the next window of any list
+    (90, 180 or 270 days, or the whole label year, each with 30 days for the County's reporting);
+    None when every list is complete."""
+    windows = sorted(INTERIM_DAYS) + [LABEL_DAYS]
+    scored = [r for r in results if r.get("window_days")]
+    status = ("complete" if any(r.get("complete") for r in scored) else "interim" if scored else "too early")
+    found = defaultdict(list)          # kind -> [(run date, sentence)], oldest first
+    for r in sorted(scored, key=lambda r: run_date(r["run"])):
+        day = run_date(r["run"])
+        span = "its label year" if r.get("complete") else f"the first {r['window_days']} days"
+        city = r.get("city") or {}
+        b1 = (city.get("bands") or {}).get("1") or {}
+        hi, exp = (b1.get("interval") or [None, None])[1], b1.get("expected")
+        if hi is not None and exp is not None and hi < exp:
+            found["band_1"].append((day, f"Band 1 in the City on the list of {day} had a major violation at {_pct(b1.get('rate'))} "
+                                         f"of its later routine inspections over {span} (95% interval up to {_pct(hi)}), "
+                                         f"below the {_pct(exp)} its backtest expected for the same window."))
+        for area, where in (("city", "in the City"), ("outside", "outside the City")):
+            oe = ((r.get(area) or {}).get("observed_over_expected") or {})
+            ratio = oe.get("ratio")
+            if r.get("complete") and ratio is not None and not OE_RANGE[0] <= ratio <= OE_RANGE[1]:
+                found[f"oe_{area}"].append((day, f"The estimates {where} on the list of {day} did not match later inspections: "
+                                                 f"{oe.get('observed')} routine inspections found a major violation against "
+                                                 f"{oe.get('expected')} expected (observed over expected {ratio}, outside "
+                                                 f"{OE_RANGE[0]} to {OE_RANGE[1]})."))
+        vp = city.get("band_1_minus_persistence")
+        if vp and vp[1] is not None and vp[1] < 0:
+            found["persistence"].append((day, f"Band 1 in the City on the list of {day} found fewer major violations over {span} "
+                                              f"than the same number of places with the most recent major violations "
+                                              f"(difference {vp[0]} to {vp[1]} inspections, 95% interval)."))
+    alerts = []
+    for kind in ("band_1", "oe_city", "oe_outside", "persistence"):
+        hits = found.get(kind)
+        if hits:
+            more = len(hits) - 1
+            alerts.append(hits[-1][1] + (f" So did {more} earlier list{'s' if more > 1 else ''}." if more else ""))
+    upcoming = []
+    for r in results:
+        if r.get("complete"):
+            continue
+        nxt = next((w for w in windows if w > (r.get("window_days") or 0)), None)
+        if nxt is not None:
+            upcoming.append((_d(run_date(r["run"])) + timedelta(days=nxt + 30)).isoformat())
+    return {"status": status, "runs": len(results), "alerts": alerts, "next_window_date": min(upcoming) if upcoming else None}
+
+
+def write_monitor_summary(out: Path, summary):
+    out.mkdir(parents=True, exist_ok=True)
+    (out / MONITOR_SUMMARY).write_text(json.dumps(summary, indent=2), encoding="utf-8")
 
 
 def prospective_ok(out: Path, cost_ratio, prospective_dir=PROSPECTIVE, today=None, version=None):
@@ -2652,6 +2953,13 @@ def main(argv=None):
     global _PULL_READ
     try:
         return _main(args)
+    except BaseException as e:
+        # A monitor that did not run says so in its summary, so an old summary is never read as current.
+        if args.monitor and not isinstance(e, KeyboardInterrupt) and not (isinstance(e, SystemExit) and e.code in (0, None)):
+            why = e.code if isinstance(e, SystemExit) and isinstance(e.code, str) else type(e).__name__
+            write_monitor_summary(args.out, {"status": "failed", "runs": 0, "next_window_date": None,
+                                             "alerts": [f"The monitor did not run ({why})."]})
+        raise
     finally:
         _PULL_READ = None
 

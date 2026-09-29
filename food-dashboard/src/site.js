@@ -82,7 +82,11 @@ export const SITE = {
   searchHint: "Try part of a name or a street.",
 };
 
-/** On every page footer, in the share tags and in the app manifest. */
-export const STUDENT_NOTE = "Independent student project, not affiliated with or endorsed by the County of San Diego.";
+/**
+ * On every page footer, in the share tags and in the app manifest, and word for word in index.html,
+ * vite.config.js and the research dashboard (tests/copy.test.mjs checks they match): neither the City
+ * nor the County runs, adopts or endorses the site.
+ */
+export const STUDENT_NOTE = "Independent student project, not affiliated with or endorsed by the City of San Diego or the County of San Diego.";
 
 export const DISTRICT_NUMBERS = Array.from({ length: SITE.districts.count }, (_, i) => i + 1);

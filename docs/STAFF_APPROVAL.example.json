@@ -1,5 +1,5 @@
 {
-  "_read_me": "Copy to docs/STAFF_APPROVAL.json (gitignored: it names people) and fill in. publish_city_site.py refuses to publish the City staff site without a responsible adult, a corrections contact and a sunset date at most a year away. Every other section left empty is shown to staff, in plain words, as not done. See docs/STAFF_SITE.md.",
+  "_read_me": "Copy to docs/STAFF_APPROVAL.json (gitignored: it names people) and fill in. publish_city_site.py refuses to publish the City staff site without a responsible adult, a corrections contact and a sunset date at most a year away. Every other section left empty is shown to staff, in plain words, as not done. Every date is YYYY-MM-DD and counts only on or before the day of publishing: leave a section empty until the event has happened (a scheduled meeting or vote is not on record, and neither is \"soon\" or \"tbd\"). A section filled in but not counted is named in the publish's warnings. See docs/STAFF_SITE.md.",
   "responsible_adult": {
     "name": "",
     "relationship": "parent, teacher advisor, or mentor (18 or older, not an author)",
@@ -17,18 +17,18 @@
     "title": "",
     "office": "",
     "date": "",
-    "_note": "who at the City asked, in writing, for access, and the date; both are needed before any City sign-in sees the named list"
+    "_note": "who at the City asked, in writing, for access, and the date they asked (YYYY-MM-DD, on or before the day of publishing); the name and the date are both needed before any staff sign-in sees the named list. Title and office are for the record"
   },
   "trust_determination": {
     "date": "",
     "by": "",
     "result": "",
-    "_note": "the City's answer: \"does not apply\" or \"applies\" (SDMC 210.0101-210.0112). If it applies, Privacy Advisory Board review and a Council vote come first: record the vote in council_approval"
+    "_note": "the City's answer: result \"does not apply\" or \"applies\" (SDMC 210.0101-210.0112), by: who at the City gave it, and date: when (YYYY-MM-DD, on or before the day of publishing). All three are needed; a result without by and date is not counted. If it applies, Privacy Advisory Board review and a Council vote come first: record the vote in council_approval"
   },
   "council_approval": {
     "date": "",
     "resolution": "",
-    "_note": "only when the TRUST Ordinance applies: the date and resolution of the Council's approval"
+    "_note": "only when the TRUST Ordinance applies: the resolution approving this use and the date of the Council's vote (YYYY-MM-DD, on or before the day of publishing). Both are needed; a vote still to come is not an approval"
   },
   "legal_review": {
     "reviewer": "",

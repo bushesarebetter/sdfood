@@ -15,18 +15,25 @@ Set in the environment, never in the repository:
 
 Refuses, before anything is pushed, when:
   * the staff release's approval (docs/STAFF_APPROVAL.json) is missing, incomplete or past its
-    sunset: the API serves the same named list as the staff site, so it has the same gates;
-  * a place on hold (docs/holds.json) still carries points or a band in the export (a hold added
-    after the export: export again);
+    sunset, or the City's request and TRUST answer are not on record (access_approved): the API
+    serves the same named list as the staff site, and it has no operator-only view, so every key
+    holder would get the whole list;
+  * docs/holds.json cannot be read, or a place on hold still carries points or a band, in the export
+    (a hold added after the export: export again) or in a worklist the image carries
+    (data/worklists/<month>/district-<n>.csv: write that month's worklists again);
   * data/site holds no export, the invented sample, an incomplete export or an expired one;
   * the worklists or data/research_results.json are missing (the image carries both);
   * the registry package exists and is not private (the image holds the export);
   * the built image does not serve this export on Render's port, or serves data without a key.
+Before the build it writes data/site/api_release.json (RELEASE_FILE): the approval's sunset, access_approved
+and the held ids. The image carries it, and the API serves no data past that sunset (503, as the
+staff site closes itself), and /health says so; the local check refuses an image whose /health does
+not report that sunset.
 After the push it checks again that the package is private, moves the `latest` tag to the new image
 and deploys it by digest, so Render runs exactly the image that was checked. The Render service's
 Image URL names `latest`: Render goes back to that for any later deploy (saving an environment
 variable, say), so it must always be the last image this script checked."""
-import argparse, json, os, secrets, subprocess, sys, time, urllib.error, urllib.parse, urllib.request
+import argparse, csv, json, os, re, secrets, subprocess, sys, time, urllib.error, urllib.parse, urllib.request
 from datetime import date, datetime, timezone
 from pathlib import Path
 
@@ -37,6 +44,9 @@ RESEARCH = ROOT / "data" / "research_results.json"
 RENDER_PORT = 10000        # the PORT Render sets by default; the local check runs the image on it
 SERVICE_TAG = "latest"     # the tag the Render service's Image URL names
 LIVE_TIMEOUT = 900         # seconds to wait for Render to serve the new image
+RELEASE_FILE = "api_release.json"   # in data/site: what the image may serve, and until when (api/main.py reads it)
+# A worklist's `why` that gives the points or band away: "12 points", "band 1".
+POINTS_OR_BAND = re.compile(r"\b\d+(?:\.\d+)?\s+points?\b|\bband\s+\d", re.I)
 
 
 class Refused(Exception):
@@ -64,14 +74,38 @@ def preflight(site=SITE, worklists=WORKLISTS, research=RESEARCH, today=None, all
     return meta
 
 
-def release_problems(site=SITE, today=None, approval=None, holds=None):
+def worklist_hold_problems(worklists, held):
+    """Held places in a worklist the image carries (data/worklists/<month>/district-<n>.csv; the frozen
+    pilot copies are not served) that still show points or a band: rule_points or rule_mean filled in,
+    or a `why` that states the points or the band."""
+    bad = []
+    for path in sorted(worklists.glob("*/district-*.csv")):
+        with open(path, newline="", encoding="utf-8") as fh:
+            for row in csv.DictReader(fh):
+                fid = (row.get("facility_id") or "").lstrip("'")
+                if fid in held and ((row.get("rule_points") or "").strip() or (row.get("rule_mean") or "").strip()
+                                    or POINTS_OR_BAND.search(row.get("why") or "")):
+                    bad.append(f"{path.parent.name}/{path.name}: {fid}")
+    return bad
+
+
+def release_problems(site=SITE, today=None, approval=None, holds=None, worklists=None):
     """The staff site's own release gates, for the image that carries the same list: an adult of
-    record, a corrections contact, a sunset date; and every hold applied in the export shipped."""
+    record, a corrections contact, a sunset date; the City's request and TRUST answer on record (the
+    API has no operator-only view); and every hold applied, in the export and in the worklists shipped."""
     import publish_city_site as pcs
     today = today or date.today()
     approval = pcs._json(pcs.APPROVAL, None) if approval is None else approval
     p = pcs.approval_problems(approval, today)
-    held = set(pcs._json(pcs.HOLDS, {}).get("facility_ids", [])) if holds is None else set(holds)
+    if not pcs.access_approved(approval, today):
+        p.append("no City request and TRUST answer are on record (access_approved in docs/STAFF_APPROVAL.json): the API "
+                 "has no operator-only view, so every key holder would get the named list")
+    if holds is None:
+        held, problem = pcs.read_holds()
+        if problem:
+            p.append(problem)
+    else:
+        held = set(holds)
     if held:
         fc = json.loads((site / "facilities.geojson").read_text(encoding="utf-8"))
         still = sorted(f["properties"]["facility_id"] for f in fc.get("features", [])
@@ -79,7 +113,28 @@ def release_problems(site=SITE, today=None, approval=None, holds=None):
         if still:
             p.append(f"{len(still)} place(s) on hold still carry points or a band in {site} ({', '.join(still[:3])}): "
                      "export again, then deploy")
+        rows = worklist_hold_problems(WORKLISTS if worklists is None else worklists, held)
+        if rows:
+            p.append(f"{len(rows)} worklist row(s) of a place on hold still carry its points or band ({', '.join(rows[:3])}): "
+                     "write those months' worklists again (python export_worklist.py --month <yyyy-mm>), then deploy")
     return p
+
+
+def release_record(approval, held, today=None):
+    """What the image may serve, and until when: api/main.py reads it from data/site/api_release.json."""
+    import publish_city_site as pcs
+    today = today or date.today()
+    return {"sunset": (approval or {}).get("sunset"), "access_approved": pcs.access_approved(approval, today),
+            "held": sorted(held), "written": datetime.now(timezone.utc).replace(microsecond=0).isoformat()}
+
+
+def write_release(site, release, dry=False):
+    """data/site/api_release.json, which the image carries (api/Dockerfile copies data/site/)."""
+    path = site / RELEASE_FILE
+    print(f"$ write {path} (sunset {release['sunset']}, access_approved {release['access_approved']}, "
+          f"{len(release['held'])} held)", flush=True)
+    if not dry:
+        path.write_text(json.dumps(release, indent=2), encoding="utf-8")
 
 
 def check_image_name(image):
@@ -196,12 +251,14 @@ def wait_for(fetch, done, timeout, every=2.0):
         time.sleep(every)
 
 
-def check_served(base, meta, build, key, get=http):
-    """What Render will be asked to run: this export and build, and nothing without a key."""
+def check_served(base, meta, build, key, get=http, release=None):
+    """What Render will be asked to run: this export and build, carrying this release's sunset (so it
+    closes itself on time), and nothing without a key."""
     status, h = get(f"{base}/health")
     if status != 200 or (h or {}).get("status") != "ok":
         raise Refused(f"/health answered {status} {h}")
-    want = {"run": meta["run"], "places": meta["places"], "build": build}
+    want = {"run": meta["run"], "places": meta["places"], "build": build,
+            **({"sunset": release["sunset"]} if release is not None else {})}
     got = {k: h.get(k) for k in want}
     if got != want:
         raise Refused(f"the image serves {got}, expected {want}")
@@ -212,7 +269,7 @@ def check_served(base, meta, build, key, get=http):
         raise Refused(f"/v1/worklists answered {status} with {months!r}: the image has no worklists")
 
 
-def smoke_test(ref, meta, build, dry):
+def smoke_test(ref, meta, build, dry, release=None):
     """Run the image as Render will (PORT set, a key configured) and check what it serves."""
     key = secrets.token_urlsafe(18)   # a throwaway key for this local check only
     cid = sh(["docker", "run", "-d", "--rm", "-e", f"PORT={RENDER_PORT}", "-e", f"SDFOOD_API_KEYS={key}",
@@ -226,7 +283,7 @@ def smoke_test(ref, meta, build, dry):
             out = subprocess.run(["docker", "logs", cid], capture_output=True, text=True)
             logs = (out.stdout + out.stderr)[-2000:]
             raise Refused(f"the image did not answer on port {RENDER_PORT} within 90 s:\n{logs}")
-        check_served(base, meta, build, key)
+        check_served(base, meta, build, key, release=release)
         print(f"checked: the image serves {meta['run']} ({meta['places']} places) on port {RENDER_PORT}, "
               "and nothing without a key")
     finally:
@@ -290,9 +347,12 @@ def main(argv=None):
     try:
         image = check_image_name(args.image)
         meta = preflight(SITE, WORKLISTS, RESEARCH, allow_expired=args.allow_expired)
-        problems = release_problems(SITE)
+        import publish_city_site as pcs
+        approval = pcs._json(pcs.APPROVAL, None)
+        problems = release_problems(SITE, approval=approval, worklists=WORKLISTS)
         if problems:
             raise Refused("the staff release's gates:\n  - " + "\n  - ".join(problems))
+        release = release_record(approval, pcs.read_holds()[0])
         hook, api_url = os.environ.get("RENDER_DEPLOY_HOOK_URL"), os.environ.get("SDFOOD_API_URL")
         if not (args.no_push or args.no_deploy or hook or dry):
             raise Refused("set RENDER_DEPLOY_HOOK_URL (the service's Settings, Deploy Hook), or pass --no-deploy")
@@ -302,9 +362,10 @@ def main(argv=None):
               f"{meta['inspections_through']}, expires {meta['expires']}")
         if not (args.no_push or dry):
             ensure_private(image, pushed=False, confirmed_private=args.registry_is_private)
+        write_release(SITE, release, dry)
         sh(["docker", "build", "--platform", "linux/amd64", "--provenance=false", "--build-arg", f"SDFOOD_BUILD={build}",
             "-f", "api/Dockerfile", "-t", ref, "."], dry)
-        smoke_test(ref, meta, build, dry)
+        smoke_test(ref, meta, build, dry, release)
         if args.no_push:
             print(f"built and checked {ref}; not pushed")
             return 0

@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { useMeta, useMode } from "./useMeta";
 import { passesFilters, sortPlaces } from "./lib/filters";
 import { saveCsv } from "./lib/format";
-import { districtGuidance, isStaff } from "./lib/staff";
+import { districtGuidance, districtShareLine, isStaff } from "./lib/staff";
 import { auditedBandsName, backtestList, districtPrecision } from "./lib/bands";
 import { shownBand } from "./lib/marks";
 import { SITE } from "./site";
@@ -16,8 +16,10 @@ const ACTION = "border-b border-ink/25 text-[12px] font-normal text-ink-2 hover:
  * or C, and in `bands` mode places in a band. On the staff site it opens with what to do, and in
  * `bands` mode it shows, in place of the count in a band (which invites comparing districts by it),
  * what the district's band 1 places (or the bands `meta.fairness.bands_used` names) did in the
- * backtest (`meta.fairness.by_district`). Select a district to filter the map and list to it; select
- * it again to clear. Each district can open its list, or download its places as a CSV.
+ * backtest (`meta.fairness.by_district`). The counts are counts: they are what inspectors cite, and
+ * the note under them says so; only the one district selected is also given as shares of its own
+ * places (districtShareLine), so no column ranks districts. Select a district to filter the map and
+ * list to it; select it again to clear. Each district can open its list, or download its places as a CSV.
  * `/map?district=N` opens a district directly, so an office can bookmark its own.
  */
 export default function DistrictSummary({ facilities, filters, onFiltersChange, onOpenList = null }) {
@@ -66,6 +68,9 @@ export default function DistrictSummary({ facilities, filters, onFiltersChange, 
     ? [`${auditedBandsName(meta)} in the backtest: had a major`, (r) => districtPrecision(meta, r.d) ?? <NoFigure />]
     : ["In a band", count("band")];
   const cols = [["Places", count("n")], ["Major", count("major")], ["Closed", count("closed")], ["B or C", count("bc")], ...(mode === "bands" ? [bandCol] : [])];
+  // The counts stay counts; only the one district selected is also given as shares of its places.
+  const picked = filters.districts.length === 1 ? rows.find((r) => r.d === filters.districts[0]) : null;
+  const selectedLine = picked ? districtShareLine(`${SITE.districts.short} ${picked.d}`, picked) : null;
 
   return (
     <div className="px-6 py-5">
@@ -111,8 +116,11 @@ export default function DistrictSummary({ facilities, filters, onFiltersChange, 
           })}
         </tbody>
       </table>
+      {selectedLine && <p className="mt-2.5 text-[12.5px] leading-[1.45] text-ink">{selectedLine}</p>}
       <p className="mt-2.5 text-[12.5px] leading-[1.45] text-ink-2">
-        Places with each fact in the 12 months before the list date (our reading of the County&rsquo;s record).
+        Places with each fact in the 12 months before the list date (our reading of the County&rsquo;s record). Majors, closures and
+        grades are what inspectors cite, and the record does not say which inspector made a visit, so a district&rsquo;s counts are a
+        question to take to the County, not a ranking of districts.
         {staffBands && <> {auditedBandsName(meta)} in the backtest: how many in 100 of the district&rsquo;s places in {auditedBandsName(meta).toLowerCase()} on {backtestList(meta)} had a major violation at their next routine inspection, with the likely range.</>}
         {" "}Bookmark a district: {typeof window !== "undefined" ? window.location.origin : ""}/map?district=3.
       </p>

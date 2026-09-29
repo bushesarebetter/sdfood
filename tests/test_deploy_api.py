@@ -1,5 +1,7 @@
 """deploy_api.py: what it refuses to ship, how it names and deploys an image, that it keeps the
-registry package private and the deploy hook secret, and that the Dockerfile runs on Render's port."""
+registry package private and the deploy hook secret, that the Dockerfile runs on Render's port, and that an
+image ships only once the City has asked, with every hold applied and its sunset inside it."""
+import csv
 import json
 import subprocess
 from datetime import date, datetime, timezone
@@ -127,16 +129,36 @@ def served(health, summary_status=401, worklists=(200, [{"month": "2026-10"}])):
 
 def test_the_image_is_checked_before_it_is_pushed():
     meta = {"run": "r1", "places": 3}
-    good = {"status": "ok", "run": "r1", "places": 3, "build": "b1"}
+    good = {"status": "ok", "run": "r1", "places": 3, "build": "b1", "sunset": "2027-06-30", "closed": None}
     d.check_served("http://x", meta, "b1", "k", get=served(good))
+    d.check_served("http://x", meta, "b1", "k", get=served(good), release={"sunset": "2027-06-30"})
     for bad, match in [(served({**good, "run": "r0"}), "serves"), (served({**good, "build": None}), "serves"),
                        (served(good, summary_status=200), "without a key"), (served(good, worklists=(200, [])), "no worklists"),
                        (served({"status": "no data"}), "health")]:
         with pytest.raises(d.Refused, match=match):
             d.check_served("http://x", meta, "b1", "k", get=bad)
+    with pytest.raises(d.Refused, match="sunset"):     # an image that does not carry the release closes on no date
+        d.check_served("http://x", meta, "b1", "k", get=served({**good, "sunset": None}), release={"sunset": "2027-06-30"})
 
 
-def test_dry_run_prints_the_plan_runs_nothing_and_keeps_the_hook_secret(export, monkeypatch, capsys):
+GOOD = {"responsible_adult": {"name": "A. Adult", "email": "a@example.org"},
+        "corrections_contact": {"email": "fix@example.org"}, "sunset": "2027-06-30"}
+ASKED = {"city_requestor": {"name": "R", "date": "2026-09-01"},
+         "trust_determination": {"result": "does not apply", "by": "City Attorney's office", "date": "2026-09-15"}}
+
+
+@pytest.fixture()
+def approved(tmp_path, monkeypatch):
+    """docs/STAFF_APPROVAL.json with the City's request and TRUST answer on record, and no holds."""
+    import publish_city_site as pcs
+    path = tmp_path / "STAFF_APPROVAL.json"
+    path.write_text(json.dumps({**GOOD, **ASKED}), encoding="utf-8")
+    monkeypatch.setattr(pcs, "APPROVAL", path)
+    monkeypatch.setattr(pcs, "HOLDS", tmp_path / "no-holds.json")
+    return path
+
+
+def test_dry_run_prints_the_plan_runs_nothing_and_keeps_the_hook_secret(export, approved, monkeypatch, capsys):
     site, worklists, research = export
     monkeypatch.setattr(d, "SITE", site)
     monkeypatch.setattr(d, "WORKLISTS", worklists)
@@ -153,6 +175,18 @@ def test_dry_run_prints_the_plan_runs_nothing_and_keeps_the_hook_secret(export, 
     # the service's Image URL names :latest, and Render returns to it on later deploys: it moves after the checks
     assert out.index("docker push ghcr.io/someone/sdfood-api:forward_") < out.index("docker push ghcr.io/someone/sdfood-api:latest")
     assert "imgURL=ghcr.io/someone/sdfood-api@sha256:" in out and "SECRETKEY" not in out
+    assert "api_release.json (sunset 2027-06-30, access_approved True, 0 held)" in out
+    assert out.index("api_release.json") < out.index("docker build"), "the release is in the image"
+    assert not (site / d.RELEASE_FILE).exists(), "a dry run writes nothing"
+
+
+def test_the_release_record_is_what_the_image_carries(export, tmp_path):
+    site, _, _ = export
+    rec = d.release_record({**GOOD, **ASKED}, {"DEH-B", "DEH-A"}, today=date(2026, 9, 29))
+    assert rec["sunset"] == "2027-06-30" and rec["access_approved"] is True and rec["held"] == ["DEH-A", "DEH-B"]
+    d.write_release(site, rec)
+    assert json.loads((site / d.RELEASE_FILE).read_text(encoding="utf-8"))["sunset"] == "2027-06-30"
+    assert d.release_record(GOOD, set(), today=date(2026, 9, 29))["access_approved"] is False
 
 
 def test_deploy_hook_answers():
@@ -167,7 +201,7 @@ def test_deploy_hook_answers():
             d.deploy(HOOK, ref, dry=False, post=lambda url, method, s=status: (s, None))
 
 
-def test_a_real_deploy_needs_the_hook_and_refuses_before_building(export, monkeypatch, capsys):
+def test_a_real_deploy_needs_the_hook_and_refuses_before_building(export, approved, monkeypatch, capsys):
     site, worklists, research = export
     for name, value in (("SITE", site), ("WORKLISTS", worklists), ("RESEARCH", research)):
         monkeypatch.setattr(d, name, value)
@@ -175,6 +209,16 @@ def test_a_real_deploy_needs_the_hook_and_refuses_before_building(export, monkey
     monkeypatch.setattr(subprocess, "run", lambda *a, **k: pytest.fail("nothing should run"))
     assert d.main(["--image", "ghcr.io/someone/sdfood-api", "--allow-expired"]) == 2
     assert "RENDER_DEPLOY_HOOK_URL" in capsys.readouterr().err
+
+
+def test_no_image_is_built_before_the_city_has_asked(export, approved, monkeypatch, capsys):
+    site, worklists, research = export
+    for name, value in (("SITE", site), ("WORKLISTS", worklists), ("RESEARCH", research)):
+        monkeypatch.setattr(d, name, value)
+    approved.write_text(json.dumps(GOOD), encoding="utf-8")
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: pytest.fail("nothing should run"))
+    assert d.main(["--image", "ghcr.io/someone/sdfood-api", "--allow-expired", "--no-push"]) == 2
+    assert "no City request and TRUST answer are on record" in capsys.readouterr().err
 
 
 def test_dockerfile_listens_on_render_port_as_a_non_root_user():
@@ -186,21 +230,70 @@ def test_dockerfile_listens_on_render_port_as_a_non_root_user():
     assert "org.opencontainers.image.source" not in text
     ignore = (ROOT / ".dockerignore").read_text(encoding="utf-8")
     assert ignore.splitlines()[1] == "*" and "data/site/archive/" in ignore   # the archive stays out of the image
+    # so do the pilot's frozen worklists, which keep a place's points from before a hold (they are not served)
+    assert "data/worklists/*/frozen/" in ignore.splitlines()
+    # the sunset is San Diego's date: the image carries the time-zone database the API reads it with
+    assert any(line.startswith("tzdata==") for line in (ROOT / "api" / "requirements.txt").read_text(encoding="utf-8").splitlines())
+    assert "COPY data/site/ data/site/" in text, "the release record (data/site/api_release.json) goes into the image"
 
 
 def test_the_api_has_the_staff_sites_release_gates(export):
     site, worklists, research = export
-    good = {"responsible_adult": {"name": "A. Adult", "email": "a@example.org"},
-            "corrections_contact": {"email": "fix@example.org"}, "sunset": "2027-06-30"}
+    good = {**GOOD, **ASKED}
     today = date(2026, 9, 29)
-    assert d.release_problems(site, today, approval=good, holds=[]) == []
-    assert any("STAFF_APPROVAL" in p for p in d.release_problems(site, today, approval={}, holds=[])) or \
-        d.release_problems(site, today, approval={}, holds=[])
-    assert any("has passed" in p for p in d.release_problems(site, today, approval={**good, "sunset": "2026-01-01"}, holds=[]))
+    assert d.release_problems(site, today, approval=good, holds=[], worklists=worklists) == []
+    assert any("STAFF_APPROVAL" in p for p in d.release_problems(site, today, approval={}, holds=[], worklists=worklists))
+    assert any("has passed" in p for p in d.release_problems(site, today, approval={**good, "sunset": "2026-01-01"}, holds=[],
+                                                              worklists=worklists))
     (site / "facilities.geojson").write_text(json.dumps({"type": "FeatureCollection", "features": [
         {"properties": {"facility_id": "A", "band": "1", "points": 12}},
         {"properties": {"facility_id": "B", "on_hold": True}}]}), encoding="utf-8")
-    got = d.release_problems(site, today, approval=good, holds=["A", "B"])
+    got = d.release_problems(site, today, approval=good, holds=["A", "B"], worklists=worklists)
     assert got == ["1 place(s) on hold still carry points or a band in " + str(site) + " (A): export again, then deploy"]
-    assert d.release_problems(site, today, approval=good, holds=["B"]) == [], "a hold the export applied passes"
+    assert d.release_problems(site, today, approval=good, holds=["B"], worklists=worklists) == [], "a hold the export applied passes"
 
+
+def test_the_api_ships_only_once_the_city_has_asked(export):
+    site, worklists, _ = export
+    today = date(2026, 9, 29)
+    for approval in (GOOD, {**GOOD, "city_requestor": ASKED["city_requestor"]},
+                     {**GOOD, **ASKED, "trust_determination": {"result": "does not apply"}}):
+        got = d.release_problems(site, today, approval=approval, holds=[], worklists=worklists)
+        assert any("no City request and TRUST answer are on record" in p and "every key holder" in p for p in got), approval
+
+
+def _worklist(folder, rows):
+    folder.mkdir(parents=True, exist_ok=True)
+    with open(folder / "district-3.csv", "w", newline="", encoding="utf-8") as fh:
+        w = csv.writer(fh)
+        w.writerow(["facility_id", "name", "rule_order", "rule_points", "rule_mean", "why"])
+        w.writerows(rows)
+
+
+def test_a_held_place_that_keeps_its_points_in_a_worklist_the_image_carries_is_refused(export):
+    site, worklists, _ = export
+    good, today = {**GOOD, **ASKED}, date(2026, 9, 29)
+    held_line = "On hold at the owner's request: its points, band and order are withheld while the request is reviewed."
+    _worklist(worklists / "2026-10", [["B", "Beta", "2", "", "", held_line], ["C", "Gamma", "1", "12", "88", "12 points"]])
+    (site / "facilities.geojson").write_text(json.dumps({"features": [{"properties": {"facility_id": "B", "on_hold": True}}]}),
+                                             encoding="utf-8")
+    assert d.release_problems(site, today, approval=good, holds=["B"], worklists=worklists) == [], "a hold written in passes"
+    for row in (["B", "Beta", "1", "12", "88", "Point rule: 12 points, band 1."], ["B", "Beta", "1", "", "", "band 1"],
+                ["B", "Beta", "1", "", "91.5", "x"]):
+        _worklist(worklists / "2026-11", [row])
+        got = d.release_problems(site, today, approval=good, holds=["B"], worklists=worklists)
+        assert any("worklist row(s) of a place on hold" in p and "2026-11/district-3.csv: B" in p for p in got), row
+    # the frozen pilot copies are not served, and not scanned
+    (worklists / "2026-11" / "district-3.csv").unlink()
+    _worklist(worklists / "2026-11" / "frozen" / "20261001T000000Z", [["B", "Beta", "1", "12", "88", "12 points"]])
+    assert d.release_problems(site, today, approval=good, holds=["B"], worklists=worklists) == []
+
+
+def test_an_unreadable_holds_file_is_a_refusal_not_no_holds(export, tmp_path, monkeypatch):
+    import publish_city_site as pcs
+    site, worklists, _ = export
+    holds = tmp_path / "holds.json"
+    holds.write_text('{"facility_ids": ["A",]}', encoding="utf-8")
+    monkeypatch.setattr(pcs, "HOLDS", holds)
+    got = d.release_problems(site, date(2026, 9, 29), approval={**GOOD, **ASKED}, worklists=worklists)
+    assert any("cannot be read" in p for p in got)

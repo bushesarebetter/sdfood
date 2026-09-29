@@ -116,3 +116,38 @@ test("bands mode: every banded row says what its band means, and that the rule i
   assert.ok(!csvColumns().includes("what_band_means"), "a record export has no band column");
   assert.deepEqual(csvColumns({ mode: "bands" }).slice(5, 9), ["band", "points", "under_review", "what_band_means"]);
 });
+
+test("the list's printout: every row given, in its order, with the cells the list shows", async () => {
+  const { listPrintColumns, listPrintRows } = await import("../src/lib/format.js");
+  assert.deepEqual(listPrintColumns(), ["Place", "Kind", "District", "Latest grade", "Last visit", "12 months before the list date (our reading)"]);
+  assert.deepEqual(listPrintColumns({ mode: "bands" }).slice(0, 3), ["Band", "Points", "Place"]);
+  const other = { properties: { facility_id: "SAMPLE-2", name: "Sample Cafe", address: "1 Sample Way, San Diego, CA 92101", facility_type: "market", flags: [] } };
+  const held = { properties: { ...feature.properties, facility_id: "SAMPLE-3", on_hold: true } };
+  const rows = listPrintRows([feature, other, held], { meta, mode: "bands" });
+  assert.equal(rows.length, 3, "every row, not a page of them");
+  assert.deepEqual(rows[0], ["Band 1", "21", "Sample Taqueria, North\n1234 Sample Row, San Diego, CA 92104", "Restaurant", "D3", rows[0][5], "Feb 2026, reinspection",
+    rows[0][7]]);
+  assert.match(rows[0][5], /^B/);
+  assert.match(rows[0][7], /^A major violation; A B or C grade; /);
+  assert.deepEqual(rows[1].slice(0, 2), ["", ""], "no band, no points");
+  assert.equal(rows[1][4], "", "no district");
+  assert.deepEqual(rows[2].slice(0, 2), ["Under review", ""], "a held place shows no points");
+  const plain = listPrintRows([feature], { meta });
+  assert.equal(plain[0].length, listPrintColumns().length, "record mode has no band or points");
+  assert.equal(plain[0][2], "D3");
+  const stale = { properties: { ...feature.properties, last_visit: { date: "2025-01-10", type: "routine" } } };
+  assert.match(listPrintRows([stale], { meta })[0][4], /^Jan 2025, routine inspection \(last visit over a year ago\)$/);
+});
+
+test("the printout's head says what the list holds, and its log name says so without the search's text", async () => {
+  const { listScope, listPrintName } = await import("../src/lib/format.js");
+  assert.equal(listScope({ districts: [3], types: [], flag: null, county: false }), "In the City of San Diego; council district 3.");
+  assert.equal(listScope({ band: "3", districts: [9, 3], types: ["restaurant", "market"], flag: "major", county: true }, { mode: "bands", search: " taco " }),
+    "Across San Diego County; council districts 3 and 9; bands 1 to 3; restaurants and markets; a major violation in the 12 months before the list date (our reading); names or streets matching \"taco\".");
+  assert.match(listScope({ band: "all", districts: [], flag: "major_2" }, { mode: "bands" }),
+    /^In the City of San Diego; every council district; every listed place; major violations at two or more routine inspections in two years in the 24 months before the list date \(our reading\)\.$/);
+  const m = { generated: "2026-09-29" };
+  assert.equal(listPrintName(m, { districts: [3], band: "all" }), "list food-inspection-record-district-3-2026-09-29");
+  assert.equal(listPrintName(m, {}, { search: "taco" }), "list food-inspection-record-2026-09-29, searched");
+  assert.doesNotMatch(listPrintName(m, {}, { search: "taco" }), /taco/);
+});

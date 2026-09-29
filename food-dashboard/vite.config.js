@@ -33,7 +33,7 @@ export default defineConfig({
         name: "San Diego Food Inspection Record",
         short_name: "Food Inspection Record",
         description:
-          "The County's inspection record for City of San Diego restaurants and markets, place by place. Independent student project, not affiliated with or endorsed by the County of San Diego.",
+          "The County's inspection record for City of San Diego restaurants and markets, place by place. Independent student project, not affiliated with or endorsed by the City of San Diego or the County of San Diego.",
         start_url: "/",
         scope: "/",
         display: "standalone",

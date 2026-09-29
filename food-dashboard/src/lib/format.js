@@ -7,13 +7,18 @@
  * `what_band_means` exist only in `bands` mode; a record export has no
  * position, band or points column. Every row carries the date the list was
  * drawn up and the date it expires: the terms allow reuse only with the list
- * date attached, and never after it expires.
+ * date attached, and never after it expires. The list's printout (listPrint*)
+ * shows the same places in the list's own order, as plain text.
  */
 import { gradeView } from "./grades.js";
-import { typeLabel } from "./inspections.js";
-import { shownBand } from "./marks.js";
+import { FLAG_LABELS, typeLabel, typePlural, visitLabel } from "./inspections.js";
+import { markFor, shownBand } from "./marks.js";
 import { bandSummary, isOutside } from "./bands.js";
 import { auditCsv } from "./staff.js";
+import { flagWindow, lastVisitStale, STALE_LABEL } from "./filters.js";
+import { fmtShort } from "./dates.js";
+import { ALL_PLACES, BAND_FILTERS } from "../constants.js";
+import { SITE } from "../site.js";
 
 // Text a spreadsheet would run as a formula (a leading =, +, -, @, tab or carriage return) gets a
 // leading apostrophe; numbers, and text that is just a number, are left alone.
@@ -110,6 +115,64 @@ export function saveCsv(features, { meta = null, mode = "record", filters = {} }
   URL.revokeObjectURL(url);
   auditCsv(meta, list.length, name);
   return name;
+}
+
+/** The list printout's column heads: the list's own columns. */
+export function listPrintColumns({ mode = "record" } = {}) {
+  return [...(mode === "bands" ? ["Band", "Points"] : []), "Place", "Kind", "District", "Latest grade", "Last visit",
+    "12 months before the list date (our reading)"];
+}
+
+/**
+ * The list's printout, one row per place in the order given (the list's filters, search and sort,
+ * every page, not the 50 on screen): the cells the list shows, as text. The place's cell is its name
+ * and, on a second line, its address.
+ */
+export function listPrintRows(features, { meta = null, mode = "record" } = {}) {
+  return (features ?? []).map((f) => {
+    const p = f.properties ?? {};
+    const g = gradeView(p.grade);
+    const v = p.last_visit;
+    const last = v ? `${fmtShort(v.date)}, ${visitLabel(v.type)}${lastVisitStale(p, meta) ? ` (${STALE_LABEL})` : ""}` : "";
+    return [
+      ...(mode === "bands" ? [markFor(p, { mode }).label ?? "", !p.on_hold && typeof p.points === "number" ? String(p.points) : ""] : []),
+      [p.name, p.address].filter((x) => typeof x === "string" && x).join("\n"),
+      typeLabel(p.facility_type),
+      p.council_district ? `D${p.council_district}` : "",
+      g.graded || g.closedOpen ? g.short : g.withDate ?? g.text.toLowerCase(),
+      last,
+      (p.flags ?? []).map((k) => FLAG_LABELS[k] ?? k).join("; "),
+    ];
+  });
+}
+
+const lowerFirst = (s) => (s ? `${s.charAt(0).toLowerCase()}${s.slice(1)}` : s);
+const andList = (xs) => (xs.length > 1 ? `${xs.slice(0, -1).join(", ")} and ${xs.at(-1)}` : `${xs[0] ?? ""}`);
+
+/**
+ * What a list holds, in words, for the head of its printout: "In the City of San Diego; council
+ * district 3; bands 1 to 3; restaurants; a major violation in the 12 months before the list date (our
+ * reading); names or streets matching "taco"."
+ */
+export function listScope(filters = {}, { mode = "record", search = "" } = {}) {
+  const district = SITE.districts.label.toLowerCase();
+  const d = [...(filters?.districts ?? [])].sort((a, b) => a - b);
+  const parts = [filters?.county ? `Across ${SITE.county}` : `In the ${SITE.fullName}`,
+    d.length ? `${district}${d.length > 1 ? "s" : ""} ${andList(d)}` : `every ${district}`];
+  if (mode === "bands") parts.push(lowerFirst(BAND_FILTERS.find((b) => b.band === (filters?.band ?? ALL_PLACES))?.label ?? "every listed place"));
+  if (filters?.types?.length) parts.push(andList(filters.types.map(typePlural)));
+  if (filters?.flag) parts.push(`${lowerFirst(FLAG_LABELS[filters.flag] ?? filters.flag)} ${flagWindow(filters.flag)} (our reading)`);
+  const q = String(search ?? "").trim();
+  if (q) parts.push(`names or streets matching "${q}"`);
+  return `${parts.join("; ")}.`;
+}
+
+/**
+ * What a list's printout is logged under on the staff site (lib/staff.js describePrints): "list " and
+ * its CSV file name's stem, which carries its scope and list date; a search is noted, never its text.
+ */
+export function listPrintName(meta, filters = {}, { search = "" } = {}) {
+  return `list ${csvFilename(meta, filters).replace(/\.csv$/, "")}${String(search ?? "").trim() ? ", searched" : ""}`.slice(0, 120);
 }
 
 

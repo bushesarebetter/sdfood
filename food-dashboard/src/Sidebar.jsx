@@ -71,12 +71,15 @@ export default function Sidebar({ facilities, hasCounty = false, filters, onFilt
   );
 }
 
-/** One council district, or every one: the same filter the district view's rows set. */
-export function DistrictPicker({ filters, onFiltersChange, compact = false }) {
+/**
+ * One council district, or every one: the same filter the district view's rows set. `compact` is the
+ * phone's; `rail` the staff site's filter rail.
+ */
+export function DistrictPicker({ filters, onFiltersChange, compact = false, rail = false }) {
   const value = filters.districts?.length === 1 ? String(filters.districts[0]) : "";
   const set = (v) => onFiltersChange({ ...filters, districts: v ? [Number(v)] : [] });
   return (
-    <div className={compact ? "" : "px-6 py-5"}>
+    <div className={compact ? "" : rail ? "px-5 py-4" : "px-6 py-5"}>
       <label htmlFor={compact ? "district-picker-phone" : "district-picker"} className={compact ? "sr-only" : "label mb-2 block"}>
         {SITE.districts.label}
       </label>
@@ -94,7 +97,7 @@ export function DistrictPicker({ filters, onFiltersChange, compact = false }) {
 }
 
 /** Each band's points and backtest rate with its likely range, beside the rate it is compared with. */
-function BandTable({ meta }) {
+export function BandTable({ meta }) {
   const defs = bandDefs(meta);
   const rest = meta?.card?.rest?.rate;
   const base = meta?.card?.base_rate;
