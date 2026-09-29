@@ -117,7 +117,9 @@ export function placeLines(p, meta, { expired = false, withGrade = true, estimat
   // Outside the City, rates are the ones measured outside the City (meta.card.outside).
   const outside = isOutside(p, meta);
   const b = shownBand(p, { mode: "bands" });
-  const est = estimateSentence(meta, p?.points, { estimate, outside });
+  // With separate curves by route (card.curve_closure), only the place's own estimate can say which
+  // one it reads: while its record loads there is no estimate line, rather than a guess.
+  const est = !estimate && meta?.card?.curve_closure ? null : estimateSentence(meta, p?.points, { estimate, outside });
   if (!b) {
     if (typeof p?.points === "number") {
       const lowest = bandDefs(meta).at(-1);

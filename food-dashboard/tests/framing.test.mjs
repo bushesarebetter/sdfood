@@ -123,3 +123,13 @@ test("a place read from the closure curve says so under its name, and the export
   const scores = placeLines({ points: 3, council_district: 4 }, meta, { withGrade: false, estimate: { rate: 0.12, low: 0.1, high: 0.14, group: "scores" } });
   assert.match(scores[0], /^Scored restaurants with about 3 points: about 12 in 100 .* may be low\.$/);
 });
+
+test("with estimate curves by route, the lines read only the place's own estimate", async () => {
+  const { placeLines } = await import("../src/lib/framing.js");
+  const { staffMeta } = await import("./fixtures/bandsMeta.mjs");
+  const m = { ...staffMeta, card: { ...staffMeta.card, curve_closure: staffMeta.card.curve } };
+  const p = { band: "1", points: 30, council_district: 3 };
+  assert.ok(!placeLines(p, m, { withGrade: false }).some((l) => l.startsWith("Scored restaurants")), "no guess while the record loads");
+  const lines = placeLines(p, m, { withGrade: false, estimate: { rate: 0.316, low: 0.26, high: 0.37, group: "closure" } });
+  assert.match(lines[0], /^Scored restaurants with about 30 points whose last two years include a routine inspection that ended in a closure: about 32 in 100/);
+});

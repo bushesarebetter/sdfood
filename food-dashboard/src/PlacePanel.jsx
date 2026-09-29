@@ -114,7 +114,7 @@ export default function PlacePanel({ feature, onClose, facilities = null, onSele
           <StaleBadge place={p} meta={meta} className="self-center" />
         </div>
         <div className="mt-3 empty:hidden">
-          <PlaceLines place={p} withGrade={loaded.status !== "ok"} />
+          <PlaceLines place={place ?? p} withGrade={loaded.status !== "ok"} />
         </div>
       </header>
 

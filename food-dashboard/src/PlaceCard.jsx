@@ -96,7 +96,7 @@ export default function PlaceCard({ placeKey, facilities, error = null, onRetry 
         <StaleBadge place={p} meta={meta} className="!px-2 !py-[3px] !text-[13px]" />
       </div>
       <div className="mt-3 max-w-[62ch]">
-        <PlaceLines place={p} large withGrade={!place} />
+        <PlaceLines place={place ?? p} large withGrade={!place} />
       </div>
 
       <p className="print-hide mt-5 flex flex-wrap gap-x-5 gap-y-2 text-[14px]">

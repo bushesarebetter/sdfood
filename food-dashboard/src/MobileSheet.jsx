@@ -98,7 +98,7 @@ export default function MobileSheet({ feature, onClose, onNavigate }) {
           </div>
 
           <div className="mx-5 mt-3 border-t border-rule pt-3">
-            <PlaceLines place={p} />
+            <PlaceLines place={place ?? p} />
           </div>
 
           <div className="mx-5 mt-3 border-t border-rule pt-3">
