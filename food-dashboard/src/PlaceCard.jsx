@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { cityOf } from "./lib/format";
 import PageFrame from "./PageFrame";
 import InspectionChart from "./InspectionChart";
 import ScoreCard from "./ScoreCard";
@@ -79,7 +80,7 @@ export default function PlaceCard({ placeKey, facilities, error = null, onRetry 
   return (
     <PageFrame onNavigate={onNavigate}>
       <p className="label mb-3">
-        {SITE.name}, {typeLabel(p.facility_type)}
+        {p.council_district ? SITE.name : cityOf(p.address) ?? SITE.county}, {typeLabel(p.facility_type)}
         {p.council_district && <>, {SITE.districts.short} {p.council_district}</>}
         {!expired && mark.label && <>, <span style={{ color: mark.text ?? undefined }}>{mark.label}</span></>}
       </p>

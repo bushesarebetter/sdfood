@@ -209,7 +209,7 @@ function Rule({ meta, advanced, expired }) {
         <Section heading="What the points say, place by place">
           <p>
             Every scored place is also given an estimate: what places with about its points did in the backtest, read from a
-            smooth curve through the counts below (more points never means a lower rate), with a likely range. The counts
+            monotone fit to the counts below: more points never means a lower rate, and where the counts cannot tell point values apart their rate is pooled, so it levels off where the rates do. Each estimate comes with a likely range. The counts
             themselves:
           </p>
           <Table

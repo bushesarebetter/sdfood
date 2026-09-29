@@ -30,7 +30,7 @@ const PLAIN = {
   detailFactsNote: "The 12 months before the last visit",
   detailNoFacts: "No closure, major violation, B or C grade, repeat reinspection or complaint visit in the 12 months before the last visit.",
   detailCard: "How the points add up",
-  detailCardNote: "Each row is a count from the County's record for the year before the list date, times its weight",
+  detailCardNote: "Each row is a number from the County's record, times its weight; the rule above says which years it reads",
   detailNearby: "Other listed places nearby",
   detailStreetView: "Street View",
   detailRecord: "The County's record",
@@ -51,7 +51,7 @@ const ADVANCED = {
   detailFindingsNote: "Report items, 36 months before the last visit; major, minor, good retail practice",
   detailFacts: "Record, 12 months",
   detailCard: "Worksheet",
-  detailCardNote: "value × weight = points, per item; features over the year before the list date",
+  detailCardNote: "value × weight = points, per item; the window is in meta.card.window",
   detailNearby: "Nearby listed facilities",
   detailRecord: "DEHQ record",
 };

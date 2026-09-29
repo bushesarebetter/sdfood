@@ -152,7 +152,8 @@ pinned in `tests/fixtures/item_themes.json`):
   - `by_origin`: `[{ as_of, "1": {positives, labelled, rate}, …, rest }]`, the kept bands at every
     backtest origin, not only the one reported.
   - `curve`: `{ model, rate[], low[], high[], bins[], labelled, positives }`: the rate by points
-    (index = points), smoothed, with a 95% interval, and the raw rates in bins.
+    (index = points), a monotone (isotonic) fit over point values pooled into groups of 100 or more
+    places, with a 95% interval, and the raw rates in bins.
   - `outside`: `{ bands_shown, candidates, eligible, labelled, base_rate, bands, rest, curve, auc }`:
     the same rule and cuts checked on restaurants outside the City. Places outside the City get a
     band only when `bands_shown`.

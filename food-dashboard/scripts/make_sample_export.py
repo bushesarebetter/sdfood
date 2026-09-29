@@ -396,44 +396,63 @@ def backtest(places):
     return bands, rest_row, {"candidates": len(rows), "positives": positives, "labelled": len(lab), **extra}
 
 
-def logit_fit(pairs, iters=60):
-    """(a, b), b >= 0, of P(major) = 1 / (1 + exp(-(a + b log(1 + points)))) by Newton's method."""
-    xs = [math.log1p(p) for p, _ in pairs]
-    ys = [y for _, y in pairs]
-    a = b = 0.0
-    for _ in range(iters):
-        ga = gb = haa = hab = hbb = 0.0
-        for x, y in zip(xs, ys):
-            q = 1 / (1 + math.exp(-(a + b * x)))
-            w = q * (1 - q)
-            ga, gb, haa, hab, hbb = ga + y - q, gb + (y - q) * x, haa + w, hab + w * x, hbb + w * x * x
-        det = haa * hbb - hab * hab
-        if det <= 1e-12:
-            break
-        da, db = (hbb * ga - hab * gb) / det, (haa * gb - hab * ga) / det
-        a, b = a + da, b + db
-        if abs(da) + abs(db) < 1e-10:
-            break
-    if b < 0:                                   # more points never means a lower rate
-        m = sum(ys) / len(ys)
-        a, b = math.log(max(m, 1e-6) / max(1 - m, 1e-6)), 0.0
-    return a, b
+def isotonic(rates, weights):
+    """Pool adjacent violators: the closest non-decreasing sequence (as export_site._isotonic)."""
+    blocks = []
+    for r, w in zip(rates, weights):
+        blocks.append([w, r * w, 1])
+        while len(blocks) > 1 and blocks[-2][1] / blocks[-2][0] > blocks[-1][1] / blocks[-1][0]:
+            w2, s2, c2 = blocks.pop()
+            blocks[-1] = [blocks[-1][0] + w2, blocks[-1][1] + s2, blocks[-1][2] + c2]
+    out = []
+    for w, s_, c in blocks:
+        out += [s_ / w] * c
+    return out
 
 
-def risk_curve(pairs, n_boot=60, seed=5):
-    """The rate by points, smoothed as in export_site.risk_curve (sample: resampling places, not addresses)."""
+def step_fit(pairs, groups, top):
+    rates, weights = [], []
+    for lo, hi in groups:
+        ys = [y for p, y in pairs if lo <= p <= hi]
+        rates.append(sum(ys) / len(ys) if ys else 0.0)
+        weights.append(max(len(ys), 1))
+    fit = [0.0] * (top + 1)
+    for (lo, hi), r in zip(groups, isotonic(rates, weights)):
+        for j in range(lo, hi + 1):
+            fit[j] = r
+    for j in range(1, top + 1):
+        if not any(lo <= j <= hi for lo, hi in groups):
+            fit[j] = fit[j - 1]
+    return fit
+
+
+def risk_curve(pairs, n_boot=60, seed=5, min_n=30):
+    """The rate by points, as export_site.risk_curve: isotonic over point values pooled into groups of
+    at least `min_n` places (sample: resampling places, not addresses)."""
     top = max(p for p, _ in pairs)
-    rate_at = lambda a, b: [1 / (1 + math.exp(-(a + b * math.log1p(x)))) for x in range(top + 1)]
-    fit = rate_at(*logit_fit(pairs))
+    counts = {}
+    for p, _ in pairs:
+        counts[p] = counts.get(p, 0) + 1
+    groups, hi, n = [], None, 0
+    for v in sorted(counts, reverse=True):
+        hi = v if hi is None else hi
+        n += counts[v]
+        if n >= min_n:
+            groups.append((v, hi))
+            hi, n = None, 0
+    if hi is not None:
+        groups.append((0, hi)) if not groups else groups.__setitem__(-1, (0, groups[-1][1]))
+    groups = sorted(groups)
+    fit = step_fit(pairs, groups, top)
     rng = random.Random(seed)
-    draws = [rate_at(*logit_fit([rng.choice(pairs) for _ in pairs])) for _ in range(n_boot)]
+    draws = [step_fit([rng.choice(pairs) for _ in pairs], groups, top) for _ in range(n_boot)]
     col = lambda j: sorted(d[j] for d in draws)
-    lo = [col(j)[int(0.025 * (n_boot - 1))] for j in range(top + 1)]
-    hi = [col(j)[int(round(0.975 * (n_boot - 1)))] for j in range(top + 1)]
+    lo = [min(col(j)[int(0.025 * (n_boot - 1))], fit[j]) for j in range(top + 1)]
+    hi_ = [max(col(j)[int(round(0.975 * (n_boot - 1)))], fit[j]) for j in range(top + 1)]
     r4 = lambda v: [round(x, 4) for x in v]
-    return {"model": "sample: logistic in log(1 + points) on the invented backtest", "rate": r4(fit),
-            "low": r4([min(l, f) for l, f in zip(lo, fit)]), "high": r4([max(h, f) for h, f in zip(hi, fit)]),
-            "bins": [], "labelled": len(pairs), "positives": sum(y for _, y in pairs)}
+    return {"model": "sample: isotonic rate by points on the invented backtest", "rate": r4(fit), "low": r4(lo),
+            "high": r4(hi_), "groups": [list(g) for g in groups], "bins": [], "labelled": len(pairs),
+            "positives": sum(y for _, y in pairs)}
 
 
 def estimate(curve, pts):

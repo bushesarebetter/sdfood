@@ -82,3 +82,12 @@ test("every CSV row names the list it came from", async () => {
   const [head, row] = csv.split("\n");
   assert.equal(row.split(",")[head.split(",").indexOf("list_run")], "forward_2026-09-20-abcd1234");
 });
+
+
+test("a place outside the City is labelled by its own town", async () => {
+  const { cityOf } = await import("../src/lib/format.js");
+  assert.equal(cityOf("401 W MAIN ST, EL CAJON, CA 92020"), "El Cajon");
+  assert.equal(cityOf("1 Oak St, SAN DIEGO, CA 92101"), "San Diego");
+  assert.equal(cityOf("no commas here"), null);
+  assert.equal(cityOf(null), null);
+});

@@ -948,31 +948,74 @@ def merge_overlapping(cuts, points, positive, labelled, elig):
     return validate_bands(cuts, [(points, positive, labelled, elig)])
 
 
-def _logit_fit(x, y):
-    """(a, b) of P = 1 / (1 + exp(-(a + b x))), b >= 0, unweighted."""
-    a, b = _nonneg_logistic(x[:, None], y.astype(float), np.ones(len(y)), 0.0, np.array([0]))
-    return float(a), float(b[0])
+CURVE_MIN = 100       # labelled places per step of the risk curve; sparser point values are pooled
+
+
+def _curve_groups(pm, min_n=CURVE_MIN):
+    """Whole-point values pooled into groups of at least `min_n` labelled places, from the top down
+    (the sparse tail joins its neighbours), as a list of (lo, hi) point ranges, low to high."""
+    values, counts = np.unique(pm, return_counts=True)
+    groups, lo_i, n = [], len(values) - 1, 0
+    for i in range(len(values) - 1, -1, -1):
+        n += counts[i]
+        if n >= min_n or i == 0:
+            groups.append((int(values[i]), int(values[lo_i])))
+            lo_i, n = i - 1, 0
+    if len(groups) > 1 and sum(counts[(values >= groups[-1][0]) & (values <= groups[-1][1])]) < min_n:
+        lo_g = groups.pop()                              # a small bottom group joins the one above it
+        groups[-1] = (lo_g[0], groups[-1][1])
+    return groups[::-1]
+
+
+def _isotonic(rates, weights):
+    """Pool adjacent violators: the closest non-decreasing sequence, weighted."""
+    blocks = []                                          # [total weight, weighted sum, count of items]
+    for r, w in zip(rates, weights):
+        blocks.append([w, r * w, 1])
+        while len(blocks) > 1 and blocks[-2][1] / blocks[-2][0] > blocks[-1][1] / blocks[-1][0]:
+            w2, s2, c2 = blocks.pop()
+            blocks[-1] = [blocks[-1][0] + w2, blocks[-1][1] + s2, blocks[-1][2] + c2]
+    out = []
+    for w, s, c in blocks:
+        out += [s / w] * c
+    return np.array(out)
+
+
+def _step_fit(pm, y, groups, top):
+    """The isotonic rate by group, spread over every whole point 0..top."""
+    rates, weights = [], []
+    for lo, hi in groups:
+        k = (pm >= lo) & (pm <= hi)
+        rates.append(y[k].mean() if k.any() else 0.0)
+        weights.append(max(int(k.sum()), 1))
+    iso = _isotonic(rates, weights)
+    fit = np.full(top + 1, iso[0])                       # below the lowest group: that group's rate
+    for (lo, hi), r in zip(groups, iso):
+        fit[lo:hi + 1] = r
+    for j in range(groups[0][0] + 1, top + 1):           # values between groups read the group below
+        if not any(lo <= j <= hi for lo, hi in groups):
+            fit[j] = fit[j - 1]
+    return fit
 
 
 def risk_curve(points, positive, labelled, elig, cl, n_boot=200, seed=SEED, bins=8):
     """What a place's points say, as a rate: at the backtest origin, among eligible places with a
-    routine inspection in the year after, the share with a major, smoothed as a logistic curve in
-    log(1 + points) (one slope: more points never means a lower rate), with a 95% interval from an
-    address-cluster bootstrap. Also the raw rates in `bins` groups of about equal size, so the curve
-    can be checked against the counts it smooths. Points above the backtest's largest are read at
-    that largest value (no extrapolation)."""
+    routine inspection in the year after, the share with a major, by points. It is a monotone
+    (isotonic) fit: more points never means a lower rate, and where the data cannot tell point
+    values apart, their rate is pooled, so the rate levels off where risk does rather than rising
+    for ever as a smooth curve would. Point values are pooled into groups of at least CURVE_MIN
+    labelled places first, so a sparse tail cannot swing the estimate. 95% interval from an
+    address-cluster bootstrap of the same fit. Also the raw rates in `bins` groups of about equal
+    size, to check the fit against the counts. Points above the backtest's largest are read at that
+    largest value (no extrapolation)."""
     m = elig & labelled
-    x, y, c = np.log1p(points[m].astype(float)), positive[m].astype(float), cl[m]
-    top = int(points[m].max()) if m.any() else 0
-    grid = np.arange(top + 1)
-    a, b = _logit_fit(x, y)
-    fit = 1 / (1 + np.exp(-(a + b * np.log1p(grid))))
-    draws = []
-    for pick in _cluster_draws(c, n_boot, seed):
-        if len(set(y[pick])) == 2:
-            aa, bb = _logit_fit(x[pick], y[pick])
-            draws.append(1 / (1 + np.exp(-(aa + bb * np.log1p(grid)))))
+    pm, y, c = points[m].astype(int), positive[m].astype(float), cl[m]
+    top = int(pm.max()) if m.any() else 0
+    groups = _curve_groups(pm) if m.any() else [(0, 0)]
+    fit = _step_fit(pm, y, groups, top) if m.any() else np.zeros(1)
+    draws = [_step_fit(pm[pick], y[pick], groups, top) for pick in _cluster_draws(c, n_boot, seed)] if m.any() else []
     lo, hi = (np.percentile(draws, 2.5, axis=0), np.percentile(draws, 97.5, axis=0)) if draws else (fit, fit)
+    lo, hi = np.minimum(lo, fit), np.maximum(hi, fit)
     pm = points[m]
     edges = sorted(set(int(v) for v in np.quantile(pm, np.linspace(0, 1, bins + 1)))) if m.any() else [0]
     if len(edges) == 1:
@@ -985,7 +1028,9 @@ def risk_curve(points, positive, labelled, elig, cl, n_boot=200, seed=SEED, bins
         if n:
             table.append({"min_points": int(pm[inb].min()), "max_points": int(pm[inb].max()), "labelled": n,
                           "positives": k, "rate": round(k / n, 4), "interval": wilson(k, n)})
-    return {"model": "logistic in log(1 + points), fitted at the backtest origin; 95% interval by address-cluster bootstrap",
+    return {"model": (f"isotonic (monotone) rate by points at the backtest origin, point values pooled into groups of at "
+                      f"least {CURVE_MIN} places; 95% interval by address-cluster bootstrap"),
+            "groups": [[lo_, hi_] for lo_, hi_ in groups],
             "rate": [round(float(v), 4) for v in fit], "low": [round(float(v), 4) for v in lo],
             "high": [round(float(v), 4) for v in hi], "bins": table, "labelled": int(m.sum()), "positives": int(y.sum())}
 
@@ -1606,6 +1651,7 @@ def build(raw, districts_geojson, *, pull=None, approval=None, today=None, refit
     # registration and the monitor always describe the list staff actually saw.
     fingerprint = hashlib.sha256(json.dumps(
         {"rule": [rule.name, rule.features, rule.weights], "cuts": cuts, "outside": outside_ok,
+         "curves": [curve["rate"], (o_curve or {}).get("rate")],        # the estimates staff read
          "list": [[f["properties"]["facility_id"], f["properties"].get("points"), f["properties"].get("band")] for f in features]},
         sort_keys=True).encode()).hexdigest()[:8]
     run = f"forward_{t_now}-{fingerprint}"
@@ -1621,7 +1667,8 @@ def build(raw, districts_geojson, *, pull=None, approval=None, today=None, refit
             "rule": RULE_TEXT[chosen],
             "items": [{"item": c, "label": FEATURE_TEXT[c][0], "weight": w, "unit": FEATURE_TEXT[c][1], "feature": c}
                       for c, w in zip(rule.features, rule.weights)],
-            "window": "the year before the list date",
+            "window": ("routine scores from the two years before the list date" if chosen == "average score" else
+                       "routine scores from the two years before the list date, citations from the year before it"),
             "eligibility": "restaurants with two rated routine inspections in the last two years",
             "trained_on": conf["trained_on"],
             "bands": [{**r, "share": round(float(np.mean(np.array([b is not None and int(b) <= int(r["band"]) for b in bands_c])[elig])), 4),

@@ -13,7 +13,7 @@
  * inspections that followed. It is stated in natural frequencies with its
  * likely range, beside the rate for all scored restaurants
  * (`meta.card.base_rate`). Every scored place also gets an estimate read from
- * a smoothed curve of rate by points (`meta.card.curve`). Places outside the
+ * a monotone (isotonic) fit of rate by points (`meta.card.curve`). Places outside the
  * City are described by rates measured outside the City (`meta.card.outside`).
  * None of it is a statement about any one place (GROUP_NOTE).
  */

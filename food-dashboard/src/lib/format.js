@@ -71,3 +71,16 @@ export function csvFilename(meta, filters = {}) {
   parts.push(meta?.generated ?? "export");
   return `${parts.join("-")}.csv`;
 }
+
+
+/**
+ * The town in a County address ("401 W MAIN ST, EL CAJON, CA 92020" -> "El Cajon"), or null. A place
+ * outside the City is labelled by its own town, never as San Diego.
+ */
+export function cityOf(address) {
+  const parts = String(address ?? "").split(",").map((x) => x.trim());
+  if (parts.length < 3) return null;
+  const town = parts.at(-2);
+  if (!/^[A-Za-z .'-]+$/.test(town)) return null;
+  return town.toLowerCase().replace(/\b([a-z])/g, (c) => c.toUpperCase());
+}

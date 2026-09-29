@@ -637,3 +637,32 @@ def test_the_export_refuses_a_pull_that_is_not_complete(tmp_path, monkeypatch):
     lone.write_text("[]", encoding="utf-8")
     with pytest.raises(SystemExit, match="no pull meta"):
         es.main(["--pull", str(lone), "--out", str(tmp_path / "out")])
+
+
+
+def test_the_risk_curve_levels_off_where_risk_does():
+    """A curve that must keep rising overstated the top of the list (the real rates level off near
+    40%); the isotonic fit follows them."""
+    rng = np.random.default_rng(2)
+    fits = []
+    for seed in range(8):
+        rng = np.random.default_rng(seed)
+        pts = np.concatenate([rng.integers(0, 8, 3000), rng.integers(8, 26, 900)])
+        pos = (rng.random(len(pts)) < np.where(pts < 8, 0.05 + 0.04 * pts, 0.37)).astype(float)
+        ones = np.ones(len(pts), bool)
+        c = es.risk_curve(pts, pos, ones, ones, np.arange(len(pts)), n_boot=20)
+        fits.append([c["rate"][x] for x in (0, 4, 8, 16, 25)])
+        assert all(g[1] - g[0] >= 0 for g in c["groups"])
+    mean = np.array(fits).mean(axis=0)
+    assert abs(mean[0] - 0.05) < 0.03 and abs(mean[1] - 0.21) < 0.03
+    assert abs(mean[3] - 0.37) < 0.04 and abs(mean[4] - 0.37) < 0.06, "no climb past the plateau"
+
+
+
+def test_the_risk_curve_covers_every_point_value_even_without_places_at_zero():
+    pts = np.array([3] * 120 + [5] * 150 + [9] * 130)
+    pos = (np.random.default_rng(1).random(len(pts)) < 0.2).astype(float)
+    ones = np.ones(len(pts), bool)
+    c = es.risk_curve(pts, pos, ones, ones, np.arange(len(pts)), n_boot=20)
+    assert len(c["rate"]) == 10 and all(0 <= lo <= r <= hi <= 1 for lo, r, hi in zip(c["low"], c["rate"], c["high"]))
+    assert c["rate"][0] == c["rate"][3], "below the lowest group, a place reads that group's rate"
