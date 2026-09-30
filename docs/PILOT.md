@@ -8,14 +8,23 @@ first phase nothing about any inspection changes. Every number below comes from
 ## The question
 
 If a council district's routine inspections for a month were worked in the list's order,
-would major violations be found sooner than in the order actually worked? In the backtest,
-ordering each district's month by the one-line rule (lowest mean routine score on record
-first) finds them **5.8 days sooner** (95% CI 5.4 to 6.1), and the research model **6.4
-days** (6.0 to 6.7): about 2% of the 277–303 days between a facility's routine inspections. It
-is detection within a month's schedule, not prevented illness. The pilot checks this going
-forward, on the County's own schedule.
+would major violations be found sooner than in the order actually worked? Within a council
+district's month, the order the County actually worked put an inspection that found a major
+violation ahead of a clean one **50.7%** of the time (95% CI 49.1–52.1%): no better than chance.
+Ordering the same inspections by each facility's average routine score, lowest first (the
+one-line rule), would have found major violations **5.8 days sooner** (95% CI 5.4–6.1), about
+2% of the 277–303 days between a facility's routine inspections; the research model, **6.4
+days** (6.0 to 6.7). It is detection within a month's schedule, not prevented illness. The pilot
+checks this going forward.
 
-## Silent phase: three months
+## Phase 0, the pilot: a sealed test, three months
+
+Nobody at the County or the City sees a list. A supervisor who held a named list might feel bound
+to act on what it shows (four closures for vermin, say), and acting on it would change the
+comparison. A list held by the County or the City is also a public record, so a Public Records Act
+request could turn it into a published list of "bad restaurants" that no one reviewed, made by
+students, that reads as the County targeting businesses. So the lists stay sealed, and the result
+is scored from the County's own published inspection results.
 
 1. **Before each month**, `python export_worklist.py --month <yyyy-mm>` writes one list per
    council district: the facilities estimated due that month (below), in the students' point
@@ -23,20 +32,24 @@ forward, on the County's own schedule.
    places and markets with food prep, never a private home (home kitchens, cottage food), a
    health-care kitchen, a school or a food truck at its commissary, which follow other rules. It also writes a read-only, timestamped copy with a sha256 manifest
    (`data/worklists/<yyyy-mm>/frozen/<stamp>/`), including `scoring.csv`, which holds every
-   active facility's position under each arm. The manifest's hashes are emailed to the County
-   before the month starts; `python export_worklist.py --verify <frozen dir>` checks them later.
-2. **The County's inspection supervisors, for all nine districts if possible and at least three,** receive their
-   district's frozen list (the sizes come from the power section below). **Inspectors change
-   nothing**: the list is not used to schedule, assign, reorder or skip any inspection.
-3. **After three months**, the County shares the routine inspections done in those districts
-   and months (below), and the analysis runs once, as written here.
+   active facility's position under each arm.
+2. **Seal it before the month starts.** Encrypt the frozen folder (an AES-256 archive, e.g.
+   7-Zip with "Encrypt file names" on; the password stays with the authors) and back it up somewhere the authors keep (their own cloud storage). Commit the manifest's hashes alone to this repository before the month starts, so GitHub's push date shows when the list was fixed. A hash reveals nothing
+   about the list; the encrypted archive can't be read without the password.
+   The frozen folder and the archive stay out of git, like all real data.
+3. **Nothing changes and no one acts on it.** No inspector, supervisor, business or City office
+   receives a list. The County schedules, assigns and works its month as always.
+4. **After three months**, pull the County's published results (SD Food Info) for those months and run `python export_worklist.py --verify <frozen dir>`
+   to show each list is the one sealed before its month. Then the analysis runs once, as written
+   here, for all nine districts (27 district-months; the power section below).
 
-**A lighter first step (phase 0).** A supervisor who holds a named list may feel bound to act on
-what it shows (four closures for vermin, say), and acting on it would change the comparison. So the
-County need not receive the lists at all at first: the lists are frozen each month and their hashes
-sent to a neutral party (or to the County, unopened), and the result is scored afterwards from the
-public record. The County is asked only for its inspector territories and its actual due lists. The
-supervisors' part begins only if phase 0 shows a head start worth testing.
+The County is asked for nothing. If it is willing, its inspector territories and its actual due
+lists would let the analysis use its real unit of assignment and its real schedule (below).
+
+**Phase 1 (only if the County asks for it).** If phase 0 shows a head start above the bar and the
+County wants to see how the list works in its own hands, its inspection supervisors could receive
+their district's frozen list for another three months, with inspectors changing nothing. That puts
+named lists in the County's records, so it is the County's decision, never a default.
 
 **Due this month (an estimate).** The public record has no schedule. A facility is listed when,
 on the month's last day, the days since its last routine inspection reach its business type's
@@ -105,8 +118,8 @@ start really is going forward:
 
 **The design: all nine districts for three months (27 district-months).** That clears the bar if
 the backtest's head start holds (power 1.00) and still has 0.80 power if it shrinks to 4 days.
-Three districts for three months (9) is the minimum, enough only if nothing shrinks. The silent
-phase costs no more than sending the lists, so there is no saving in asking for fewer districts.
+Three districts for three months (9) is the minimum, enough only if nothing shrinks. The sealed
+test asks nothing of the County, so there is no saving in fewer districts.
 A head start near 3 days can't be told from the 2-day bar at any practical size; the pilot would
 report it as not shown.
 
@@ -142,10 +155,11 @@ month, and driving time.
   assignments.
 - The public data hold only facilities that exist today (survivorship; see the README).
 
-## What the County would need to share
+## What the County could share (optional; phase 0 needs none of it)
 
-- For the pilot districts and months: each routine inspection's facility, date and findings, and
-  the **inspector or territory id**, which separates a place from its inspector.
+- For the pilot districts and months, the **inspector or territory id** of each routine
+  inspection, which separates a place from its inspector. (Facility, date and findings are
+  already in the published results.)
 - **The actual schedule:** how routine inspections are assigned, the month's planned list, and
   any order it was worked in.
 - Ideally the full inspection history **including inactive and closed permits**, which removes
@@ -165,8 +179,9 @@ month, and driving time.
 
 ## Keeping the study clean
 
-- The pilot uses only **County-internal lists**; anything public is counts only (`dashboard.html`). District lists go only to the
-  participating inspection supervisors.
+- **The lists stay sealed** (phase 0): encrypted, with only their hashes public; anything else
+  public is counts only (`dashboard.html`). In a phase 1 the County chose, district lists would go
+  only to the participating inspection supervisors.
 - **The City staff site.** While the pilot runs, no band, point or list from the staff site (or the
   staff API) may reach an inspector, a supervisor or a business: the pilot would then measure the
   list's influence, not its accuracy. The staff site says so in a banner during the pilot, and its
@@ -180,7 +195,7 @@ month, and driving time.
 
 ## Contacts
 
-- **Project point of contact (an adult, not a student):** `[NAME, ROLE, EMAIL, PHONE: to be filled in before the County is contacted]`
+- **Project point of contact:** Ayan Pendharkar (author).
 - **County contact:** `[Food, Water and Housing Division contact, once agreed]`
 - **Authors:** Chenhao Zhang and Ayan Pendharkar, students at Canyon Crest Academy. Independent
   research, not affiliated with or endorsed by the County of San Diego.
