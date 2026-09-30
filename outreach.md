@@ -30,10 +30,7 @@ We are Chenhao Zhang and Ayan Pendharkar, two high-school students at Canyon Cre
 County's published food-inspection results we built a site for City staff. For every restaurant and
 market in the City (and, with a switch, the rest of the county) it shows the County's full
 inspection record on one page, where to send a resident's complaint, and a simple point rule that
-summarizes each restaurant's routine scores over two years, with each point explained. The points
-summarize the County's record; they are not a forecast for any one place. The County is the data
-source and the inspecting agency. Independent student project, not affiliated with or endorsed by the
-City of San Diego or the County of San Diego.
+summarizes each restaurant's routine scores over two years, and marks the places whose record points to a major violation at the next routine inspection, with each point explained. The points summarize the County's record; they are not a forecast for any one place. The County is the data source and the inspecting agency. We have written to the County's Department of Environmental Health and Quality for its comment, but we are an independent student project and are not affiliated with or endorsed by the City of San Diego or the County of San Diego.
 
 The site exists, behind a sign-in (https://sdfood-city.onrender.com), but no one at the City has
 access yet, and no one will until:
@@ -54,9 +51,13 @@ while the rule was built, so a test on later inspections is under way):
   at their next routine inspection at about 1.7 times the rate of all scored restaurants: about 37 in
   100 against 21, and the pattern held at every backtest date. Sorting by recent major violations does
   about as well; the rule's value is that anyone can check why a place scores what it does.
-- **A related rule, lowest average score on record first,** used to order a month's routine
-  inspections would have found major violations about 6 days sooner within a council district's month
-  than the order actually worked (about 2% of the time between a facility's routine inspections).
+- **The order within a month.** Within a council district's month, the order the County actually
+  worked put an inspection that found a major violation ahead of a clean one 50.7% of the time (95%
+  CI 49.1–52.1%): no better than chance. Ordering the same inspections by each facility's average
+  routine score, lowest first (a related rule), would have found major violations 5.8 days sooner
+  (95% CI 5.4–6.1), about 2% of the 277–303 days between a facility's routine inspections. A sealed
+  test (docs/PILOT.md) can check that going forward without anyone at the County or the City seeing
+  a list.
 - **Fairness.** Our research model and an older rule showed no detectable coverage gap across
   neighborhood income (FAIRNESS.md). This rule does show gaps: in the backtest, band 1 places in some
   council districts went on to have no major more often than elsewhere, and a rough check by
@@ -105,10 +106,16 @@ project, not affiliated with or endorsed by the City of San Diego or the County 
   inspections federal law requires for schools in the national school lunch program, how often a
   place is routinely inspected differs little by kind of place (low-risk facilities every 315 days,
   restaurants every 312), and a B or C may be re-graded within 30 days. The next routine came a median 277 days after one that found a
-  major, against 303 after one that did not. Within a month, the order inspections were done in did
-  not put the places with worse records first; ordering by the facility's average routine score
-  would have found major violations about 5.8 days sooner in a council district's month, about 2% of
-  that interval. We would like to know whether that matches how you schedule.
+  major, against 303 after one that did not. Within a council district's month, the order the
+  inspections were actually done in put one that found a major violation ahead of a clean one 50.7%
+  of the time (95% CI 49.1–52.1%): no better than chance. Ordering the same inspections by each
+  facility's average routine score, lowest first, would have found major violations 5.8 days sooner
+  (95% CI 5.4–6.1), about 2% of the 277–303 days between a facility's routine inspections. We would
+  like to know whether that matches how you schedule.
+- **What we would propose, if it is useful:** a sealed test that asks nothing of you (docs/PILOT.md).
+  Before each month we would freeze each district's list, encrypt it and publish only its fingerprint (a hash);
+  no one at the County sees a list. After three months we would score it against your published
+  results.
 - **What we would like to learn:** the three questions at the top of this kit.
 - **What would make it better:** your inspection data through an official extract, including
   inactive permits, and **inspector or territory ids**, which let an analysis separate a place
@@ -127,10 +134,11 @@ Chenhao Zhang and Ayan Pendharkar · Adult point of contact: [NAME, ROLE, EMAIL]
 > "San Diego did about 18,700 routine food inspections in 2025. How often each place is inspected
 > is the County's call, and we leave it alone. We tested ordering each month's inspections by each
 > facility's own record:
-> a one-line rule, lowest average routine score first, would have found major violations about
-> six days sooner within a council district's month, on the County's own 2025-26 data: about 2%
-> of the time between a facility's routine inspections. A silent
-> pilot could confirm it without changing a single inspection."
+> today's order within a month is no better than chance, and a one-line rule, lowest average
+> routine score first, would have found major violations 5.8 days sooner within a council
+> district's month, on the County's own 2025-26 data: about 2% of the time between a facility's
+> routine inspections. A sealed test could confirm it without the County changing, or even
+> seeing, anything."
 
 ## If they ask
 
@@ -148,7 +156,7 @@ Chenhao Zhang and Ayan Pendharkar · Adult point of contact: [NAME, ROLE, EMAIL]
   uncorrected major, with the same inspectors, schedule and number of visits. Summed over the
   majors, the one-line rule's head start comes to about 13,800 facility-days a year (95% CI 12,900
   to 14,700), if each violation was already there at the start of the month. It is a free scheduling change,
-  not a proven health intervention, and the silent pilot tests the timing before anything changes.
+  not a proven health intervention, and the sealed test checks the timing before anything changes.
 - **"Is the list confidential?"** No, and we never promise it is. What City staff download, print
   or send is a City record and may be released under the Public Records Act. That is why every
   downloaded row carries its date, expiry and run, and why a band is described as a statistic about a
@@ -166,18 +174,16 @@ Chenhao Zhang and Ayan Pendharkar · Adult point of contact: [NAME, ROLE, EMAIL]
   lowest- and highest-income quartiles is +3.4 points for the model (95% CI −4.6 to +11.7) and
   +4.6 for the rule (−4.1 to +13.5): "no detectable difference", not proof of evenness. The rule's
   false-positive rate is 16.7% in the lowest-income quartile against 15.3% in the highest, with
-  overlapping intervals. The model uses no ZIP code, and the pilot plan reports coverage by group
-  each month (docs/PILOT.md; that report is still to be built).
-- **"What would it take?"** Someone has to produce and send each month's list. Our script builds
-  the lists from refreshed data; someone at the County would still pass a district's list to its
+  overlapping intervals. The model uses no ZIP code, and coverage by group is monitored in any pilot (docs/PILOT.md; that report is still to be built).
+- **"What would it take?"** For the sealed test, nothing from the County: our script builds and seals each month's lists, and the result is scored from the County's published inspections. Our script also builds the lists from refreshed data, and in real use someone at the County would still pass a district's list to its
   inspection supervisor. The estimate assumes a finding does not depend on the day of the month, and it
   ignores routing: a reordered month may cost more driving, which an active pilot would measure.
 - **"What can't public data show?"** SD Food Info lists only facilities that exist today, so every
   test here is on survivors; places that closed are missing. Even if a fifth more inspections came
   from closed places ranked as badly as possible, the top 20% would still hold about twice its
   share of major violations. The County's full records remove the question.
-- **"What do you want?"** Twenty minutes, the County's comment, and, if it is useful, a silent
-  pilot.
+- **"What do you want?"** Twenty minutes, the County's comment, and, if it is useful, the sealed
+  test.
 
 ---
 

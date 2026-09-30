@@ -40,7 +40,7 @@ identifying User-Agent (2026-09-22): it sent a browser User-Agent. Later pulls i
   start is about 13,800 facility-days a year (95% CI 12,900 to 14,700), if each violation was there
   from the 1st (outreach.md, "Will it prevent food poisoning?").
 - **For the City and the County:** monthly worklists per council district (`export_worklist.py`)
-  and a pre-registered silent pilot the City can propose to the County ([docs/PILOT.md](docs/PILOT.md)).
+  and a pre-registered sealed test that asks nothing of the County: each month's lists are encrypted, only their hashes published, then scored from the County's published results ([docs/PILOT.md](docs/PILOT.md)).
 
 Two pulls are behind the figures. The research figures (this README apart from the October 2026
 worklist count and "For the City: the staff site", FAIRNESS.md apart from its staff-rule district and
@@ -443,7 +443,7 @@ For a month (by default the one after the data end), one CSV per council distric
   its worksheet lists, with its last routine outcome, its closures in two years, which of those
   counts it meets, and the date of a closure with no reopening on record (`no_reopen_on_record`).
 - **A frozen copy** (read-only, timestamped, with sha256 hashes and every active facility's
-  position under each ordering) lets a silent pilot be scored later against exactly what was sent:
+  position under each ordering) lets the sealed test be scored later against exactly what was sealed:
   [docs/PILOT.md](docs/PILOT.md). The pilot's primary test is whether the rule's head start is
   above 2 days, not above zero; all nine districts for three months give it 0.80 power even if the
   head start shrinks from the backtest's +5.7 d to +4 d.
@@ -534,4 +534,4 @@ python -m pytest tests                         # the pipeline, the server, the g
 - [docs/PUBLISHING.md](docs/PUBLISHING.md): the four release paths and their gates.
 - [docs/HOSTING.md](docs/HOSTING.md): the staff site, the API and the public site on Render.
 - [docs/API.md](docs/API.md): the optional staff API.
-- [docs/PILOT.md](docs/PILOT.md): a silent pilot the City can propose to the County.
+- [docs/PILOT.md](docs/PILOT.md): the sealed test (no one at the County or the City sees a list).

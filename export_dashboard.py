@@ -149,6 +149,8 @@ def main():
         "days_over_rule": f"{MM[RL]['days']:.1f}", "days_over_rule_ci": ci2(MM[RL]["ci"]),
         "days_overdue": f"{A['Model x overdue (old dashboard)']['days_earlier']:.1f}",
         "clean_wait": f"{abs(A[RL]['clean_days']):.1f}",
+        "usual_first": f"{S['usual_order']['district_month']['p_major_first']*100:.1f}%",
+        "usual_first_ci": "{:.1f}–{:.1f}%".format(*(100 * c for c in S["usual_order"]["district_month"]["ci"])),
         "gap": f"{gap[0]}–{gap[1]}", "days_share": share(A["Model"]["days_earlier"]),
         "facility_days_rule": f"{A[RL]['facility_days_per_year']:,}",
         "facility_days_rule_ci": "{:,}–{:,}".format(*A[RL]["facility_days_per_year_ci"]),
