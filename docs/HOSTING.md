@@ -78,8 +78,8 @@ curl -b jar -c jar -X POST https://sdfood-city.onrender.com/logout
   "sunset": ..., "closed": null, "refit_needed": false, "rule_version": ..., "access_approved": ...}`.
 - The site shows its sign-in page; your sign-in opens it; "Sign out" signs you out, in every browser.
 - `curl -i https://sdfood-city.onrender.com/data/meta.json` without a sign-in answers 401.
-- The banner at the top of every page names the contact and says, as instructions, what the list has
-  not passed.
+- The staff bar at the top of every page names the contact, and its notice, open by itself after each
+  sign-in, says as instructions what the list has not passed.
 - The watch workflow (`.github/workflows/watch.yml` in the private repository) runs daily; run it once
   by hand after setup (`gh workflow run watch.yml -R ChenhaoZhang01/sdfood-city`).
 

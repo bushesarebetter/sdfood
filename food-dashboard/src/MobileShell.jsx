@@ -16,6 +16,7 @@ import { StaleBadge } from "./PlaceParts";
 import { passesFilters, sortPlaces } from "./lib/filters";
 import { gradeView } from "./lib/grades";
 import { typeLabel } from "./lib/inspections";
+import { bandSummary } from "./lib/bands";
 import { markFor } from "./lib/marks";
 import { MAP_UNAVAILABLE } from "./useGoogleMap";
 
@@ -156,6 +157,7 @@ function PlaceList({ facilities, filters, onSelect, note, top = 0 }) {
     <div className="absolute inset-0 overflow-y-auto bg-paper px-4 pb-24" style={{ paddingTop: top > 0 ? `${Math.round(top) + 12}px` : "calc(max(12px, env(safe-area-inset-top)) + 7.5rem)" }}>
       {note && <p role="status" className="mb-3 border border-rule-strong bg-paper-sunk px-3 py-2 text-[14px] text-ink">{note}</p>}
       <p className="mb-2 text-[13px] text-ink-2">{places.length.toLocaleString()} listed {places.length === 1 ? "place" : "places"}{mode === "bands" ? ", by band, then points, then name" : ", by name"}.</p>
+      {mode === "bands" && !expired && <p className="mb-3 text-[13px] leading-[1.45] text-ink-2">{bandSummary(meta, "1")}</p>}
       <ul>
         {places.slice(0, shown).map((f) => {
           const p = f.properties;

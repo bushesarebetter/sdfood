@@ -45,8 +45,8 @@ export default function Notice({ placement = "inline", onNavigate }) {
       className={`print-hide ${frame} border-rule-strong bg-paper-sunk px-4 py-2 text-[12px] text-ink-2`}
       style={placement === "fixed" ? { paddingBottom: "max(8px, env(safe-area-inset-bottom))" } : undefined}
     >
-      <div className="mx-auto flex max-w-[76rem] flex-wrap items-center justify-between gap-x-4 gap-y-1 md:px-4">
-        <p>
+      <div className="mx-auto flex max-w-[76rem] items-center justify-between gap-x-4 gap-y-1 md:px-4">
+        <p className="min-w-0 flex-1">
           {staff ? COOKIE_NOTE_STAFF : "This site sets no cookies of its own."} Google Maps, which draws the map, may set its own.{" "}
           <a
             href="/privacy"
@@ -59,7 +59,7 @@ export default function Notice({ placement = "inline", onNavigate }) {
             Details
           </a>
         </p>
-        <button onClick={dismiss} className="text-[12px] font-semibold text-ink hover:underline">
+        <button onClick={dismiss} className="shrink-0 text-[12px] font-semibold text-ink hover:underline">
           OK
         </button>
       </div>

@@ -69,7 +69,8 @@ export default function PlacePanel({ feature, onClose, facilities = null, onSele
 
   useEffect(() => {
     if (!feature) return undefined;
-    const onKey = (e) => e.key === "Escape" && !message && onClose();
+    // An Escape a field already used (closing its list of suggestions) leaves the place open.
+    const onKey = (e) => e.key === "Escape" && !e.defaultPrevented && !message && onClose();
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [feature, onClose, message]);

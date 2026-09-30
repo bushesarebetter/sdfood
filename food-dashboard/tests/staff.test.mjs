@@ -212,7 +212,7 @@ test("the notice holds the whole use rule, the public-record note, whom to write
   assert.equal(bare.mail, null);
   assert.equal(bare.open, null);
   assert.deepEqual(bare.checks, []);
-  assert.equal(bare.toggle, "The notice");
+  assert.equal(bare.toggle, "The whole notice", "one name, whatever the state (aria-expanded carries it)");
   assert.equal(openChecksSentence({ review_status: ["x"] }), "This list has not passed 1 of the checks a public release would need.");
 });
 
@@ -327,7 +327,7 @@ const STATUS_DISTRICTS = {
 test("About says which districts are above even under which interval, from the export's fields", () => {
   const meta = { audience: "staff", fairness: { by_district: STATUS_DISTRICTS } };
   assert.deepEqual(districtStatus(meta), [
-    "Only District 9 stays above even on both wider intervals, allowing for chance across the nine districts and for inspectors, so the banner and the district view name only it.",
+    "Only District 9 stays above even on both wider intervals, allowing for chance across the nine districts and for inspectors, so the staff notice and the district view name only it.",
     "District 6 is above even on the 95% interval for the district alone and on the family-wise one, but not once inspectors are allowed for too.",
     "District 4 is above even on the 95% interval for the district alone, but not on the family-wise one, which allows for chance across the nine districts.",
   ]);
@@ -336,7 +336,7 @@ test("About says which districts are above even under which interval, from the e
     "Only District 9 stays above even on both wider intervals, allowing for chance across the nine districts and for inspectors.", "no banner on the public site");
   const none = { 4: STATUS_DISTRICTS[4], 5: { ...STATUS_DISTRICTS[4] } };
   assert.deepEqual(districtStatus({ audience: "staff", fairness: { by_district: none } }), [
-    "No district stays above even on both wider intervals, allowing for chance across the nine districts and for inspectors, so the banner and the district view name none.",
+    "No district stays above even on both wider intervals, allowing for chance across the nine districts and for inspectors, so the staff notice and the district view name none.",
     "Districts 4 and 5 are above even on the 95% interval for the district alone, but not on the family-wise one, which allows for chance across the nine districts.",
   ]);
   assert.equal(districtStatus({ fairness: { by_district: { 4: { interval: [1.2, 2] } } } }), null, "an older export keeps its gate lines alone");
@@ -357,7 +357,7 @@ test("the one-line staff bar keeps each rule in view in a few words, and opens t
   assert.ok(b.points.includes(USE_POINT), "the use rule stays in view once the notice is closed");
   assert.match(b.points[3], /print/, "not downloads alone");
   assert.match(b.points[3], /messages/);
-  assert.equal(b.toggle, `The notice and ${b.guidance.length} instructions`);
+  assert.equal(b.toggle, "The whole notice");
   // the panel holds the whole notice, in the same words
   assert.deepEqual(b.guidance, reviewGuidance(meta));
   assert.equal(b.use, USE_NOTE);
@@ -398,20 +398,20 @@ test("closed, the bar shows every point and whom to write to; a screen reader he
   assert.doesNotMatch(bar, /whitespace-nowrap[^"]*"\s*>\s*\{pt\}/, "never an unbreakable line");
   assert.match(bar, /b\.mail && \(\s*<a href=\{b\.mail\.href\}/, "whom to write to, beside the points");
   assert.ok(bar.indexOf("b.points.map") < bar.indexOf("b.mail &&"), "the points first in reading and tab order");
-  assert.match(bar, /compact \? "mt-1" : "float-right ml-4"/, "on a wide screen the buttons sit at the end of the last line, not in a column of their own");
+  assert.match(bar, /compact \? "mt-1" : "float-right ml-3"/, "on a wide screen the buttons sit at the end of the last line, not in a column of their own");
   assert.doesNotMatch(bar, /\{open && /, "nothing in the line hangs on the notice being open");
 });
 
-test("only 'I have read this' (or the bar's ×) marks the notice read, and the button comes after every line of it", () => {
+test("only 'I have read this' marks the notice read, and the button comes after every line of it", () => {
   const code = banner();
   const toggle = code.slice(code.indexOf("ref={toggleRef}"), code.indexOf("</button>", code.indexOf("ref={toggleRef}")));
   assert.match(toggle, /onClick=\{\(\) => setOpen\(\(o\) => !o\)\}/, "the toggle only opens and closes");
   assert.doesNotMatch(toggle, /acknowledge|markSeen/);
   assert.equal(code.match(/onClick=\{acknowledge\}/g)?.length, 1, "one button in the notice acknowledges");
-  assert.equal(code.match(/markSeen\(run\);/g)?.length, 2, "that button and the bar's ×, nothing else");
+  assert.equal(code.match(/markSeen\(run\);/g)?.length, 1, "that button, nothing else: not the toggle, not the ×");
   // The desktop panel: one scroller, the button inside it, after the open checks and every instruction.
   const panel = code.slice(code.indexOf("{open && !compact && ("), code.indexOf("{open && compact && createPortal("));
-  assert.match(panel, /max-h-\[50dvh\] overflow-y-auto/);
+  assert.match(panel, /max-h-\[min\(50dvh,max\(6rem,calc\(100dvh-19rem\)\)\)\] overflow-y-auto/, "never taller than the room left");
   assert.equal(panel.match(/overflow-y-auto/g).length, 1, "no inner scroller that hides lines while the button shows");
   assert.match(panel, /\{rules\}[\s\S]*\{checks\}[\s\S]*\{ack\}/, "the button last in reading and tab order");
   const checks = code.slice(code.indexOf("const checks = ("), code.indexOf("const ack = ("));
@@ -424,7 +424,7 @@ test("only 'I have read this' (or the bar's ×) marks the notice read, and the b
   assert.match(sheet, /\{rules\}[\s\S]*\{checks\}[\s\S]*\{ack\}/);
   assert.doesNotMatch(sheet, /max-h-/, "the sheet scrolls as a whole");
   // After closing from inside, focus goes to the toggle.
-  assert.match(code, /toggleRef\.current\?\.focus\(\)/);
+  assert.match(code, /toggleRef\.current\?\.focus\(\{ preventScroll: compact \}\)/, "without scrolling a short phone screen");
 });
 
 test("the notice says what a band 1 place's group rate is, and which lines are the site's", () => {
@@ -503,20 +503,21 @@ test("the bar's × lasts for this browser session only, and a blocked storage le
   });
 });
 
-test("the bar's × closes it after marking the notice read; hidden, it still prints the whole notice", () => {
+test("the bar's × shows only once the notice was read, never counts as reading it, and hidden, the whole notice still prints", () => {
   const code = banner();
   const x = code.slice(code.indexOf("onClick={dismiss}"), code.indexOf("</button>", code.indexOf("onClick={dismiss}")));
-  assert.match(x, /aria-label="Close the staff notice for this session"/);
+  assert.match(x, /<span className="sr-only">Close the staff notice for this session<\/span>/, "its name from its content, so the title is not read twice");
   assert.match(x, /h-6 w-6/, "a target of at least 24 by 24");
   assert.match(x, /<path d="M2 2l8 8M10 2L2 10"/, "a visible ×");
   const cluster = code.slice(code.indexOf("{b.mail && ("), code.indexOf("{/* One scroller"));
-  assert.match(cluster, /\{signOut\}\s*<button\s+type="button"\s+onClick=\{dismiss\}[\s\S]*?<\/button>\s*<\/span>/, "the × ends the bar's right cluster");
+  assert.match(cluster, /\{signOut\}\s*\{seen && \(\s*<button\s+type="button"\s+onClick=\{dismiss\}[\s\S]*?<\/button>\s*\)\}\s*<\/span>/, "the × ends the bar's right cluster, once the notice was read");
   const dismiss = code.slice(code.indexOf("const dismiss = () => {"), code.indexOf("};", code.indexOf("const dismiss = () => {")));
-  assert.match(dismiss, /markSeen\(run\);[\s\S]*hideStaffNotice\(\);/, "read first, then closed");
+  assert.doesNotMatch(dismiss, /markSeen|setSeen/, "closing is not reading");
+  assert.match(dismiss, /hideStaffNotice\(\);/);
   // Hidden and read: only the print-only block, which holds the whole notice.
   assert.match(code, /if \(hidden && seen\) return printed;/);
   const printed = code.slice(code.indexOf("const printed = ("), code.indexOf("if (hidden && seen)"));
-  assert.match(printed, /className="print-only[\s\S]*PUBLIC_RECORD_NOTE[\s\S]*USE_NOTE[\s\S]*b\.contact[\s\S]*b\.open[\s\S]*b\.guidance\.map/);
+  assert.match(printed, /className="print-only[\s\S]*PUBLIC_RECORD_NOTE[\s\S]*USE_NOTE[\s\S]*b\.contact[\s\S]*b\.open[\s\S]*b\.checks\.map[\s\S]*b\.guidance\.map/, "on paper the checks themselves, which a details cannot open there");
   assert.match(code.slice(code.indexOf('role="note"')), /\{printed\}/, "and the same block while the bar shows");
   // Not read in this session: the bar shows and the notice opens, whatever the × said.
   const first = code.slice(code.indexOf("const s = seenFor(run);"), code.indexOf("}, [staff, run]);"));

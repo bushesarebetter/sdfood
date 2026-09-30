@@ -88,10 +88,11 @@ statistic about a group, and why the students never promise a list will stay con
 ## What staff are told the list has not passed
 
 The staff site does not wait for the public-release gates ([PUBLISHING.md](PUBLISHING.md)); it says
-what has not been done, on every page (the banner, as instructions) and in full (About this site):
+what has not been done, on every page (the staff bar counts the open checks, and its notice gives them
+as instructions) and in full (About this site):
 
 - in plain words, from `docs/STAFF_APPROVAL.json`: no City request for access or TRUST Ordinance
-  determination on record (until both are, the banner calls the site a demonstration, not a City
+  determination on record (until both are, the staff bar calls the site a demonstration, not a City
   tool), no lawyer has reviewed naming these businesses, the County has not commented, no business on
   the list has been told, and whether the operator is a student author;
 - whether the County's record has moved since the rule was frozen (`meta.drift`), so the rates may be
@@ -101,6 +102,12 @@ what has not been done, on every page (the banner, as instructions) and in full 
   districts get more than their share of places in a band that then had no major (the district table,
   with intervals). Part of a district's gap may be how its inspectors cite, not its restaurants: the
   record does not say which inspector made a visit.
+
+The notice opens by itself on the first page after each sign-in (the server empties the browser's
+session storage at every sign-in, so the next person on a shared computer meets it open) and stays
+open until "I have read this". The bar's × counts as read and closes the bar for the rest of that
+browser session; "Staff notice" in the masthead then brings it back with the notice open. Every
+printout carries the whole notice, whether the bar is showing or not.
 
 ## The pilot
 

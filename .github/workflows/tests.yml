@@ -18,9 +18,12 @@ jobs:
         run: python privacy_gate.py dashboard.html
       - name: python tests (research code, exporters, API, site contract)
         run: python -m pytest -q
-      - name: site tests
+      - name: the site's packages, from the lockfile, as Render installs them
+        working-directory: food-dashboard
+        run: npm ci
+      - name: site tests (with the packages in place, so the rendered checks run too)
         working-directory: food-dashboard
         run: node --test tests/*.test.mjs
-      - name: the site builds from the lockfile, as Render builds it (on the committed sample)
+      - name: the site builds, as Render builds it (on the committed sample)
         working-directory: food-dashboard
-        run: npm ci && npm run build
+        run: npm run build

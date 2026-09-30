@@ -319,14 +319,15 @@ function Dashboard() {
           <MapView facilities={shown} filters={filters} selected={selected} onSelect={setSelected} pointOverlay={pointOverlay} onError={setMapError} />
         </div>
 
-        {/* Outside the map's print-hide (the drawer is fixed, so where it sits in the tree does not move it):
-            its "Print this list" prints every listed row. */}
+        {/* Outside the map's print-hide (the drawer lies over the foot of main, whatever sits before it in the
+            tree): its "Print this list" prints every listed row. */}
         <PlaceTable facilities={shown} filters={filters} onSelect={setSelected} openKey={listKey} openWhen={Boolean(mapError)} />
 
         <PlacePanel feature={selected} onClose={closePlace} returnFocusTo="map-area" facilities={shown} onSelect={setSelected} onNavigate={navigate} />
       </main>
 
-      <Notice placement="fixed" onNavigate={navigate} />
+      {/* The column's last row, in flow: main (and the list's toggle at its foot) ends above it. */}
+      <Notice placement="footer" onNavigate={navigate} />
     </div>
   );
 }

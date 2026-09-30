@@ -45,7 +45,11 @@ export default function SearchBox({ facilities, onSelect, large = false }) {
     return () => document.removeEventListener("mousedown", onDocClick);
   }, []);
 
+  // Set by a pick, cleared by typing: focus coming back after a pick leaves the suggestions closed.
+  const picked = useRef(false);
+
   function choose(feature) {
+    picked.current = true;
     onSelect(feature);
     setQuery(feature.properties.name ?? "");
     setOpen(false);
@@ -53,6 +57,8 @@ export default function SearchBox({ facilities, onSelect, large = false }) {
 
   function onKeyDown(e) {
     if (e.key === "Escape") {
+      // Closing the results or the "no match" box is this Escape's whole job: an open place stays open.
+      if (open && query.trim().length >= 2) e.preventDefault();
       setOpen(false);
       return;
     }
@@ -91,8 +97,8 @@ export default function SearchBox({ facilities, onSelect, large = false }) {
           name="place-search"
           id={id}
           value={query}
-          onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
-          onFocus={() => setOpen(true)}
+          onChange={(e) => { picked.current = false; setQuery(e.target.value); setOpen(true); }}
+          onFocus={() => { if (!picked.current) setOpen(true); }}
           onKeyDown={onKeyDown}
           placeholder={large ? `Search a ${SITE.name} restaurant or market` : copy.searchPlaceholder}
           aria-label={copy.searchPlaceholder}

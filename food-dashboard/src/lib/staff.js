@@ -129,7 +129,7 @@ export function evidenceDistricts(meta) {
 }
 
 /**
- * The fairness line for the banner and the district view, saying what was measured: a district's
+ * The fairness line for the staff notice and the district view, saying what was measured: a district's
  * share of the places put in the band that then had no major, over its share of the places with a
  * later inspection (`false_share_ratio`), from `evidence_above_even` when the export has it:
  * "In the backtest, places in District 9 were put in band 1 and then had no major violation about
@@ -165,7 +165,7 @@ const lowAboveEven = (iv) => Array.isArray(iv) && typeof iv[0] === "number" && i
  * inspectors), and fairnessLine names only them; of the rest, those whose 95% `interval` for the
  * district alone starts above 1, split by whether the family-wise one does too. Sentences, in that
  * order; null for an export without `evidence_above_even` (one from before it existed). `staff` says
- * that the banner and the district view name only the first group.
+ * that the staff notice and the district view name only the first group.
  */
 export function districtStatus(meta, { staff = isStaff(meta) } = {}) {
   const ev = evidenceDistricts(meta);
@@ -180,10 +180,10 @@ export function districtStatus(meta, { staff = isStaff(meta) } = {}) {
   const is = (list) => (list.length > 1 ? "are" : "is");
   const out = [];
   if (ev.length) {
-    const named = staff ? `, so the banner and the district view name ${ev.length > 1 ? "only these" : "only it"}` : "";
+    const named = staff ? `, so the staff notice and the district view name ${ev.length > 1 ? "only these" : "only it"}` : "";
     out.push(`Only ${districtsPhrase(ev)} ${ev.length > 1 ? "stay" : "stays"} above even on both wider intervals, allowing for ${across} and for inspectors${named}.`);
   } else {
-    out.push(`No district stays above even on both wider intervals, allowing for ${across} and for inspectors${staff ? ", so the banner and the district view name none" : ""}.`);
+    out.push(`No district stays above even on both wider intervals, allowing for ${across} and for inspectors${staff ? ", so the staff notice and the district view name none" : ""}.`);
   }
   family.sort((a, b) => a - b);
   alone.sort((a, b) => a - b);
@@ -256,7 +256,6 @@ export function staffBar(meta) {
   const contact = contactLine(meta);
   const checks = reviewStatus(meta);
   const n = checks.length;
-  const k = guidance.length;
   return {
     points: [
       "For City of San Diego staff",
@@ -267,7 +266,7 @@ export function staffBar(meta) {
       ...(n ? [`Not cleared for public release: ${n} ${n === 1 ? "check" : "checks"} open`] : []),
     ],
     mail: mailContact(meta),
-    toggle: k ? `The notice and ${k} ${k === 1 ? "instruction" : "instructions"}` : "The notice",
+    toggle: "The whole notice",
     contact: contact ? `Questions and corrections: ${contact}.` : null,
     use: USE_NOTE,
     open: openChecksSentence(meta),

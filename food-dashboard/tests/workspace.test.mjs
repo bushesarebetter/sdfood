@@ -50,7 +50,8 @@ test("under 1280px the filter rail is an overlay that holds focus until it close
   assert.match(ws, /e\.stopPropagation\(\);\s*closeRail\(\);/);
   assert.match(ws, /<CloseButton onClose=\{onClose\} label="Close the filters" \/>/, "a visible close button in the overlay");
   assert.match(ws, /onClose=\{overlay \? \(\) => closeRail\(\) : null\}/);
-  assert.match(ws, /<div aria-hidden="true" onMouseDown=\{\(\) => closeRail\(\)\}/, "the backdrop closes it with the mouse and is not a tab stop");
+  assert.match(ws, /<div aria-hidden="true" onMouseDown=\{\(e\) => \{ e\.preventDefault\(\); closeRail\(\); \}\}/,
+    "the backdrop closes it with the mouse, keeps the focus the close gives Filters, and is not a tab stop");
   assert.doesNotMatch(ws, /<button[^>]*aria-label="Close the filters"/);
   assert.match(ws, /const inert = overlay \? "" : undefined/);
   assert.match(ws, /<div id="workspace" tabIndex=\{-1\} inert=\{inert\}/, "the rest of the page is inert while it is open");
@@ -77,7 +78,8 @@ test("the rail has the address check right under the district, as the staff side
 test("each view has one heading that stays mounted, a change of view is announced, and a lost focus goes to the heading", () => {
   const ws = read("StaffWorkspace.jsx");
   assert.equal((ws.match(/<h1\b/g) ?? []).length, 1);
-  const h1 = ws.indexOf('<h1 id="view-heading" ref={viewHeading} tabIndex={-1} className="sr-only">');
+  const h1 = ws.indexOf('<h1\n            id="view-heading"');
+  assert.match(ws, /id="view-heading"\s+ref=\{viewHeading\}\s+tabIndex=\{-1\}\s+className="sr-only focus:not-sr-only[^"]*focus:outline-ink"/, "seen while it has focus");
   assert.ok(h1 > ws.indexOf('<div id="workspace"') && h1 < ws.indexOf("{loading ? ("), "first in #workspace, outside the views");
   assert.match(ws, /<p className="sr-only" role="status">\{announce\}<\/p>/, "a live region mounted from the first render");
   assert.match(ws, /const lost = !a \|\| a === document\.body \|\| !a\.isConnected \|\| a\.getClientRects\(\)\.length === 0;\s*if \(lost\) \{\s*viewHeading\.current\?\.focus\(/);
@@ -87,7 +89,8 @@ test("each view has one heading that stays mounted, a change of view is announce
 test("the list stays mounted on the other views, and its printout is off while it is hidden", () => {
   const ws = read("StaffWorkspace.jsx");
   assert.doesNotMatch(ws, /\{tab === "list" && \(?\s*<PlaceTable/);
-  assert.match(ws, /<div className=\{tab === "list" \? "print-release h-full min-w-0 flex-1" : "hidden"\}>\s*<PlaceTable\s+inline\s+active=\{tab === "list"\}/);
+  assert.match(ws, /<div className=\{tab === "list" \? "print-release h-full min-w-0 flex-1" : "hidden"\} inert=\{tab === "list" && selected && !docks \? "" : undefined\}>\s*<PlaceTable\s+inline\s+active=\{tab === "list"\}/,
+    "under 1024px, while the place panel covers it, the list is out of the tab order");
   assert.match(ws, /onShowSummary=\{\(\) => onTab\("summary"\)\}/);
 });
 
@@ -115,6 +118,23 @@ test("the cookie line is the workspace's last row, in flow, not over the list's 
   const ws = read("StaffWorkspace.jsx");
   assert.match(ws, /<Notice placement="footer" onNavigate=\{onNavigate\} \/>/);
   assert.doesNotMatch(ws, /placement="fixed"/);
+});
+
+test("on the public desktop too the cookie line is in flow, and the list's drawer and its toggle sit above it", () => {
+  const app = read("App.jsx");
+  assert.match(app, /<\/main>\s*\{\/\*[^*]*\*\/\}\s*<Notice placement="footer" onNavigate=\{navigate\} \/>\s*<\/div>/, "the column's last row");
+  const table = read("PlaceTable.jsx");
+  assert.match(table, /"print-hide absolute bottom-0 left-1\/2 z-30 flex/, "the Full list toggle, at the foot of main");
+  assert.match(table, /`print-hide absolute left-0 right-0 z-20 flex-col/, "the drawer, over the foot of main");
+  assert.doesNotMatch(table, /print-hide fixed/, "nothing of the list is pinned to the screen, under the cookie line");
+});
+
+test("Escape in an open list of suggestions closes only the list: the dialog, the rail and the open place stay", () => {
+  assert.match(read("AddressInput.jsx"), /e\.key === "Escape"\) \{\s*e\.preventDefault\(\);\s*setOpen\(false\);/);
+  assert.match(read("SearchBox.jsx"), /if \(open && query\.trim\(\)\.length >= 2\) e\.preventDefault\(\);/);
+  assert.match(read("Dialog.jsx"), /if \(e\.target\?\.closest\?\.\('\[role="combobox"\]\[aria-expanded="true"\]'\)\) return;\s*e\.stopPropagation\(\);/, "the dialog lets the list close first");
+  assert.match(read("StaffWorkspace.jsx"), /if \(e\.target\?\.closest\?\.\('\[role="combobox"\]\[aria-expanded="true"\]'\)\) return;/, "so does the rail");
+  assert.match(read("PlacePanel.jsx"), /e\.key === "Escape" && !e\.defaultPrevented && !message && onClose\(\)/, "and the open place");
 });
 
 test("the map moves to the open place and the address once it exists", () => {

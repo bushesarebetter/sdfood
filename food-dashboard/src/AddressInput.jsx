@@ -10,8 +10,9 @@ const MIN_CHARS = 3;
  * `value` is the text; `onChange(text)` fires on every keystroke and clears
  * any earlier pick; `onPick(pick)` fires when a suggestion is chosen, with the
  * suggestion's place so the caller can skip the geocoder. Arrow keys move,
- * Enter picks, Escape closes; a click elsewhere closes. When suggestions are
- * not available the field is an ordinary input.
+ * Enter picks, Escape closes the suggestions and only them (a dialog or panel
+ * around the field leaves that Escape alone); a click elsewhere closes. When
+ * suggestions are not available the field is an ordinary input.
  */
 export default function AddressInput({ value, onChange, onPick, className, ...inputProps }) {
   const [items, setItems] = useState([]);
@@ -72,6 +73,7 @@ export default function AddressInput({ value, onChange, onPick, className, ...in
       e.preventDefault();
       choose(items[cursor]);
     } else if (e.key === "Escape") {
+      e.preventDefault();
       setOpen(false);
     }
   }

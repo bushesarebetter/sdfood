@@ -86,8 +86,8 @@ export default function StaffBanner({ fixed = false, compact = false }) {
   useEffect(() => {
     if (open || !refocus.current) return;
     refocus.current = false;
-    toggleRef.current?.focus();
-  }, [open]);
+    toggleRef.current?.focus({ preventScroll: compact });
+  }, [open, compact]);
   // Closed with the ×: focus goes to the masthead's "Staff notice", where the notice now lives.
   useEffect(() => {
     if (!hidden || !toLinks.current) return;
@@ -106,10 +106,9 @@ export default function StaffBanner({ fixed = false, compact = false }) {
     setSeen(true);
     close();
   };
-  // The ×: read, and the bar closed for the rest of this session.
+  // The ×, shown only once the notice was read ("I have read this"): the bar closed for the rest of
+  // this session. It never counts as reading the notice.
   const dismiss = () => {
-    markSeen(run);
-    setSeen(true);
     setOpen(false);
     toLinks.current = true;
     hideStaffNotice();
@@ -117,7 +116,7 @@ export default function StaffBanner({ fixed = false, compact = false }) {
   // A POST from this page: the server signs out only on a same-site POST, so no link elsewhere can do it.
   const signOut = (
     <form method="post" action="/logout" className="inline">
-      <button type="submit" className="whitespace-nowrap border-b border-ink/40 font-semibold text-ink hover:border-ink">Sign out</button>
+      <button type="submit" className="whitespace-nowrap border-b border-ink/40 font-semibold text-ink hover:border-ink focus-visible:outline-offset-0">Sign out</button>
     </form>
   );
   const pad = compact ? "px-3" : "px-4 lg:px-5";
@@ -128,8 +127,13 @@ export default function StaffBanner({ fixed = false, compact = false }) {
     <div className="print-only px-1 py-1 text-[10.5px] leading-[1.4]">
       <p><span className="font-semibold">For City of San Diego staff.</span> {PUBLIC_RECORD_NOTE} {USE_NOTE}{b.contact && ` ${b.contact}`}</p>
       {b.open && <p>{b.open}</p>}
-      {b.guidance.length > 0 && (
+      {b.checks.length > 0 && (
         <ul className="list-disc pl-4">
+          {b.checks.map((c, i) => <li key={i}>{c}</li>)}
+        </ul>
+      )}
+      {b.guidance.length > 0 && (
+        <ul className="mt-0.5 list-disc pl-4">
           {b.guidance.map((g) => <li key={g}>{g}</li>)}
         </ul>
       )}
@@ -197,9 +201,9 @@ export default function StaffBanner({ fixed = false, compact = false }) {
             ))}
           </span>
         </p>
-        <span className={`flex flex-wrap items-center gap-x-4 gap-y-1 ${compact ? "mt-1" : "float-right ml-4"}`}>
+        <span className={`flex flex-wrap items-center gap-x-3 gap-y-1 ${compact ? "mt-1" : "float-right ml-3"}`}>
           {b.mail && (
-            <a href={b.mail.href} className="border-b border-ink/40 text-ink hover:border-ink">{b.mail.label}</a>
+            <a href={b.mail.href} className="border-b border-ink/40 text-ink hover:border-ink focus-visible:outline-offset-0">{b.mail.label}</a>
           )}
           <button
             ref={toggleRef}
@@ -207,25 +211,27 @@ export default function StaffBanner({ fixed = false, compact = false }) {
             onClick={() => setOpen((o) => !o)}
             aria-expanded={open}
             {...(compact ? { "aria-haspopup": "dialog" } : { "aria-controls": panelId })}
-            className="inline-flex items-center gap-1 whitespace-nowrap border-b border-ink/40 text-ink hover:border-ink"
+            className="inline-flex items-center gap-1 whitespace-nowrap border-b border-ink/40 text-ink hover:border-ink focus-visible:outline-offset-0"
           >
-            {compact || !open ? b.toggle : "Hide the notice"}
+            {b.toggle}
             <svg width="10" height="6" viewBox="0 0 10 6" aria-hidden="true" className={open ? "rotate-180" : ""}>
               <path d="M1 1l4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.5" />
             </svg>
           </button>
           {signOut}
-          <button
-            type="button"
-            onClick={dismiss}
-            aria-label="Close the staff notice for this session"
-            title="Close the staff notice for this session"
-            className="-my-1 inline-flex h-6 w-6 shrink-0 items-center justify-center text-ink-2 hover:bg-ink/10 hover:text-ink"
-          >
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
-              <path d="M2 2l8 8M10 2L2 10" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-            </svg>
-          </button>
+          {seen && (
+            <button
+              type="button"
+              onClick={dismiss}
+              title="Close the staff notice for this session"
+              className="-my-1 inline-flex h-6 w-6 shrink-0 items-center justify-center text-ink-2 hover:bg-ink/10 hover:text-ink"
+            >
+              <span className="sr-only">Close the staff notice for this session</span>
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                <path d="M2 2l8 8M10 2L2 10" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+              </svg>
+            </button>
+          )}
         </span>
       </div>
 
@@ -238,7 +244,7 @@ export default function StaffBanner({ fixed = false, compact = false }) {
           role="region"
           aria-label="The whole notice"
           tabIndex={0}
-          className={`print-hide max-h-[50dvh] overflow-y-auto border-t border-ink/20 bg-paper-sunk py-3 text-[13px] leading-[1.5] ${pad}`}
+          className={`print-hide max-h-[min(50dvh,max(6rem,calc(100dvh-19rem)))] overflow-y-auto border-t border-ink/20 bg-paper-sunk py-3 text-[13px] leading-[1.5] ${pad}`}
         >
           <div className="grid gap-x-8 gap-y-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
             <div className="space-y-2 lg:col-start-1 lg:row-start-1">{rules}</div>

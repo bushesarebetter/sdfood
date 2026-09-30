@@ -175,7 +175,7 @@ clustering, which the record cannot show:
 | 5 | 52 | 31% (20 to 45) | 1.25 | 0.86 to 1.68 | 0.71 to 1.87 | 0.49 to 2.13 |
 | 3 | 110 | 47% (38 to 57) | 0.53 | 0.40 to 0.66 | 0.35 to 0.71 | 0.28 to 0.79 |
 
-Only District 9 stays above even on both wider intervals, and the staff banner names only it. Districts
+Only District 9 stays above even on both wider intervals, and the staff notice names only it. Districts
 4 and 6 are above even at 95% but not once chance across nine districts and inspector clustering are
 allowed for; District 5 cannot be told from even. A place page in a City district says how often band 1
 places there had a major. Part of a district's gap may be how its inspectors cite, not its restaurants:

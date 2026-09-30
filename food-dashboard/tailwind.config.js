@@ -3,8 +3,9 @@
 /**
  * A civic broadsheet on warm paper: ink for everything structural, one
  * sequential ramp for the bands of a `bands` export. Fonts are the system's
- * own, so the site makes no request to a font service. `ink.3` and the amber
- * used as text are dark enough for 4.5:1 on paper.
+ * own, so the site makes no request to a font service. `ink.3`, and the
+ * orange and amber used as text (BAND_TEXT in src/lib/marks.js), are dark
+ * enough for 4.5:1 on paper.
  */
 export default {
   content: ["./index.html", "./src/**/*.{js,jsx}"],
@@ -30,7 +31,8 @@ export default {
           2: "#55503F",
           3: "#6B6457",
         },
-        // The band ramp: swatches and dots. Amber as text uses amber.text.
+        // The band ramp: swatches and dots. As text, orange and amber take the darker
+        // BAND_TEXT shades in src/lib/marks.js (amber.text is band 3's).
         band: {
           1: "#7F1D1D",
           2: "#C2410C",

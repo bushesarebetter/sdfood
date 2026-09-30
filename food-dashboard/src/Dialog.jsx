@@ -5,8 +5,9 @@ import { focusables, trapTarget } from "./lib/focus";
  * The one modal dialog every overlay uses (About, the first-visit note, the
  * copy box, the phone's address check). On open it moves focus to the
  * dialog's heading (the element whose id is `titleId`); Tab and Shift+Tab stay
- * inside; Escape closes it, and only it; on close, focus returns to whatever
- * had it before. A click on the backdrop closes it too.
+ * inside; Escape closes it, and only it, except in an open list of suggestions,
+ * where Escape closes the list first; on close, focus returns to whatever had
+ * it before. A click on the backdrop closes it too.
  */
 export default function Dialog({ titleId, onClose, children, className = "", overlayClassName = "", z = 60, align = "start", closeOnBackdrop = true }) {
   const panelRef = useRef(null);
@@ -22,6 +23,8 @@ export default function Dialog({ titleId, onClose, children, className = "", ove
 
     const onKey = (e) => {
       if (e.key === "Escape") {
+        // An open list of suggestions (AddressInput, SearchBox) takes this Escape itself.
+        if (e.target?.closest?.('[role="combobox"][aria-expanded="true"]')) return;
         e.stopPropagation();
         e.preventDefault();
         onCloseRef.current?.();

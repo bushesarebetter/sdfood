@@ -190,7 +190,7 @@ rendered("beside an open place the list folds its last visit and its facts at ev
   assert.doesNotMatch(h, /<td[^>]*table-cell/, "no folded cell comes back");
   const cell = placeCell(h, "A1");
   assert.match(cell, /class="inline-block[^"]*mt-1">last visit over a year ago/);
-  assert.match(cell, /text-ink-2 mt-1"><span class="block"><span class="text-ink-3">Our reading: /);
+  assert.match(cell, /text-ink-2 mt-1"><span class="line-clamp-2"><span class="text-ink-3">Our reading: /, "beside a place the facts keep to two lines");
   assert.doesNotMatch(cell, /lg:hidden|xl:hidden/);
   assert.ok(note(h).includes(`${ui.FACTS_UNDER_NAME} our reading of`));
 });
@@ -204,21 +204,22 @@ rendered("the facts read as text: a few words each, the full wording to screen r
   }
   assert.match(cell, /<span class="font-semibold text-ink"><span aria-hidden="true" title="Closed for a health hazard two/, "an escalation fact in ink");
   assert.equal(cell.match(/<span aria-hidden="true"> · <\/span>/g).length, 3, "dots between the four facts, hidden from screen readers");
-  assert.match(cell, /class="line-clamp-1">Majors: food temperatures, pests<\/span>/);
+  assert.match(cell, /class="line-clamp-3">Majors: food temperatures, pests<\/span>/, "room for every theme but the rarest lists");
   assert.doesNotMatch(cell, /<span title="[^"]*" class="(?!line-clamp)/, "no tooltip on anything a screen reader reads");
 });
 
 rendered("in bands mode the list opens with band 1's rate as a group, and a way to every band's", () => {
   const h = table({ inline: true, onShowSummary: () => {} });
-  const line = /<p class="shrink-0 border-b[^"]*">([\s\S]*?)<\/p>/.exec(h)?.[1];
-  assert.ok(line, "the line is there");
+  const line = /<div class="flex-1 overflow-auto scroll-pt-\[4\.5rem\]"><p class="border-b[^"]*">([\s\S]*?)<\/p><table/.exec(h)?.[1];
+  assert.ok(line, "the line is there, above the rows and scrolling with them, so it never holds their room");
   assert.ok(text(line).startsWith(bandSummary(bandsMeta, "1")), "band 1's rate, as the place pages state it");
   assert.match(text(line), /in 100 band 1 places/);
   assert.match(line, /<button type="button"[^>]*>Every band’s rate: Summary<\/button>/);
   assert.doesNotMatch(table({ inline: true }), /Every band’s rate/, "no link without a Summary view");
   assert.match(table({ inline: true }), /in 100 band 1 places/, "the rate stays without it");
   assert.doesNotMatch(table({ inline: true }, recordMeta), /in 100 band/, "a record export has no bands");
-  assert.doesNotMatch(table({}), /shrink-0 border-b border-rule px-5 py-2 text-\[12\.5px\]/, "the public drawer has its own sidebar");
+  assert.doesNotMatch(table({}), /border-b border-rule px-5 py-2 text-\[12\.5px\]/, "the public drawer has its own sidebar");
+  assert.match(table({ inline: true, beside: true }), /in 100 band 1 places/, "beside an open place too");
 });
 
 rendered("the staff list gives the band and the points in one column, and its addresses drop what every row repeats", () => {

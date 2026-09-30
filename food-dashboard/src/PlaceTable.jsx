@@ -50,9 +50,11 @@ export function factsNote(where, keys = []) {
  * the escalation facts in ink and semibold, then the themes of the majors on one line of their own.
  * Each fact's full wording is given to screen readers and as a tooltip; the place's own view gives
  * every fact and theme in full. Under a place's name (`label`) the facts are marked "Our reading:",
- * as the facts column's heading marks them.
+ * as the facts column's heading marks them. `short` (beside an open place, where the Place column is
+ * narrow) holds the facts to two lines and the themes to one, so rows stay short; the full wording
+ * stays in the tooltips, for screen readers, and in the place's own view.
  */
-function FactTags({ flags, label = false, className = "" }) {
+function FactTags({ flags, label = false, short = false, className = "" }) {
   const t = factTags(flags);
   const items = [...t.record.map((x) => ({ ...x, strong: false })), ...t.escalation.map((x) => ({ ...x, strong: true }))];
   if (!items.length && !t.themes.length) return null;
@@ -61,7 +63,7 @@ function FactTags({ flags, label = false, className = "" }) {
   return (
     <span className={`block text-[12px] leading-snug text-ink-2 ${className}`}>
       {items.length > 0 && (
-        <span className="block">
+        <span className={short ? "line-clamp-2" : "block"}>
           {lead}
           {items.map((x, i) => (
             <Fragment key={x.key}>
@@ -74,7 +76,7 @@ function FactTags({ flags, label = false, className = "" }) {
           ))}
         </span>
       )}
-      {themes && <span title={`Majors: ${themes}`} className="line-clamp-1">{items.length ? null : lead}Majors: {themes}</span>}
+      {themes && <span title={`Majors: ${themes}`} className={short ? "line-clamp-1" : "line-clamp-3"}>{items.length ? null : lead}Majors: {themes}</span>}
     </span>
   );
 }
@@ -99,7 +101,7 @@ const makeColumns = ({ mode, meta, onSelect, inline = false, beside = false }) =
           header: "Band, points",
           // Band 1 first, and the most points first within a band, as the site orders the list.
           accessorFn: (f) => (Number(shownBand(f.properties, { mode })) || 99) * 100000 - (shownPoints(f.properties, { mode }) ?? -1),
-          meta: { thWrap: true, td: "whitespace-nowrap" },
+          meta: { td: "whitespace-nowrap" },
           cell: ({ row }) => {
             const p = row.original.properties;
             const m = markFor(p, { mode });
@@ -157,7 +159,7 @@ const makeColumns = ({ mode, meta, onSelect, inline = false, beside = false }) =
           </button>
           {/* Outside the button, so its name stays the place's; a click on them reaches the row. */}
           {inline && <StaleBadge place={p} meta={meta} className={beside ? "mt-1" : "mt-1 lg:hidden"} />}
-          {inline && <FactTags flags={p.flags} label className={beside ? "mt-1" : "mt-1 xl:hidden"} />}
+          {inline && <FactTags flags={p.flags} label short={beside} className={beside ? "mt-1" : "mt-1 xl:hidden"} />}
         </>
       );
     },
@@ -166,7 +168,8 @@ const makeColumns = ({ mode, meta, onSelect, inline = false, beside = false }) =
     id: "district",
     header: "District",
     accessorFn: (f) => f.properties.council_district ?? 0,
-    meta: { td: "whitespace-nowrap" },
+    // As narrow as "D8", so the Place column gets the room.
+    meta: { th: "w-px", td: "w-px whitespace-nowrap" },
     cell: ({ getValue }) => <span className="tnum">{getValue() ? `D${getValue()}` : ""}</span>,
   },
   {
@@ -235,14 +238,16 @@ const makeColumns = ({ mode, meta, onSelect, inline = false, beside = false }) =
 
 /**
  * The list of the places the filters leave, with a filter by name or street, sorting by any column,
- * pages of 50, a printout of every row and a CSV of every row. Two layouts: a drawer under the map with
- * its own toggle (the public site), or `inline`, the whole of its container (the staff site's List
+ * pages of 50, a printout of every row and a CSV of every row. Two layouts: a drawer over the foot of
+ * its positioned container, the map's row, with its own toggle (the public site), so a line in flow
+ * under that row never covers it; or `inline`, the whole of its container (the staff site's List
  * view), where selecting anywhere on a row opens the place and the open place's row is marked. Inline:
  *  - `active`: false while another view shows; the list then counts as closed (a print is not its
  *    printout, and the print log is not told it is);
  *  - `beside`: a place's panel stands beside the list, which folds its last visit and its facts under
  *    each place's name at every width;
- *  - `onShowSummary`: in `bands` mode, the line on band 1's rate links to the view with every band's;
+ *  - `onShowSummary`: in `bands` mode, the line on band 1's rate, above the rows and scrolling with
+ *    them, links to the view with every band's;
  *  - `selectedId`: the open place, whose row and name are marked.
  */
 export default function PlaceTable({
@@ -370,7 +375,7 @@ export default function PlaceTable({
           onClick={() => setOpen((o) => !o)}
           aria-expanded={open}
           aria-controls="place-table"
-          className="print-hide fixed bottom-0 left-1/2 z-30 flex -translate-x-1/2 items-center gap-2 border border-b-0 border-rule-strong bg-paper px-5 text-[13px] font-medium text-ink-2 shadow-paper hover:text-ink md:left-[calc(50%+10.25rem)]"
+          className="print-hide absolute bottom-0 left-1/2 z-30 flex -translate-x-1/2 items-center gap-2 border border-b-0 border-rule-strong bg-paper px-5 text-[13px] font-medium text-ink-2 shadow-paper hover:text-ink md:left-[calc(50%+10.25rem)]"
           style={{ height: TOGGLE_HEIGHT }}
         >
           <svg width="13" height="10" viewBox="0 0 13 10" fill="none" aria-hidden="true">
@@ -387,11 +392,12 @@ export default function PlaceTable({
         id="place-table"
         className={inline
           ? "print-hide flex h-full flex-col overflow-hidden bg-paper"
-          : `print-hide fixed left-0 right-0 z-20 flex-col overflow-hidden border-t border-rule-strong bg-paper md:left-[20.5rem] ${open ? "flex" : "hidden"}`}
+          : `print-hide absolute left-0 right-0 z-20 flex-col overflow-hidden border-t border-rule-strong bg-paper md:left-[20.5rem] ${open ? "flex" : "hidden"}`}
         style={inline ? undefined : { bottom: TOGGLE_HEIGHT, height: DRAWER_HEIGHT }}
       >
         <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-rule px-5 py-2.5">
-          <div className={`relative flex-1 ${inline ? "min-w-[14rem] max-w-md" : "max-w-xs"}`}>
+          {/* Inline, narrow enough that the toolbar keeps one line beside an open place (the list is 576px or more then). */}
+          <div className={`relative flex-1 ${inline ? "min-w-[13rem] max-w-md" : "max-w-xs"}`}>
             <input
               type="text"
               placeholder="Filter this list by name or street"
@@ -410,22 +416,22 @@ export default function PlaceTable({
           </button>
         </div>
 
-        {/* What a band is, as a group rate, where the list opens; every band's rate is on the Summary view. */}
-        {bandLine && (
-          <p className="shrink-0 border-b border-rule px-5 py-2 text-[12.5px] leading-[1.45] text-ink-2">
-            {bandSummary(meta, "1")}
-            {onShowSummary && (
-              <>
-                {" "}
-                <button type="button" onClick={onShowSummary} className="whitespace-nowrap border-b border-ink/25 text-ink-2 hover:border-ink hover:text-ink">
-                  Every band&rsquo;s rate: Summary
-                </button>
-              </>
-            )}
-          </p>
-        )}
-
-        <div className="flex-1 overflow-auto">
+        <div className="flex-1 overflow-auto scroll-pt-[4.5rem]">
+          {/* What a band is, as a group rate, where the list opens (every band's rate is on the Summary view).
+              It scrolls with the rows, so on a short screen, or beside an open place, it gives them its room. */}
+          {bandLine && (
+            <p className="border-b border-rule px-5 py-2 text-[12.5px] leading-[1.45] text-ink-2">
+              {bandSummary(meta, "1")}
+              {onShowSummary && (
+                <>
+                  {" "}
+                  <button type="button" onClick={onShowSummary} className="whitespace-nowrap border-b border-ink/25 text-ink-2 hover:border-ink hover:text-ink">
+                    Every band&rsquo;s rate: Summary
+                  </button>
+                </>
+              )}
+            </p>
+          )}
           <table className="w-full text-sm">
             <caption className="sr-only">Listed places, {order}. Select a place&rsquo;s name to open it.</caption>
             <thead className="sticky top-0 border-b border-rule-strong bg-paper">

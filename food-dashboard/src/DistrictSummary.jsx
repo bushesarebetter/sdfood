@@ -12,7 +12,7 @@ const ACTION = "border-b border-ink/25 text-[12px] font-normal text-ink-2 hover:
 /**
  * Listed places by council district, for the filters chosen other than district, with what the
  * County's record shows for each in the 12 months before the list date (our reading of the record's
- * flags): places with a major violation, places ordered closed for a health hazard, places with a B
+ * flags): places with a major violation, places closed for a health hazard, places with a B
  * or C, and in `bands` mode places in a band. On the staff site it opens with what to do, and in
  * `bands` mode it shows, in place of the count in a band (which invites comparing districts by it),
  * what the district's band 1 places (or the bands `meta.fairness.bands_used` names) did in the

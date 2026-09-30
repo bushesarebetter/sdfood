@@ -72,6 +72,9 @@ export default function StaffWorkspace({
 
   // The rail as an overlay (under 1280px only): open, it takes focus and the rest of the page is inert.
   const wide = useMediaQuery(WIDE);
+  // From lg the place panel docks beside the list; under it the panel covers the list, which then sits
+  // out of the tab order (inert) so focus never lands on a control hidden under the panel.
+  const docks = useMediaQuery("(min-width: 1024px)");
   const [railOpen, setRailOpen] = useState(false);
   const overlay = railOpen && !wide;
   const filtersButton = useRef(null);
@@ -146,7 +149,8 @@ export default function StaffWorkspace({
       setAnnounce("");
     } else {
       const label = STAFF_TABS.find((t) => t.key === tab)?.label ?? "List";
-      setAnnounce(tab === "summary" ? `${label} view` : `${label} view, ${count.toLocaleString()} ${count === 1 ? "place" : "places"}`);
+      // The map shows the filtered places; the list's own count (its search included) speaks for the list.
+      setAnnounce(tab === "map" ? `${label} view, ${count.toLocaleString()} ${count === 1 ? "place" : "places"}` : `${label} view`);
     }
   }, [tab]);
 
@@ -209,16 +213,19 @@ export default function StaffWorkspace({
                   {t.key === "list" && (loading
                     ? <span aria-hidden="true" className="ml-2 inline-block h-3 w-10 animate-pulse bg-paper-edge" />
                     : (
-                      <span className="tnum ml-2 bg-paper-edge px-1.5 py-0.5 text-[12px] font-normal text-ink-2" aria-label={`${count.toLocaleString()} places`}>
-                        {count.toLocaleString()}
-                      </span>
+                      <>
+                        <span aria-hidden="true" className="tnum ml-2 bg-paper-edge px-1.5 py-0.5 text-[12px] font-normal text-ink-2">
+                          {count.toLocaleString()}
+                        </span>
+                        <span className="sr-only">, {count.toLocaleString()} {count === 1 ? "place" : "places"}</span>
+                      </>
                     ))}
                 </a>
               );
             })}
           </nav>
-          {/* Short, so it stays on the tabs' line; under 1024px it gives the line to the tabs. */}
-          <p className="ml-auto hidden self-center py-2 text-[12.5px] text-ink-2 lg:block">
+          {/* Short, so it stays on the tabs' line where there is room, and wraps under them where there is not. */}
+          <p className="ml-auto self-center py-2 text-[12.5px] text-ink-2">
             {[
               meta?.inspections_through && `Inspections through ${shortDay(meta.inspections_through)}`,
               meta?.generated && `drawn up ${shortDay(meta.generated)}`,
@@ -234,7 +241,7 @@ export default function StaffWorkspace({
       <main className="print-release relative flex min-h-0 flex-1 overflow-hidden" aria-busy={loading || undefined}>
         {overlay && (
           // Not a tab stop: the rail's own close button and Escape are the keyboard's way out.
-          <div aria-hidden="true" onMouseDown={() => closeRail()} className="print-hide fixed inset-0 z-[35] bg-ink/20" />
+          <div aria-hidden="true" onMouseDown={(e) => { e.preventDefault(); closeRail(); }} className="print-hide fixed inset-0 z-[35] bg-ink/20" />
         )}
         <aside
           id="filter-rail"
@@ -259,7 +266,15 @@ export default function StaffWorkspace({
         </aside>
 
         <div id="workspace" tabIndex={-1} inert={inert} className="print-release relative flex min-w-0 flex-1 focus:outline-none">
-          <h1 id="view-heading" ref={viewHeading} tabIndex={-1} className="sr-only">{VIEW_HEADING[tab] ?? VIEW_HEADING.list}</h1>
+          {/* Seen while it has focus (after a view change or a skip), so a sighted keyboard user sees where focus is. */}
+          <h1
+            id="view-heading"
+            ref={viewHeading}
+            tabIndex={-1}
+            className="sr-only focus:not-sr-only focus:absolute focus:left-3 focus:top-2 focus:z-40 focus:bg-paper focus:px-2 focus:py-1 focus:text-[13px] focus:font-semibold focus:text-ink focus:outline focus:outline-2 focus:outline-ink"
+          >
+            {VIEW_HEADING[tab] ?? VIEW_HEADING.list}
+          </h1>
           {loading ? (
             <>
               <p className="sr-only" role="status">Loading the list</p>
@@ -267,7 +282,7 @@ export default function StaffWorkspace({
             </>
           ) : (
             <>
-              <div className={tab === "list" ? "print-release h-full min-w-0 flex-1" : "hidden"}>
+              <div className={tab === "list" ? "print-release h-full min-w-0 flex-1" : "hidden"} inert={tab === "list" && selected && !docks ? "" : undefined}>
                 <PlaceTable
                   inline
                   active={tab === "list"}
@@ -330,7 +345,7 @@ function FilterRail({ facilities, filters, defaults, changed, onFiltersChange, h
   return (
     <div className="flex flex-col pb-6">
       <div className="flex min-h-[2.75rem] items-center justify-between gap-3 px-5 pt-4">
-        <h2 id="filter-rail-heading" ref={headingRef} tabIndex={-1} className="label focus:outline-none">Filters</h2>
+        <h2 id="filter-rail-heading" ref={headingRef} tabIndex={-1} className="label focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink">Filters</h2>
         <span className="flex items-center gap-3">
           {changed > 0 && (
             <button

@@ -77,7 +77,8 @@ export default function InspectionChart({ inspections }) {
         </ResponsiveContainer>
       </div>
 
-      <table className="sr-only">
+      <div className="sr-only">
+      <table>
         <caption>Inspection scores by County record, oldest first</caption>
         <thead>
           <tr><th scope="col">Date</th><th scope="col">Visit</th><th scope="col">Score</th><th scope="col">Grade</th><th scope="col">Major violations</th></tr>
@@ -94,6 +95,7 @@ export default function InspectionChart({ inspections }) {
           ))}
         </tbody>
       </table>
+      </div>
 
       <ul className="mt-2 flex flex-wrap justify-center gap-x-4 gap-y-1" aria-hidden="true">
         {[["A", "A, 90 or more"], ["B", "B, 80 to 89"], ["C", "C, 79 or less"]].map(([g, label]) => (
