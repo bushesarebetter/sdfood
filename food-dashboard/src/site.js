@@ -12,9 +12,10 @@ export const SITE = {
   shortTitle: "Food Inspection Record",
   siteUrl: "https://sdfood.onrender.com",
   // Where an owner asks whether their business is on the City staff site: an email set at build time
-  // (VITE_OWNER_CONTACT on the host, never in the repository). Never GitHub issues: they are public, and
-  // the answer would publish the business's band.
-  ownerContact: import.meta.env?.VITE_OWNER_CONTACT || null,
+  // (VITE_OWNER_CONTACT on the host, never in the repository), trimmed as the build's gate reads it
+  // (scripts/exportGate.mjs). Never GitHub issues: they are public, and the answer would publish the
+  // business's band.
+  ownerContact: String(import.meta.env?.VITE_OWNER_CONTACT ?? "").trim() || null,
 
   // Who serves the site, for the privacy page. Change it with the host.
   host: { name: "Render", privacyUrl: "https://render.com/privacy" },

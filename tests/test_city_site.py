@@ -1,6 +1,6 @@
 """city_site/server.mjs: malformed and ambiguous requests are answered, never crash the process and never
 slip past the access log; sign-in is a form and a server-side session per person that expires and ends at
-sign-out, asks for a site id and token (never a City account), clears the last person's browser storage and
+sign-out, asks for a sign-in id and token (never a City account), clears the last person's browser storage and
 says what the site logs; guessing is
 slowed per address and user name; the site closes itself past its sunset or without the staff export;
 nothing real is cached; the health check says which export is live, and yes or no to the drift note and
@@ -42,6 +42,8 @@ def _own_page(body):
     """The server's own page: no reviewed-out word, and the notice of what the site logs."""
     assert not BANNED.search(body), BANNED.search(body)
     assert LOG_NOTICE in body and b"The site&#39;s operator, and anyone with access to its hosting account" in body
+    # every kind of line the server logs under a sign-in id is named: /geocode logs each lookup (not its text)
+    assert b"each address lookup (not what you typed)" in body
 
 
 # ── a small HTTP client on raw sockets, so every byte of the request is ours ─────────────────────────
@@ -385,7 +387,7 @@ def test_sign_out_ends_the_session_and_clears_the_site(site):
     assert _req(port, "/logout", "POST", cookie=c2).status == 303
     assert _req(port, "/data/meta.json", cookie=c2).status == 401
     assert _req(port, "/logout", "POST").status == 303, "signing out without a session is harmless"
-    assert "sign-out user=city" in site.log()
+    assert re.search(r"sign-out user=city from \S+", site.log()), "a sign-out is logged with its address, as the notice says"
 
 
 # ── slowing guessing ─────────────────────────────────────────────────────────────────────────────────
@@ -398,6 +400,8 @@ def test_guessing_is_slowed_per_address_and_user_name(site):
     assert blocked.status == 429 and blocked.header("retry-after") == "900", "blocked even with the right password"
     assert _cookie(blocked) is None
     _own_page(blocked.body)
+    # a sign-in refused for too many tries is logged too, as the notice says of every refused sign-in
+    assert 'sign-in refused user="ana" from' in site.log() and "too many wrong sign-ins" in site.log()
     assert _login(port, "city", SECRET).status == 303, "another person at the same address still signs in"
     assert _login(port, "ana", ANA, headers={"CF-Connecting-IP": "203.0.113.9"}).status == 303, "ana from elsewhere"
     # X-Forwarded-For is anyone's to write: changing it does not change who is counted.
@@ -498,7 +502,8 @@ def test_the_health_check_says_which_export_and_rule_are_live(site):
 def test_the_health_check_says_yes_or_no_to_the_drift_note_and_the_monitor(site):
     h = _req(site.port, "/healthz").json()
     assert h["drift_note"] is False and h["monitor"] is None and h["monitor_alert"] is False, "an older export"
-    note = "In the latest quarter 20.4% of routine inspections found a major violation, against 17.5% over the backtest year."
+    note = ("In the latest quarter (2026 Q3) 20.4% of routine inspections found a major violation, against 17.5% over the "
+            "backtest's label year before that quarter (September 2025 to June 2026), so the rates here may be low.")
     for monitor, status, alert in [({"status": "interim", "runs": 2, "alerts": [], "next_window_date": None}, "interim", False),
                                    ({"status": "complete", "runs": 3, "alerts": ["a sentence"]}, "complete", True),
                                    ({"status": "failed", "runs": 0, "alerts": []}, "failed", True),
@@ -718,7 +723,10 @@ def test_the_daily_check_is_bounded_and_reports_a_run_that_ran_out_of_time():
     worst += len(metas) * max(opt(line, "max-time") for line in metas)
     assert worst < check * 60 - 60, (worst, check)
     assert job > check, "the job outlasts the check, so the issue steps still run"
-    assert re.search(r"if: failure\(\) \|\| \(cancelled\(\) && github.event_name == 'schedule'\)", text)
+    # a step past its own time limit is a failure, so the issue step runs; a run cancelled (by hand or by the
+    # job's limit) reports nothing, and the comments say no more than that
+    assert re.search(r"^        if: failure\(\)$", text, re.M) and "cancelled()" not in text
+    assert not re.search(r"cancelled", text.split("name: watch")[0]), "the header claims no cancelled run reports"
     assert text.index("the check did not finish") < text.index("curl"), "a run stopped by its limit still says why"
     assert "vars.SITE_URL" in text
     for signal in (".drift_note == true", ".monitor_alert == true"):

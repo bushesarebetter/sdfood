@@ -80,7 +80,7 @@ export default function MapView({
           <div style="font-size:13px;font-weight:600;color:#17150F;line-height:1.3;margin-bottom:3px">${esc(p.name)}</div>
           <div style="font-size:12px;color:#55503F;line-height:1.35;margin-bottom:5px">${esc(p.address)}</div>
           <div style="font-size:12px;color:#55503F">
-            ${mark.label ? `<span style="color:${mark.text ?? "#55503F"};font-weight:600">${esc(mark.label)}</span>, ` : ""}${esc(typeLabel(p.facility_type).toLowerCase())}, ${esc(g.graded ? `grade ${g.short}` : g.text.toLowerCase())}
+            ${mark.label ? `<span style="color:${mark.text ?? "#55503F"};font-weight:600">${esc(mark.label)}</span>, ` : ""}${esc(typeLabel(p.facility_type).toLowerCase())}, ${esc(g.graded ? `grade ${g.short}` : g.withDate)}
           </div>
         </div>
       `);

@@ -2,8 +2,15 @@
  * The listed places as a spreadsheet, one row per place, from the index.
  *
  * The record columns are the County's (the grade through lib/grades.js, the
- * same text every view shows); `flags` is our reading of the 12 months before
- * the list date (24 for the escalation facts). `band`, `points` and
+ * same text every view shows), except `last_visit_type`: the last visit in
+ * words, as every view gives it (visitPhrase), so a visit type that is our
+ * reading says so and names the County's own type where the index has it
+ * ("complaint or other field visit (our reading; County type: Site
+ * Investigation)"). `open_closure_date` is the date of the place's
+ * last closure when no "Approved to Reopen" and no graded visit follow it on
+ * the record: the views lead with it, and the letter stays in `grade`.
+ * `flags` is our reading of the 12 months before the list date (24 for the
+ * escalation facts). `band`, `points` and
  * `what_band_means` exist only in `bands` mode; a record export has no
  * position, band or points column. Every row carries the date the list was
  * drawn up and the date it expires: the terms allow reuse only with the list
@@ -32,7 +39,7 @@ const cell = (v) => {
 const RECORD_COLUMNS = [
   "facility_id", "name", "address", "facility_type", "council_district",
   "last_visit_date", "last_visit_type",
-  "grade", "grade_score", "grade_date", "replaced_grade", "replaced_score", "replaced_date",
+  "grade", "grade_score", "grade_date", "replaced_grade", "replaced_score", "replaced_date", "open_closure_date",
   "flags", "lon", "lat",
 ];
 const BAND_COLUMNS = ["band", "points", "under_review", "what_band_means"];
@@ -73,7 +80,7 @@ export function facilitiesToCsv(features, { meta = null, mode = "record" } = {})
       council_district: p.council_district ?? "",
       band: shownBand(p, { mode }) ?? "", points: mode === "bands" && !p.on_hold ? p.points ?? "" : "", under_review: p.on_hold ? "yes" : "",
       what_band_means: mode === "bands" ? bandMeaning(p, meta, { mode }) : "",
-      last_visit_date: p.last_visit?.date ?? "", last_visit_type: p.last_visit?.type ?? "",
+      last_visit_date: p.last_visit?.date ?? "", last_visit_type: p.last_visit ? visitPhrase(p.last_visit) : "",
       ...g,
       flags: (p.flags ?? []).join("; "), lon, lat,
       list_date: meta?.generated ?? "", inspections_through: meta?.inspections_through ?? "", expires: meta?.expires ?? "",
@@ -140,7 +147,7 @@ export function listPrintRows(features, { meta = null, mode = "record" } = {}) {
       [p.name, p.address].filter((x) => typeof x === "string" && x).join("\n"),
       typeLabel(p.facility_type),
       p.council_district ? `D${p.council_district}` : "",
-      g.graded || g.closedOpen ? g.short : g.withDate ?? g.text.toLowerCase(),
+      g.graded || g.closedOpen ? g.short : g.withDate,
       last,
       (p.flags ?? []).map((k) => FLAG_LABELS[k] ?? k).join("; "),
     ];

@@ -1,19 +1,19 @@
 # San Diego Food Inspection Record
 
-A working tool for City of San Diego staff: the County's inspection record for every listed
-restaurant, limited-preparation food place and market in the City, place by place, with the
-County's own status text on every record and the site's readings labelled "Our reading". Vite,
-React, Tailwind, Google Maps with a deck.gl overlay, no router, installable.
+A working tool for City of San Diego staff (offered; no City office uses it yet): the County's
+inspection record for every listed restaurant, limited-preparation food place and market in the
+City, place by place, with the County's own status text on every record and the site's readings
+labelled "Our reading". Vite, React, Tailwind, Google Maps with a deck.gl overlay, no router,
+installable.
 
 ## Modes
 
-The export sets `meta.mode` ([docs/FOOD_DATA_CONTRACT.md](../docs/FOOD_DATA_CONTRACT.md),
-version 3.2):
+The export sets `meta.mode` ([docs/FOOD_DATA_CONTRACT.md](../docs/FOOD_DATA_CONTRACT.md)):
 
 - **`record`**, the default: search, the map with every place drawn alike, filters on record
   facts (kind of place, district, and the index's flags for the last year of the record), the list
   by name, and each place's County records. Nothing from a model.
-- **`bands`**: the same, plus a published rule (`meta.card.rule`) that gives eligible places points
+- **`bands`**: the same, plus the students' point rule (`meta.card.rule`), which gives eligible places points
   from their own record, bands cut by points, each place's worksheet, and each band's backtest
   rate beside the rate below the bands. Lists are ordered by band, then points, then name; no list
   shows a position.

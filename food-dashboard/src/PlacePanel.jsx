@@ -164,7 +164,7 @@ export default function PlacePanel({ feature, onClose, facilities = null, onSele
             </Block>
 
             <Block heading={copy.detailFindings} note={copy.detailFindingsNote}>
-              <ThemeList violations={place.violations} advanced={advanced} />
+              <ThemeList place={place} advanced={advanced} />
             </Block>
 
             {hasCard && (
@@ -190,7 +190,7 @@ export default function PlacePanel({ feature, onClose, facilities = null, onSele
                       <span className="min-w-0 flex-1">
                         <span className="block text-[13.5px] leading-snug text-ink">{q.name}</span>
                         <span className="block text-[12.5px] text-ink-2">
-                          {Math.round(meters / 10) * 10} m away, {qg.graded ? `grade ${qg.short}` : qg.text.toLowerCase()}
+                          {Math.round(meters / 10) * 10} m away, {qg.graded ? `grade ${qg.short}` : qg.withDate}
                           {!expired && m.label ? `, ${m.label.toLowerCase()}` : ""}
                         </span>
                       </span>

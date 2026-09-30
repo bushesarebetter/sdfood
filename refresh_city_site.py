@@ -65,7 +65,10 @@ def _rel(path):
 
 def refusal_on_record():
     """The refusal on record, or None: data/PULL_REFUSED.json (a file there that does not parse still
-    counts), or a partial pull's meta, or a copy of one set aside, that records a refusal."""
+    counts), or a partial pull's meta, or a copy of one set aside, that records a refusal. As
+    fetch_sdfood.refusal_on_record does (the same reading, kept here with this script's own paths),
+    a refusal found only in a partial meta is copied into PULL_REFUSED.json, never over one already
+    there, so that nothing done to the partial pull later can lose it."""
     if REFUSED.exists():
         rec = _read(REFUSED)
         return rec if isinstance(rec, dict) and rec else {"detail": f"{REFUSED.name} is present"}
@@ -73,7 +76,14 @@ def refusal_on_record():
         meta = _read(path)
         if isinstance(meta, dict) and meta.get("refused"):
             r = meta["refused"]
-            return {**(r if isinstance(r, dict) else {"detail": str(r)}), "from": path.name}
+            rec = {**(r if isinstance(r, dict) else {"detail": str(r)}), "from": path.name}
+            try:
+                REFUSED.parent.mkdir(parents=True, exist_ok=True)
+                with open(REFUSED, "x", encoding="utf-8") as fh:      # "x": never over a record already there
+                    json.dump(rec, fh, indent=2)
+            except OSError:
+                pass                                        # the partial meta still holds it
+            return rec
     return None
 
 

@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import {
   isStaff, contactLine, reviewStatus, reviewGuidance, districtGuidance, auditCsv, auditPrint, signInAgain, GUIDANCE, PUBLIC_RECORD_NOTE, USE_NOTE,
   evidenceDistricts, fairnessLine, USE_POINT, openChecksSentence, watchPrints, describePrints, printSubject,
-  driftNoteGuidance, DISTRICT_CITING_NOTE, districtStatus, districtShareLine, staffBar, mailContact,
+  driftNoteGuidance, DISTRICT_CITING_NOTE, districtStatus, districtShareLine, staffBar, mailContact, monitorGuidance,
 } from "../src/lib/staff.js";
 
 const src = join(dirname(fileURLToPath(import.meta.url)), "..", "src");
@@ -294,7 +294,7 @@ test("the print log is mounted once at the root of the app, never by a banner", 
   assert.match(read("MobileShell.jsx"), /<StaffBanner compact \/>/);
 });
 
-const LOW = "In the latest quarter (2026 Q3, through September 28) 20.4% of routine inspections found a major violation, against 17.5% over the backtest year, so the rates here may be low.";
+const LOW = "In the latest quarter (2026 Q3, through September 28) 20.4% of routine inspections found a major violation, against 17.5% over the backtest's label year before that quarter (September 2025 to June 2026), so the rates here may be low.";
 
 test("the export's drift note becomes an instruction: the rates are probably low (or high)", () => {
   assert.equal(driftNoteGuidance({ drift: { note: LOW } }), GUIDANCE.driftLow);
@@ -302,6 +302,8 @@ test("the export's drift note becomes an instruction: the rates are probably low
   assert.equal(driftNoteGuidance({ drift: { note: LOW.replace("may be low", "may be high") } }), GUIDANCE.driftHigh);
   assert.equal(driftNoteGuidance({ drift: { note: "Something else.", latest_rate: 0.2, major_rate_backtest: 0.17 } }), GUIDANCE.driftLow, "from the rates");
   assert.equal(driftNoteGuidance({ drift: { note: "Something else.", latest_rate: 0.15, major_rate_backtest: 0.17 } }), GUIDANCE.driftHigh);
+  assert.equal(driftNoteGuidance({ drift: { note: "Something else.", latest_rate: 0.18, latest_baseline: 0.16, major_rate_backtest: 0.19 } }),
+    GUIDANCE.driftLow, "against the note's own baseline, the label year's months before the quarter, when the export has it");
   assert.equal(driftNoteGuidance({ drift: { note: "Something else." } }), null);
   assert.equal(driftNoteGuidance({ drift: { note: null, latest_rate: 0.2, major_rate_backtest: 0.17 } }), null, "no note, no instruction");
   const meta = { audience: "staff", review_status: STATUS, drift: { status: "not_yet_measurable", refit_needed: false, note: LOW } };
@@ -312,6 +314,25 @@ test("the export's drift note becomes an instruction: the rates are probably low
   assert.equal(openChecksSentence(meta), `This list has not passed ${STATUS.length} of the checks a public release would need.`, "not counted as an open check");
   assert.ok(staffBar(meta).guidance.includes(GUIDANCE.driftLow), "in the staff notice too");
   assert.ok(reviewGuidance({ ...meta, review_status: [...STATUS, NEW_STATUS.at(-1)] }).includes(GUIDANCE.drift), "a refit line still gives its own");
+});
+
+test("the monitor's alert on a list it has scored becomes an instruction; a monitor that did not run is the operator's", () => {
+  const alert = "Band 1 in the City on the list of 2026-09-29 had a major violation at 20.0% of its later routine inspections over the first 90 days (95% interval up to 25.0%), below the 30.0% its backtest expected for the same window.";
+  const base = { audience: "staff", review_status: STATUS };
+  for (const status of ["interim", "complete"]) {
+    assert.equal(monitorGuidance({ monitor: { status, runs: 1, alerts: [alert], next_window_date: null } }), GUIDANCE.monitor, status);
+  }
+  assert.equal(monitorGuidance({ monitor: { status: "interim", runs: 1, alerts: [], next_window_date: "2026-12-28" } }), null, "no alert");
+  assert.equal(monitorGuidance({ monitor: { status: "too early", runs: 1, alerts: [], next_window_date: "2026-12-28" } }), null);
+  assert.equal(monitorGuidance({ monitor: { status: "failed", runs: 0, alerts: ["The monitor has not run for this list."], next_window_date: null } }), null,
+    "not about the rates: /healthz and the daily check tell the operator");
+  assert.equal(monitorGuidance({ monitor: { status: "complete", alerts: ["", 3] } }), null, "no sentence, no instruction");
+  assert.equal(monitorGuidance({}), null, "an older export has no monitor");
+  const meta = { ...base, monitor: { status: "interim", runs: 1, alerts: [alert], next_window_date: null } };
+  const g = reviewGuidance(meta);
+  assert.equal(g.indexOf(GUIDANCE.monitor), g.indexOf(GUIDANCE.prospective) - 1, "beside the prospective test's line");
+  assert.equal(openChecksSentence(meta), `This list has not passed ${STATUS.length} of the checks a public release would need.`, "not counted as an open check");
+  assert.ok(staffBar(meta).guidance.includes(GUIDANCE.monitor), "in the staff notice");
 });
 
 // The shape of a real export's district figures: one district above even on both wider intervals, one
@@ -327,7 +348,7 @@ const STATUS_DISTRICTS = {
 test("About says which districts are above even under which interval, from the export's fields", () => {
   const meta = { audience: "staff", fairness: { by_district: STATUS_DISTRICTS } };
   assert.deepEqual(districtStatus(meta), [
-    "Only District 9 stays above even on both wider intervals, allowing for chance across the nine districts and for inspectors, so the staff notice and the district view name only it.",
+    "Only District 9 stays above even on both wider intervals, allowing for chance across the nine districts and for inspectors, so the instruction on districts in the staff notice and the district view names only it.",
     "District 6 is above even on the 95% interval for the district alone and on the family-wise one, but not once inspectors are allowed for too.",
     "District 4 is above even on the 95% interval for the district alone, but not on the family-wise one, which allows for chance across the nine districts.",
   ]);
@@ -336,10 +357,18 @@ test("About says which districts are above even under which interval, from the e
     "Only District 9 stays above even on both wider intervals, allowing for chance across the nine districts and for inspectors.", "no banner on the public site");
   const none = { 4: STATUS_DISTRICTS[4], 5: { ...STATUS_DISTRICTS[4] } };
   assert.deepEqual(districtStatus({ audience: "staff", fairness: { by_district: none } }), [
-    "No district stays above even on both wider intervals, allowing for chance across the nine districts and for inspectors, so the staff notice and the district view name none.",
+    "No district stays above even on both wider intervals, allowing for chance across the nine districts and for inspectors, so no instruction in the staff notice or the district view names a district.",
     "Districts 4 and 5 are above even on the 95% interval for the district alone, but not on the family-wise one, which allows for chance across the nine districts.",
   ]);
   assert.equal(districtStatus({ fairness: { by_district: { 4: { interval: [1.2, 2] } } } }), null, "an older export keeps its gate lines alone");
+  // What the sentence says of the notice holds: its instruction names only District 9, while its list of
+  // open checks still gives the gate's line for District 4.
+  const bar = staffBar({ ...meta, review_status: STATUS });
+  const onDistricts = bar.guidance.filter((g) => /\bDistricts? \d/.test(g));
+  assert.equal(onDistricts.length, 1);
+  assert.match(onDistricts[0], /District 9\b/);
+  assert.doesNotMatch(onDistricts[0], /District [46]\b/);
+  assert.ok(bar.checks.some((c) => /^district 4:/.test(c)), "the open checks keep the gate's own lines");
   assert.equal(districtStatus({}), null);
 });
 

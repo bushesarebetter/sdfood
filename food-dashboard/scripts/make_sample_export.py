@@ -10,13 +10,13 @@ figure in meta.json is computed from the invented records, not measured.
 What it writes, like the real export (``--out``, default food-dashboard/public/data):
   * ``facilities.geojson``, the index: one Point per listed place with only what the map, the
     list, the filters and the search need (facility_id, name, address, kind, district, last
-    visit, the grade on record, record flags counted back from the list date, and in ``bands``
-    mode band and points);
+    visit with the County's own type text on it, the grade on record, record flags counted back
+    from the list date, and in ``bands`` mode band and points);
   * ``place/<facility_id>.json``, one file per place: the index entry plus the County's type,
-    every County record (one entry per record, with the County's status text, its inspection
+    every record kept (one entry per record, with the County's status text, its inspection
     type as ``county_type`` and its notes as ``notes``, all verbatim; a closure carries
     ``reopened_on``), the items cited in the 36 months before the last visit, each under the
-    section of the County's report its item number falls in (at most 60, majors first), the
+    section of the County's report its item number falls in (at most 150, majors first), the
     counts by theme of every item in that window before the cut (``theme_counts``,
     ``violations_total``), and in ``bands`` mode the worksheet (``scores_used`` with a health
     closure read as 70 and the County's own score beside it);
@@ -30,7 +30,8 @@ What it writes, like the real export (``--out``, default food-dashboard/public/d
     reads), the rates with the label cut off after 90, 180 and 270 days (``interim``), each
     district's precision and share of the wrongly named with bootstrap intervals (95%, family-wise,
     and family-wise widened for an assumed design effect of 2), and the frozen-rule and drift fields
-    the real export carries (drift quarter by quarter, as export_site.drift_check).
+    the real export carries (drift as export_site.drift_check: the label year month by month, and
+    the latest quarter against the label year's months before it).
 
 The record also shows, on a few places each, what the real export keeps and reads since round 5:
 a closure only a later "Approved to Reopen" shows (``closure_inferred``), an "Approved to Reopen"
@@ -40,7 +41,8 @@ records that cite items or are "Ordered Closed" (type ``status_check``), "Self C
 has no reopening on record (``grade.open_closure``). They come from their own random stream, and
 the records added fall where no count the rule, the flags or the backtest reads can see them, so
 the rest of the sample is what it was. In ``bands`` mode, ``monitor_summary.json`` says the
-forward test is "too early": the sample has no forward runs.
+forward test is "too early": the sample has no forward runs, so it has no alert and no figures by
+council district.
 
 Only restaurants with a scored routine inspection in the year before the list date are scored;
 markets, limited-preparation places and other restaurants carry neither points nor a band. One
@@ -182,8 +184,8 @@ SEVERITIES = ("major", "minor", "grp")
 CLOSURES = ("health", "permit", "other")
 ESCALATION_FLAGS = ("major_2", "closures2", "repeat_item", "lt90_2")
 RECORD_FLAGS = ("major", "closed", "bc", "repeat", *ESCALATION_FLAGS)
-CLOSURE_SCORE = 70   # a routine inspection that ended in a health closure order is read as this score
-MAX_ITEMS = 60       # items listed per place, majors first (export_site.MAX_VIOLATIONS)
+CLOSURE_SCORE = 70   # a routine inspection that started a closure for a health hazard is read as this score
+MAX_ITEMS = 150      # items listed per place, majors first (export_site.MAX_VIOLATIONS)
 
 RECORD_START = date(2023, 1, 1)
 THROUGH = date(2026, 8, 31)
@@ -196,6 +198,7 @@ TWO_YEARS = timedelta(days=730)   # the escalation facts' window, as export_site
 SHARES = ((0.025, "1"), (0.075, "2"), (0.175, "3"))
 INTERIM_DAYS = (90, 180, 270)      # the monitor's interim label windows, as export_site.INTERIM_DAYS
 DRIFT_MIN, DRIFT_SE = 0.02, 3.0    # a rate moves when it moves by more than this or 3 standard errors
+REPORT_LAG_DAYS = 30               # a quarter is compared once the County's reporting has had this long, as export_site
 QUARTER_MIN = 200                  # quarters with fewer routine inspections are left out, as export_site
 FAIR_DEFF = 2.0                    # an assumed design effect for inspector clustering, as export_site.FAIR_DEFF
 
@@ -207,7 +210,9 @@ RULE = [
      "unit": "per citation", "feature": "theme_temperature"},
 ]
 RULE_TEXT = ("Places get one point for each point their average routine score in the last year fell "
-             "below 100, and two points for each food-temperature citation in the last year.")
+             "below 100, and two points for each food-temperature citation in the last year. A routine inspection "
+             "that started a closure for a health hazard (a County closure order, the operator's own closure with a "
+             "major cited, or a closure read from a later reopening) counts as 70.")
 ELIGIBILITY = "restaurants with a scored routine inspection in the year before the list date"
 INDEX_KEYS = ("facility_id", "name", "address", "facility_type", "council_district", "last_visit", "grade", "flags", "band", "points", "on_hold")
 
@@ -321,12 +326,14 @@ def in_window(violations, inspections):
 
 
 def exported(violations, inspections):
-    """Items cited in the 36 months before the last visit, majors first, then newest, at most 60."""
-    keep = in_window(violations, inspections)
-    rank = {s: i for i, s in enumerate(SEVERITIES)}
-    keep.sort(key=lambda v: v["date"], reverse=True)
-    keep.sort(key=lambda v: rank[v["severity"]])
-    return keep[:MAX_ITEMS]
+    """Items cited in the 36 months before the last visit, as export_site.violations_shown: majors
+    first, then the rest, each oldest first; at most MAX_ITEMS, and when the cap cuts, it drops the
+    oldest non-major items, never the newest."""
+    keep = sorted(in_window(violations, inspections), key=lambda v: v["date"])
+    majors = [v for v in keep if v["severity"] == "major"][-MAX_ITEMS:]
+    rest = [v for v in keep if v["severity"] != "major"]
+    room = MAX_ITEMS - len(majors)
+    return majors + (rest[max(len(rest) - room, 0):] if room else [])
 
 
 def theme_counts(items):
@@ -449,8 +456,9 @@ def add_county_detail(rng: random.Random, inspections, violations):
 
 def open_closure(inspections):
     """The place's last closure when no "Approved to Reopen" and no graded routine or re-grade on a
-    later day follow it: {date, reason, later_ungraded: [dates of the records after it], status: the
-    County's status text on the record that started it}; else None."""
+    later day follow it: {date, reason, later_ungraded, status: the County's status text on the record
+    that started it}; else None. As export_site.open_closure: later_ungraded is the dates of the
+    ungraded records on later days, not counting a further closure order in the same closure."""
     closed = [k for k, i in enumerate(inspections) if i["closed"]]
     if not closed:
         return None
@@ -460,7 +468,9 @@ def open_closure(inspections):
         return None
     if any(i["type"] in ("routine", "followup") and i["grade"] and i["date"] > c["date"] for i in later):
         return None
-    out = {"date": c["date"], "reason": c["closure"], "later_ungraded": sorted({i["date"] for i in later if not i["grade"]})}
+    order = lambda i: i["status"] == "Ordered Closed" or (i["status"] == "Self Closed" and i["major"] > 0)
+    out = {"date": c["date"], "reason": c["closure"],
+           "later_ungraded": sorted({i["date"] for i in later if i["date"] > c["date"] and not i["grade"] and not order(i)})}
     if not c.get("closure_inferred") and c["status"] in ("Ordered Closed", "Self Closed"):
         out["status"] = c["status"]
     return out
@@ -523,9 +533,11 @@ def record_flags(inspections, violations, as_of: date = LIST_DATE):
 
 
 def used_scores(place, lo: str, hi: str, closures: bool = True):
-    """The routine scores the rule reads in [lo, hi): a routine that ended in a health closure order
-    is read as CLOSURE_SCORE (`closure: true`), beside the County's own score that day, if any.
-    With `closures=False`, those routines are left out: the record on routine scores alone."""
+    """The routine scores the rule reads in [lo, hi): a routine that started a closure for a health
+    hazard (a County closure order, the operator's own closure with a major cited, or a closure read
+    from a later reopening) is read as CLOSURE_SCORE (`closure: true`), beside the County's own score
+    that day, if any. With `closures=False`, those routines are left out: the record on routine
+    scores alone."""
     used = []
     for i in place["inspections"]:
         if i["type"] != "routine" or not lo <= i["date"] < hi:
@@ -672,7 +684,7 @@ def backtest(places):
     positives = sum(1 for r in rows if r["positive"])
     lab = [r for r in rows if r["labelled"]]
     # Two estimate curves, as export_site: places whose scored year includes a routine inspection that
-    # ended in a health closure (counted as 70) read their own, and every other place reads `curve`.
+    # started a health closure (counted as 70) read their own, and every other place reads `curve`.
     closure = [(r["points"], int(r["positive"])) for r in lab if any(u["closure"] for u in r["used"])]
     scores = [(r["points"], int(r["positive"])) for r in lab if not any(u["closure"] for u in r["used"])]
     extra = {"base_rate": round(sum(r["positive"] for r in lab) / len(lab), 4) if lab else None,
@@ -834,41 +846,73 @@ def pooled(qs, by_q, n_q):
     return (sum(by_q[q] * n_q.get(q, 0) for q in qs) / n, n) if n else (None, 0)
 
 
+def routine_by_month(places):
+    """{"YYYY-MM": [routine inspections, with a major]} through THROUGH, as export_site.measurement."""
+    by = {}
+    for p in places:
+        for i in p["inspections"]:
+            if i["type"] == "routine" and i["date"] <= THROUGH.isoformat():
+                c = by.setdefault(i["date"][:7], [0, 0])
+                c[0] += 1
+                c[1] += int(i["major"] > 0)
+    return dict(sorted(by.items()))
+
+
+def month_name(ym: str) -> str:
+    """"2025-09" -> "September 2025"."""
+    return f"{date(int(ym[:4]), int(ym[5:7]), 1).strftime('%B')} {ym[:4]}"
+
+
 def drift(places, share_then, share_now, n_then, n_now):
     """As export_site.drift_check: the routine major rate in complete quarters that start after the
-    backtest's label year, against the rate over the label year's quarters ("not_yet_measurable"
-    until such a quarter exists), and band 1's share of scored restaurants now against its share
-    then, each against max(DRIFT_MIN, 3 standard errors). The latest quarter's rate is also set
-    against the backtest's; a clear difference gets a note the site shows beside every estimate."""
+    backtest's label year (complete REPORT_LAG_DAYS after they end), against the rate over the label
+    year's own months ("not_yet_measurable" until such a quarter exists), and band 1's share of
+    scored restaurants now against its share then, each against max(DRIFT_MIN, 3 standard errors).
+    The latest quarter's rate is also set against the label year's months that fall before that
+    quarter, with their own count, so the two samples never share an inspection; a clear difference
+    gets a note the site shows beside every estimate."""
     by_q, n_q = major_rate_by_quarter(places)
+    by_m = routine_by_month(places)
     label_end = BACKTEST_AS_OF + YEAR - timedelta(days=1)
-    label_q = quarters_between(BACKTEST_AS_OF, label_end)
-    base_then, n_label = pooled([q for q in label_q if q in by_q], by_q, n_q)
-    after = [q for q in by_q if quarter_bounds(q)[0] > label_end and quarter_bounds(q)[1] <= THROUGH][-2:]
+    latest = list(by_q)[-1] if by_q else None
+    latest_start = quarter_bounds(latest)[0].isoformat()[:7] if latest else None
+    label_months = [m for m in by_m if BACKTEST_AS_OF.isoformat()[:7] <= m <= label_end.isoformat()[:7]]
+    n_label = sum(by_m[m][0] for m in label_months)
+    base_then = sum(by_m[m][1] for m in label_months) / n_label if n_label else None
+    before = [m for m in label_months if latest_start is None or m < latest_start]
+    n_note = sum(by_m[m][0] for m in before)
+    base_note = sum(by_m[m][1] for m in before) / n_note if n_note else None
+    span_then = f"{month_name(label_months[0])} to {month_name(label_months[-1])}" if label_months else None
+    span_note = f"{month_name(before[0])} to {month_name(before[-1])}" if before else None
+    after = [q for q in by_q if quarter_bounds(q)[0] > label_end
+             and quarter_bounds(q)[1] + timedelta(days=REPORT_LAG_DAYS) <= THROUGH][-2:]
     base_now, n_recent = pooled(after, by_q, n_q)
     thr = lambda p1, n1, p0, n0: max(DRIFT_MIN, DRIFT_SE * math.sqrt(p1 * (1 - p1) / n1 + p0 * (1 - p0) / n0))
     reasons = []
     measurable = base_now is not None and base_then is not None
     if measurable and abs(base_now - base_then) > thr(base_now, n_recent, base_then, n_label):
-        reasons.append(f"routine major rate {base_now:.1%} in {', '.join(after)} against {base_then:.1%} over the backtest year")
+        reasons.append(f"routine major rate {base_now:.1%} in {', '.join(after)} against {base_then:.1%} over the backtest's "
+                       f"label year ({span_then})")
     if share_then is not None and share_now is not None and n_now and n_then and \
             abs(share_now - share_then) > thr(share_now, n_now, share_then, n_then):
         reasons.append(f"band 1 holds {share_now:.1%} of scored City restaurants against {share_then:.1%} in the backtest")
-    latest = list(by_q)[-1] if by_q else None
     note = None
-    if latest and base_then is not None:
+    if latest and base_note is not None and n_q.get(latest):
         lr, ln = by_q[latest], n_q[latest]
-        if abs(lr - base_then) > thr(lr, ln, base_then, n_label):
+        if abs(lr - base_note) > thr(lr, ln, base_note, n_note):
             end = quarter_bounds(latest)[1]
             upto = "" if THROUGH >= end else f", through {THROUGH.strftime('%B')} {THROUGH.day}"
             note = (f"In the latest quarter ({latest[:4]} Q{latest[-1]}{upto}) {lr:.1%} of routine inspections found a major "
-                    f"violation, against {base_then:.1%} over the backtest year, so the rates here may be "
-                    f"{'low' if lr > base_then else 'high'}.")
+                    f"violation, against {base_note:.1%} over the backtest's label year before that quarter ({span_note}), "
+                    f"so the rates here may be {'low' if lr > base_note else 'high'}.")
     return {"major_rate_backtest": round(base_then, 4) if base_then is not None else None,
+            "major_rate_backtest_n": n_label or None, "backtest_span": span_then,
             "major_rate_recent": round(base_now, 4) if base_now is not None else None, "recent_quarters": after,
             "band_1_share_backtest": share_then, "band_1_share_now": share_now,
             "latest_quarter": latest, "latest_rate": by_q.get(latest) if latest else None,
             "latest_n": n_q.get(latest) if latest else None,
+            "latest_baseline": round(base_note, 4) if base_note is not None else None, "latest_baseline_n": n_note or None,
+            "latest_baseline_span": span_note,
             "status": "refit" if reasons else ("ok" if measurable else "not_yet_measurable"),
             "refit_needed": bool(reasons), "reasons": reasons, "note": note,
             "thresholds": {"min": DRIFT_MIN, "standard_errors": DRIFT_SE}}
@@ -1024,7 +1068,8 @@ def build(n_places: int = 1400, seed: int = 9, mode: str = "bands"):
             "address": p["address"],
             "facility_type": p["facility_type"],
             "council_district": p["district"],
-            "last_visit": {"date": p["inspections"][-1]["date"], "type": p["inspections"][-1]["type"]},
+            "last_visit": {"date": p["inspections"][-1]["date"], "type": p["inspections"][-1]["type"],
+                           "county_type": p["inspections"][-1]["county_type"]},
             "grade": grade_on_record(p["inspections"]),
             "flags": record_flags(p["inspections"], p["all_violations"]),
         }
@@ -1117,8 +1162,10 @@ def build(n_places: int = 1400, seed: int = 9, mode: str = "bands"):
 
 def monitor_summary(meta):
     """What export_site.monitor writes, for the sample: the forward test has had no runs, so it is too
-    early to say anything, and there is nothing to alert on."""
-    return {"status": "too early", "runs": 0, "alerts": [], "next_window_date": None}
+    early to say anything, there is nothing to alert on and no list to break down by district."""
+    return {"status": "too early", "runs": 0, "alerts": [], "next_window_date": None,
+            "rule_version": (meta.get("frozen") or {}).get("version"), "inspections_through": meta.get("inspections_through"),
+            "by_district": None}
 
 
 def write(out: Path, fc, place_files, meta) -> None:
@@ -1126,10 +1173,11 @@ def write(out: Path, fc, place_files, meta) -> None:
     monitor summary; a record export has none)."""
     out.mkdir(parents=True, exist_ok=True)
     (out / "facilities.geojson").write_text(json.dumps(fc, separators=(",", ":")), encoding="utf-8")
-    (out / "meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
+    # newline="\n": the committed sample is LF (.gitattributes), on Windows too
+    (out / "meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8", newline="\n")
     monitor = out / "monitor_summary.json"
     if meta.get("mode") == "bands":
-        monitor.write_text(json.dumps(monitor_summary(meta), indent=2), encoding="utf-8")
+        monitor.write_text(json.dumps(monitor_summary(meta), indent=2), encoding="utf-8", newline="\n")
     elif monitor.exists():
         monitor.unlink()
     pdir = out / "place"

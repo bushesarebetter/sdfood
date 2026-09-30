@@ -180,6 +180,27 @@ def test_dry_run_prints_the_plan_runs_nothing_and_keeps_the_hook_secret(export, 
     assert not (site / d.RELEASE_FILE).exists(), "a dry run writes nothing"
 
 
+@pytest.mark.parametrize("build_ok", [True, False])
+def test_the_release_record_is_on_disk_only_while_the_image_is_built(export, approved, monkeypatch, build_ok):
+    """So an image built by hand later, from a release checked another day, stops at the Dockerfile's COPY."""
+    site, worklists, research = export
+    for name, value in (("SITE", site), ("WORKLISTS", worklists), ("RESEARCH", research)):
+        monkeypatch.setattr(d, name, value)
+    seen = []
+
+    def sh(cmd, dry=False, capture=False):
+        if cmd[:2] == ["docker", "build"]:
+            seen.append(json.loads((site / d.RELEASE_FILE).read_text(encoding="utf-8"))["sunset"])
+            if not build_ok:
+                raise subprocess.CalledProcessError(1, cmd)
+        return ""
+    monkeypatch.setattr(d, "sh", sh)
+    monkeypatch.setattr(d, "smoke_test", lambda *a, **k: None)
+    assert d.main(["--image", "ghcr.io/someone/sdfood-api", "--allow-expired", "--no-push"]) == (0 if build_ok else 1)
+    assert seen == ["2027-06-30"], "the build reads the record"
+    assert not (site / d.RELEASE_FILE).exists(), "and it is gone afterwards, whether the build went through or not"
+
+
 def test_the_release_record_is_what_the_image_carries(export, tmp_path):
     site, _, _ = export
     rec = d.release_record({**GOOD, **ASKED}, {"DEH-B", "DEH-A"}, today=date(2026, 9, 29))
@@ -235,6 +256,8 @@ def test_dockerfile_listens_on_render_port_as_a_non_root_user():
     # the sunset is San Diego's date: the image carries the time-zone database the API reads it with
     assert any(line.startswith("tzdata==") for line in (ROOT / "api" / "requirements.txt").read_text(encoding="utf-8").splitlines())
     assert "COPY data/site/ data/site/" in text, "the release record (data/site/api_release.json) goes into the image"
+    # named on its own, so a build without the record deploy_api.py writes stops (the API serves nothing without it)
+    assert "\nCOPY data/site/api_release.json data/site/api_release.json\n" in text
 
 
 def test_the_api_has_the_staff_sites_release_gates(export):

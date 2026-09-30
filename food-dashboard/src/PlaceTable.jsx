@@ -179,7 +179,7 @@ const makeColumns = ({ mode, meta, onSelect, inline = false, beside = false }) =
     meta: { td: "min-w-[7rem]" },
     cell: ({ row }) => {
       const g = gradeView(row.original.properties.grade);
-      return <span className="tnum font-semibold" style={g.textColor ? { color: g.textColor } : undefined}>{g.graded || g.closedOpen ? g.short : <span className="font-normal text-ink-2">{g.withDate ?? g.text.toLowerCase()}</span>}</span>;
+      return <span className="tnum font-semibold" style={g.textColor ? { color: g.textColor } : undefined}>{g.graded || g.closedOpen ? g.short : <span className="font-normal text-ink-2">{g.withDate}</span>}</span>;
     },
   },
   {

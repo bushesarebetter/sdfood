@@ -43,8 +43,10 @@ The order within a district
     the list); a place it does not score (markets, limited-preparation places, restaurants without
     two rated routine inspections) by the one-line rule, 100 minus its mean routine score on record
     since 2023-01, to 0.1. So a place that was closed twice is never listed below one averaging 98.
-    In both, a routine that ended in a health closure order is counted as 70 by this rule (the
-    County gives no score then); a facility with no scored or closed routine counts as 97.
+    In both, a routine that started a closure for a health hazard (a County closure order, the
+    operator's own closure with a major cited, or a closure read from a later reopening) is counted
+    as 70 by this rule (the County gives no score then); a facility with no scored or closed routine
+    counts as 97.
     Ties go to the lower mean, then the earlier due_estimate, then facility_id.
   * A place on hold (docs/holds.json) keeps its County record and loses its points, its band and its
     place in the order: it is listed after every other place in its district, by due_estimate.
@@ -100,8 +102,10 @@ METHOD = ("Due estimate: active facilities (visited in the 550 days before the m
           "are Kaplan-Meier medians from the public record before the month, counting each active facility's "
           "still-open interval (all types pooled below 30 finished gaps). Computed from the "
           "County's published results (SD Food Info) strictly before the month's first day.")
-MEAN_RULE = ("lowest mean routine inspection score on record (since 2023-01) first; a routine that ended in a "
-             "health closure order counts as 70; a facility with no scored or closed routine counts as 97")
+MEAN_RULE = ("lowest mean routine inspection score on record (since 2023-01) first; a routine that started a "
+             "closure for a health hazard (a County closure order, the operator's own closure with a major cited, "
+             "or a closure read from a later reopening) counts as 70; a facility with no scored or closed routine "
+             "counts as 97")
 FALLBACK = (" No point rule export (data/site) was found, so every district is in the one-line rule's order: "
             "rule_points = 100 minus the mean routine score on record.")
 
@@ -249,17 +253,20 @@ def intervals(rt, asof=None, last_visit=None):
 
 
 def _closed_text(county):
-    """How a closure reads in a worksheet line: the rule's 70, never the County's score."""
+    """How a health closure reads in a worksheet line, in the staff site's words (lib/bands.js
+    scoreUsedText): the rule's 70, never the County's score."""
     c = mf.es.CLOSURE_SCORE
-    return (f" (closed; the County gave no score, this rule counts it as {c})" if county is None
-            else f" (closed; the County's score that day {county:g}, this rule counts a closure as {c})")
+    return (f" (a health closure, our reading; the County gave no score, this rule counts it as {c})" if county is None
+            else f" (a health closure, our reading; the County's score that day {county:g}, this rule counts it as {c})")
 
 
 def _why(record, majors, n, *, points=None, band=None, card=False, used=None, escalation="", held=False):
     """Which ordering placed the row, and the facts behind it: the very readings its number averages,
     so it can be checked by hand from this line alone. `record` and `used` are
-    [(reading, closure, county_score)]: a routine that ended in a health closure order is read as 70
-    by this rule (never "scored 70 by the County"), with the County's own score that day beside it."""
+    [(reading, closure, county_score)]: a routine that started a closure for a health hazard (a County
+    closure order, the operator's own closure with a major cited, or a closure read from a later
+    reopening) is read as 70 by this rule (never "scored 70 by the County"), with the County's own
+    score that day beside it."""
     first = f"First: {escalation} ({GUIDE_NOTE}). " if escalation and not held else ""
     if points is not None and used:
         listed = ", ".join(f"{u[0]:g}{_closed_text(u[2] if len(u) > 2 else None) if u[1] else ''}" for u in used)
@@ -314,7 +321,7 @@ def worklist(insp, info, month, lookup, *, card=None, use_status=True, why=True,
     else:
         f["closures_24m"] = 0
     f["mean_all"] = g["score"].mean()
-    # the rule's mean counts a routine that ended in a health closure as CLOSURE_SCORE, as the card does
+    # the rule's mean counts a routine that started a health closure as CLOSURE_SCORE, as the card does
     f["mean_rated"] = (g["rated_score"] if "rated_score" in rt.columns else g["score"]).mean()
     f["last_visit"] = last_visit
     f = f[(start - f["last_visit"]).dt.days <= ACTIVE_DAYS]

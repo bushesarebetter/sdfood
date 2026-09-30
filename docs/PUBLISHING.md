@@ -36,24 +36,35 @@ real export is ever published, deploy the built site from a private build.
 | The export is real, from a complete pull, and at least 2 days from expiry | A partial pull would quietly drop places; an expiring list would close within days |
 | The export is not older than the live one, and not more than 10% smaller unless `--force` | A refresh never quietly replaces a fuller list |
 | The code that built it was committed (its provenance is not `-dirty`) | Any list staff saw can be rebuilt from a commit |
+| This working tree has no uncommitted change to a tracked file; the site's code (food-dashboard, `city_site/`) is taken from HEAD with `git archive`, and both commits (`site_code_sha`, `export_code_sha`) are recorded | What ships is exactly a commit, and the record names it |
 | It applies the committed frozen rule (`docs/rule.json`, the version in `meta.frozen`) | The rule is not re-chosen with each export, and each version has a public date |
-| The push goes only to the private repository named, and it is private | The real export never reaches a public repository |
+| `docs/holds.json` can be read and is in its format, names no id that differs from a listed one only in case, and every held place on the list loses its points and band, in the list and in its place file | A holds file read as empty, or a mistyped id, would release a hold without a word |
+| Every run registered for the prospective test has its archive, with its registered hash, here or in the private repository's `ops/archive/` | The prospective test scores exactly that file, and nothing can rebuild it |
+| The push goes only to the private repository named, and it is private (with the GitHub CLI installed) | The real export never reaches a public repository |
 
 Some things are shipped rather than gated, and the site shows them on every page as instructions
 (`review_status`): **what has not been done**, in plain words (no City request for access, no TRUST
 Ordinance determination, no lawyer's review, no County comment, no owner told; until the first two are
 on record the site calls itself a demonstration, and the server shows the named list only to the
-site's operators; a TRUST answer of "applies" also needs the Council's approval), **whether the rule
-needs a refit** (`meta.drift`),
-and **every public-release gate the list does not pass** (the table below, run on this export). An
+site's operators; a TRUST answer of "applies" also needs the Council's approval; every entry counts
+only with its date on or before the day of publishing and who gave it), **whether the rule needs a
+refit** (`meta.drift`), and **every public-release gate the list does not pass** (the table below, run
+on this export). The monitor's summary ships too (`meta.monitor`), and the staff notice turns the drift
+note and a monitor alert into instructions, without counting them as open checks. An
 adult of record who is a student author is shown, not refused: that was the operator's decision, and
 the site says so. **Holds** (`docs/holds.json`) take effect with `publish_city_site.py --holds-only`,
 which changes nothing else and goes out even when a full export could not; the worklists apply them
 too, and a held place moves to the end of every list, so its position does not give its points away.
-Every publish is appended to `DEPLOYS.jsonl` in the private repository and to
-`data/staff_deploys.jsonl`, and writes `ops/` there (the source, the frozen rule, the pull's meta, the
-approval, the holds). The server logs every data file fetched and every CSV download and print with
-the sign-in's id, so it can always be said which list someone saw.
+`--holds-only` refuses, changing nothing, a held id that is not on the live list and that no publish
+has held (`ops/holds_applied.json`), or one that differs from a listed one only in case, and pushes
+nothing when nothing changed; a full publish warns about a held id off its list, saying whether a
+publish held it before. Every publish is appended to `DEPLOYS.jsonl` in the private repository and to
+`data/staff_deploys.jsonl`, and writes `ops/` there (the source of the site and, when it differs, of
+the list; the frozen rule, the pull's meta, the approval, the holds and the record of those applied,
+the monitor's output, and every archived list, written once). Each publish also checks that the public
+site's privacy page gives an owner the corrections contact's email, and until it does, tells staff as
+an open item. The server logs every data file fetched and every CSV download and print with the
+sign-in's id, so it can always be said which list someone saw.
 
 **Gates that hold after publishing.** The server closes the site's data after the sunset date, or if
 the deployed `meta.json` is not a staff copy, whatever was deployed. The build refuses a staff export
@@ -71,8 +82,13 @@ every page, and nothing in this project promises a list will stay private.
   to a private registry and deploys it on Render, where `SDFOOD_API_KEYS` is set as a secret
   ([HOSTING.md](HOSTING.md)).
 - `deploy_api.py` refuses without the staff site's own approval (`docs/STAFF_APPROVAL.json`: an
-  adult of record, a corrections contact, a sunset date), and refuses an export in which a place now
-  on hold still carries points or a band: the API serves the same named list, so it has the same gates.
+  adult of record, a corrections contact, a sunset date) and without the City's request and TRUST
+  answer on record (`access_approved`), since the API has no operator-only view. It refuses when
+  `docs/holds.json` cannot be read, or when a place now on hold still carries points or a band in the
+  export or in a worklist the image carries (the frozen pilot copies are not in the image). It writes
+  `data/site/api_release.json` into the image: past the release's sunset, without
+  `access_approved`, or without that file (an image built any other way), the API serves no data
+  (503). The API serves the same named list, so it has the same gates.
 - Give each office its own key, so access can be withdrawn one office at a time.
 - Refresh at least every two weeks. After 14 days without a refresh, every response carries
   `X-Data-Stale: true`, and `deploy_api.py` refuses to ship the expired export.
@@ -107,8 +123,11 @@ clear it at C/B = 0.25, 0.5, 1, 2 and 3.
 
 ### Owners: holds, notices and corrections
 
-- **`docs/holds.json`** (`{"facility_ids": [...]}`) lists places under review. A place on hold is
-  shown without a band or points, and is left out of a published export.
+- **`docs/holds.json`** (`{"facility_ids": [...]}`, as in `docs/holds.example.json`; ids are
+  case-sensitive) lists places under review. A place on hold is shown without a band or points, and is
+  left out of a published export. A file that cannot be read, or is not in that format, stops every
+  step that reads it (the export, the worklists, the staff publish and the API deploy), since reading
+  it as empty would release every hold.
 - **`docs/notices/<run>.csv`** logs the notice sent to each named place.
 - **`docs/corrections.json`** (`[{date, facility_id, what, why}]`) is published on the site's
   corrections page.
@@ -118,7 +137,13 @@ clear it at C/B = 0.25, 0.5, 1, 2 and 3.
 - Every run is archived once under `data/site/archive/<run>/`, with a manifest of hashes, and is
   never overwritten.
 - `export_site.py --monitor` scores every archived run against the routine inspections made after
-  it, and writes `monitor.md` and `monitor.json`.
+  it, and writes `monitor.md`, `monitor.json` and `monitor_summary.json` (a status, plain-sentence
+  alerts, the next window's date, the rule version and record it scored, and the City by council
+  district: [RUNBOOK.md](RUNBOOK.md), "Reading the monitor"). Every archived run is scored and listed,
+  but only a list drawn up under the current `docs/rule.json` version raises an alert, so an alert
+  clears once a refit's new version is live; the district figures are read, never alerted on. The
+  staff publish keeps all three files, and every archived run, in the private repository's `ops/`,
+  and ships a summary scored for another record or rule as `failed`.
 - If the registered run's band falls below the cost bar on those inspections, take the names down.
 
 ## The research dashboard, and its history

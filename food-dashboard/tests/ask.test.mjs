@@ -72,7 +72,28 @@ test("the record text lists every closure in the three years, in the panel's wor
   assert.match(lines[start + 1], /^  Ordered closed: Ordered Closed on September 4, 2025 \(County type: Routine\)\. Approved to Reopen on September 6, 2025\. Our reading: a major violation was cited that day\.$/);
   assert.match(lines[start + 2], /Ordered Closed on February 4, 2026 \(County type: Re-inspection\)\. No “Approved to Reopen” and no graded visit after it on the County's published record\. Later County records: Re-inspection, “Complete”, February 11, 2026\./);
   // Both counts: our closures, and the County's rows.
-  assert.match(t, /Since February 2025: 6 County records; 4 reinspections; 2 closures in our reading \(3 “Ordered Closed” records; a further order before the place reopened counts as the same closure\): 2 for a health hazard\./);
+  assert.match(t, /Since February 2025: 6 County records; 4 reinspections; 2 closures in our reading \(3 “Ordered Closed” records; a further order within 30 days of the last, with no reopening or graded visit between, is part of the same closure\): 2 for a health hazard\./);
+});
+
+test("the pasted counts give the rule for a further order whenever orders outnumber the closures that start at one", () => {
+  // A "Self Closed" closure, then an order the County followed with a second one: 2 closures, 2 orders.
+  const p = withRecords([
+    rec("2025-03-03", { status: "Self Closed", major: 1, closed: true, closure: "health", reopened: true, reopened_on: "2025-03-05" }),
+    rec("2025-03-05", { status: "Approved to Reopen", type: "followup", score: 95, grade: "A" }),
+    rec("2025-08-01", { status: "Ordered Closed", major: 1, closed: true, closure: "health", reopened: true, reopened_on: "2025-08-20" }),
+    rec("2025-08-10", { status: "Ordered Closed", type: "reinspection", major: 1 }),
+    rec("2025-08-20", { status: "Approved to Reopen", type: "reinspection" }),
+  ], { grade: "A", score: 95, date: "2025-03-05", replaced: null });
+  assert.match(recordText({ place: p, url: "u", meta: {} }),
+    /2 closures in our reading \(2 “Ordered Closed” records; a further order within 30 days of the last, with no reopening or graded visit between, is part of the same closure; 1 “Self Closed”\)/);
+  // Two orders more than 30 days apart are two closures: no rule to give.
+  const apart = withRecords([
+    rec("2025-02-01", { status: "Ordered Closed", major: 1, closed: true, closure: "health", reopened: false, reopened_on: null }),
+    rec("2025-04-01", { status: "Ordered Closed", major: 1, closed: true, closure: "health", reopened: false, reopened_on: null }),
+  ]);
+  const t = recordText({ place: apart, url: "u", meta: {} });
+  assert.match(t, /2 closures in our reading \(2 “Ordered Closed” records\): 2 for a health hazard/);
+  assert.doesNotMatch(t, /further order/);
 });
 
 test("an older record that says only reopened: true is never reported as not reopened", () => {

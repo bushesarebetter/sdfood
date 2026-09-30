@@ -208,6 +208,33 @@ def test_an_open_closure_is_named_beside_the_last_letter():
     assert (oc["date"], oc["status"]) == ("2026-08-21", "Self Closed"), "the operator's own closure is never called a County order"
 
 
+def test_the_countys_order_is_the_closure_shown_when_that_day_also_has_the_operators_own():
+    """Six "Self Closed" records and then the County's "Ordered Closed", one day: the closure shown
+    (the facts panel's record and grade.open_closure alike) is the County's order, not the first record."""
+    own = [inspection("2026-08-21", status="Self Closed", score="0", grade="", violations=[violation(VERMIN, "major")],
+                      iid=f"a{k}") for k in range(6)]
+    order = inspection("2026-08-21", status="Ordered Closed", score="0", grade="", violations=[violation(VERMIN, "major")], iid="b")
+    p = _place([inspection("2026-05-27", score="96"), *own, order])
+    recs = es.display_records(p)
+    assert [r["status"] for r in recs if r["closed"]] == ["Ordered Closed"], "one closure, shown at the County's order"
+    assert sum(r["closed"] for r in recs) == 1 and len([r for r in recs if r["date"] == "2026-08-21"]) == 7, \
+        "every record is still shown as published"
+    oc = es.posted_grade(recs, p["visits"])["open_closure"]
+    assert (oc["date"], oc["reason"], oc["status"]) == ("2026-08-21", "health", "Ordered Closed")
+    # the order in another visit that day (a status check), beside the operator's own closure at the routine
+    split = _place([inspection("2026-05-27", score="96"),
+                    inspection("2026-08-21", status="Self Closed", score="0", grade="", violations=[violation(VERMIN, "major")]),
+                    inspection("2026-08-21", kind="Status Verification", status="Ordered Closed", score="0", grade="",
+                               violations=[violation(VERMIN, "major")])])
+    recs = es.display_records(split)
+    assert [(r["status"], r["type"]) for r in recs if r["closed"]] == [("Ordered Closed", "status_check")]
+    assert es.posted_grade(recs, split["visits"])["open_closure"]["status"] == "Ordered Closed"
+    reopened = _place([*own, order, _reopen("2026-08-25")])
+    shown = [r for r in es.display_records(reopened) if r["closed"]]
+    assert [(r["status"], r["reopened"], r["reopened_on"]) for r in shown] == [("Ordered Closed", True, "2026-08-25")]
+    assert "closed" in es.flags(es.display_records(reopened), reopened["visits"], "2026-09-01")
+
+
 def test_the_countys_notes_and_inspection_type_are_shown_verbatim():
     p = _place([inspection("2025-06-01", score="93", violations=[violation(TEMP, "minor"), note("Impoundment")]),
                 inspection("2025-07-01", kind="Environmental", score="0", grade="", violations=[note("No Valid Permit")]),
@@ -222,22 +249,28 @@ def test_the_countys_notes_and_inspection_type_are_shown_verbatim():
 
 def test_theme_counts_count_every_item_before_the_cap_and_the_cap_drops_the_oldest():
     grp = "45. Floor, walls and ceilings - built, maintained, clean"
+    assert es.MAX_VIOLATIONS == 150, "well above the most any place has had in the window (83)"
     visits = [inspection(f"2025-{m:02d}-10", score="80", grade="B",
-                         violations=[violation(TEMP, "major")] + [violation(grp, "grp")] * 12) for m in range(1, 8)]
+                         violations=[violation(TEMP, "major")] + [violation(grp, "grp")] * 15) for m in range(1, 13)]
     p = _place(visits)
     p["district"] = 1
     _, d = es.entry(p)
-    assert d["violations_total"] == 7 * 13 and len(d["violations"]) == es.MAX_VIOLATIONS
-    assert d["theme_counts"]["temperature"] == {"major": 7, "minor": 0, "grp": 0, "complaint": 0, "latest": "2025-07-10"}
-    assert d["theme_counts"]["grp_facility"]["grp"] == 84, "counted before the 60-item cap"
+    assert d["violations_total"] == 12 * 16 and len(d["violations"]) == es.MAX_VIOLATIONS
+    assert d["theme_counts"]["temperature"] == {"major": 12, "minor": 0, "grp": 0, "complaint": 0, "latest": "2025-12-10"}
+    assert d["theme_counts"]["grp_facility"]["grp"] == 180, "counted before the cap"
     kept = [v["date"] for v in d["violations"] if v["severity"] == "grp"]
-    assert max(kept) == "2025-07-10" and min(kept) > "2025-01-10", "the cap drops the oldest items, not the newest"
-    assert [v["severity"] for v in d["violations"][:7]] == ["major"] * 7
+    assert max(kept) == "2025-12-10" and min(kept) > "2025-02-10", "the cap drops the oldest items, not the newest"
+    assert [v["severity"] for v in d["violations"][:12]] == ["major"] * 12
+    fid = p["facility_id"]
+    warning = es.cut_warning({fid: d})
+    assert warning.startswith("WARNING: 1 place had more than 150 items") and f"up to 192, at {fid}" in warning
+    assert "MAX_ITEMS" in warning, "the export says when a list is cut, and what moves with the cap"
     small = _place([inspection("2025-01-10", violations=[violation(TEMP, "minor")]),
                     inspection("2025-02-10", kind="Site Investigation", score="0", grade="", violations=[violation(PESTS, "major")])])
     small["district"] = 1
     _, d = es.entry(small)
     assert d["violations_total"] == len(d["violations"]) == 2 and d["theme_counts"]["vermin"]["complaint"] == 1
+    assert es.cut_warning({small["facility_id"]: d}) is None, "nothing to say while every list is whole"
 
 
 def test_the_fingerprint_county_exercises_the_new_closure_rules(monkeypatch):
@@ -373,6 +406,13 @@ def test_entry_splits_index_and_detail_and_shows_complaint_findings():
     props = feat["properties"]
     assert set(props) == {"facility_id", "name", "address", "facility_type", "council_district", "last_visit", "grade", "flags",
                           "band", "points"}
+    assert props["last_visit"] == {"date": "2025-08-01", "type": "routine", "county_type": "Routine"}
+    field = es.load_places([business("2", [inspection("2025-06-01", score="93"),
+                                           inspection("2025-07-01", kind="Environmental", score="0", grade="")])])[0]
+    field["district"] = 1
+    assert es.entry(field)[0]["properties"]["last_visit"] == {"date": "2025-07-01", "type": "complaint",
+                                                              "county_type": "Environmental"}, \
+        "our reading (a complaint or other field visit) beside the County's own type text, verbatim"
     assert "score_card" in detail and "band_stability" in detail and "inspections" in detail
     assert {"major", "temperature", "vermin"} <= set(props["flags"])
     visits = {v["theme"]: v["visit"] for v in detail["violations"]}
@@ -1273,7 +1313,8 @@ def _summary_row(run, *, complete=False, window=90, b1=(200, 0.2, [0.15, 0.26], 
 def test_the_monitor_summary_says_how_far_the_monitor_got_and_what_it_found():
     too_early = [{"run": "forward_2026-09-29-aaaaaaaa", "complete": False, "window_days": None}]
     s = es.monitor_summary(too_early)
-    assert s == {"status": "too early", "runs": 1, "alerts": [], "next_window_date": "2027-01-27"}, "90 + 30 days after the list"
+    assert s == {"status": "too early", "runs": 1, "alerts": [], "next_window_date": "2027-01-27", "rule_version": None,
+                 "inspections_through": None, "by_district": None}, "90 + 30 days after the list"
     assert es.monitor_summary([])["status"] == "too early" and es.monitor_summary([])["next_window_date"] is None
     fine = [_summary_row("forward_2026-06-01-bbbbbbbb", b1=(200, 0.3, [0.24, 0.37], 0.31))] + too_early
     s = es.monitor_summary(fine)
@@ -1297,11 +1338,85 @@ def test_the_monitor_summary_says_how_far_the_monitor_got_and_what_it_found():
         assert "—" not in text and "risk" not in text.lower() and "fail" not in text.lower()
 
 
+def test_only_lists_under_the_rule_now_frozen_raise_an_alert_so_an_alert_clears_after_a_refit():
+    """An older rule's list, or one drawn up before any rule was frozen, is still scored and listed but
+    raises no alert: after a refit, the old list's result (fixed once complete) no longer keeps the
+    alert on."""
+    old = {**_summary_row("forward_2025-06-01-dddddddd", complete=True, window=365, b1=(400, 0.2, [0.16, 0.24], 0.31),
+                          oe=0.8, vp=(-9.0, -1.0)), "rule_version": "2025-05-30-aaaaaaaa", "current": False}
+    unfrozen = {**_summary_row("forward_2026-03-01-eeeeeeee"), "rule_version": None, "current": False}
+    new = {"run": "forward_2026-09-29-ffffffff", "rule_version": "2026-09-29-bbbbbbbb", "current": True,
+           "complete": False, "window_days": None}
+    s = es.monitor_summary([old, unfrozen, new], version="2026-09-29-bbbbbbbb", through="2026-09-28")
+    assert s["alerts"] == [] and s["runs"] == 3, "scored and counted, but no alert from a rule no longer frozen"
+    assert s["status"] == "complete", "how far the monitor got, over every list"
+    assert (s["rule_version"], s["inspections_through"]) == ("2026-09-29-bbbbbbbb", "2026-09-28")
+    low = {**_summary_row("forward_2026-06-01-bbbbbbbb"), "rule_version": "2026-05-30-cccccccc", "current": True}
+    s = es.monitor_summary([old, unfrozen, low], version="2026-05-30-cccccccc")
+    assert len(s["alerts"]) == 1 and "list of 2026-06-01" in s["alerts"][0] and "earlier list" not in s["alerts"][0], \
+        "the current rule's own list alerts, and the older lists are not counted as showing it too"
+    assert len(es.monitor_summary([{k: v for k, v in old.items() if k != "current"}])["alerts"]) == 3, \
+        "a result from before the mark counts as current"
+
+
+def test_the_monitor_reads_the_rule_version_and_breaks_the_city_down_by_council_district(built, tmp_path):
+    """Every archived list is scored and listed with its rule version; only one drawn up under the rule
+    now frozen can alert. In the City, each district's later rate, all scored places and those in the
+    bands the backtest audited, is set against that audit's rate in the district on a complete list."""
+    fc, details, meta, extra = built
+    places = extra["places"]
+    through = max(p["dates"][-1] for p in places if p["dates"])
+    day = (es._d(through) - timedelta(days=400)).isoformat()
+    frozen_meta = {**_as_of(meta, day), "frozen": {"version": "2026-01-01-aaaaaaaa", "frozen_on": day, "from_run": "x"}}
+    es.archive(tmp_path, frozen_meta, extra["ranking"])
+    es.archive(tmp_path, _as_of(meta, (es._d(through) - timedelta(days=150)).isoformat()), extra["ranking"])
+    res = {r["run"]: r for r in es.monitor(tmp_path, places, log=lambda *_: None, version="2026-01-01-aaaaaaaa")}
+    r = res[frozen_meta["run"]]
+    assert (r["rule_version"], r["current"]) == ("2026-01-01-aaaaaaaa", True)
+    assert [(x["rule_version"], x["current"]) for k, x in res.items() if k != frozen_meta["run"]] == [(None, False)]
+    by = r["city"]["by_district"]
+    assert set(by) <= {"1", "2"} and by and sum(v["labelled"] for v in by.values()) == r["city"]["labelled"]
+    audited = meta["fairness"]["bands_used"]
+    for g, v in by.items():
+        b = v["banded"]
+        assert b["bands"] == audited and b["labelled"] <= v["labelled"]
+        assert b["expected"] == (meta["fairness"]["by_district"].get(g) or {}).get("precision"), "the backtest's rate there"
+        assert b["labelled"] == 0 or b["interval"][0] <= b["rate"] <= b["interval"][1]
+    s = json.loads((tmp_path / "monitor_summary.json").read_text(encoding="utf-8"))
+    assert s["by_district"] == {"run": frozen_meta["run"], "window_days": es.LABEL_DAYS, "districts": json.loads(json.dumps(by))}
+    assert (s["rule_version"], s["inspections_through"]) == ("2026-01-01-aaaaaaaa", through)
+    md = (tmp_path / "monitor.md").read_text(encoding="utf-8")
+    assert "| rule version | alerts |" in md and "| unfrozen | no, not the rule now frozen |" in md and "| district |" in md
+    later = {r["run"]: r for r in es.monitor(tmp_path, places, log=lambda *_: None, version="2026-06-01-bbbbbbbb")}
+    assert not any(x["current"] for x in later.values()) and \
+        json.loads((tmp_path / "monitor_summary.json").read_text(encoding="utf-8"))["alerts"] == [], "a refit clears it"
+
+
+def test_the_rule_text_names_every_closure_the_rule_counts_as_70():
+    """A County closure order, the operator's own closure with a major cited, and a closure read from
+    a later reopening all read as 70 (rated_score keys on closure_order health), and the rule says so."""
+    text = es.RULE_TEXT["average score"]
+    for part in ("a County closure order", "the operator's own closure with a major cited",
+                 "a closure read from a later reopening", "counts as 70"):
+        assert part in text, part
+    assert "\u2014" not in text and "closure order for a health hazard counts" not in text
+    closures = [_place([inspection("2025-01-10", score="95"), _closed("2025-06-02")]),
+                _place([inspection("2025-01-10", score="95"),
+                        inspection("2025-06-02", status="Self Closed", score="0", grade="", violations=[violation(VERMIN, "major")])]),
+                _place([inspection("2025-01-10", score="95"),
+                        inspection("2025-06-02", score="0", grade="", violations=[violation(VERMIN, "major")]), _reopen("2025-06-04")])]
+    for p in closures:
+        assert [u["score"] for u in es.scores_used(p, "2025-09-01")] == [95, 70]
+
+
 def test_the_monitor_writes_its_summary_and_a_monitor_that_did_not_run_says_so(built, tmp_path, monkeypatch):
     fc, details, meta, extra = built
     es.monitor(tmp_path, extra["places"], log=lambda *_: None)
     s = json.loads((tmp_path / "monitor_summary.json").read_text(encoding="utf-8"))
-    assert s == {"status": "too early", "runs": 0, "alerts": [], "next_window_date": None}, "written even with nothing to score"
+    through = max(p["dates"][-1] for p in extra["places"] if p["dates"])
+    version = (json.loads(es.FROZEN.read_text(encoding="utf-8")) if es.FROZEN.exists() else {}).get("version")
+    assert s == {"status": "too early", "runs": 0, "alerts": [], "next_window_date": None, "rule_version": version,
+                 "inspections_through": through, "by_district": None}, "written even with nothing to score"
     raw = invented_county(n=20)
     pull = tmp_path / "sd_businesses.2026-09-29.json"
     pull.write_text(json.dumps(raw), encoding="utf-8")

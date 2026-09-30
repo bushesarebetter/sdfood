@@ -8,6 +8,7 @@
  * stated as rates; no em dashes; no "not X, Y" contrasts.
  */
 import { SITE } from "../site.js";
+import { FIELD_TYPES } from "./inspections.js";
 
 const PLAIN = {
   appName: SITE.siteTitle,
@@ -23,18 +24,18 @@ const PLAIN = {
   searchHint: SITE.searchHint,
 
   detailHistory: "Inspection scores",
-  detailHistoryNote: "Every County record, oldest to newest",
+  detailHistoryNote: "The County records we keep, oldest to newest",
   detailFindings: "What inspectors found",
   detailFindingsNote: "Items cited in the three years before the last visit, by theme (our reading of the County's item text)",
   detailFacts: "What the County's record shows",
   detailFactsNote: "The 12 months before the last visit",
-  detailNoFacts: "No closure, major violation, B or C grade, repeat reinspection or complaint visit in the 12 months before the last visit.",
+  detailNoFacts: `No closure, major violation, B or C grade, repeat reinspection, ${FIELD_TYPES} visit in the 12 months before the last visit.`,
   detailCard: "How the points add up",
   detailCardNote: "Each row is a number from the County's record, times its weight; the rule above says which years it reads",
   detailNearby: "Other listed places nearby",
   detailStreetView: "Street View",
   detailRecord: "The County's record",
-  detailVisits: "Every County record",
+  detailVisits: "The County records we keep",
 };
 
 const ADVANCED = {
@@ -46,7 +47,7 @@ const ADVANCED = {
   flagTitle: "Record flags, 12 months to the list date",
   searchPlaceholder: "Search facility",
   detailHistory: "Inspection history",
-  detailHistoryNote: "Score by record; reinspections, re-grade or reopening visits and complaint visits drawn lighter",
+  detailHistoryNote: "Score by record; reinspections, re-grade or reopening visits, complaint or other field visits (our reading) and status verifications drawn lighter",
   detailFindings: "Violations by theme",
   detailFindingsNote: "Report items, 36 months before the last visit; major, minor, good retail practice",
   detailFacts: "Record, 12 months",

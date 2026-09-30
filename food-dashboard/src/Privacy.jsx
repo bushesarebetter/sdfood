@@ -9,6 +9,7 @@ const ANALYTICS_SRC = import.meta.env.VITE_ANALYTICS_SRC || "";
 
 // A dated record of what changed on the site, newest first.
 const CHANGES = [
+  ["2026-09-29", "Closures the County's record shows another way are now read as closures, marked \"Our reading\": a \"Self Closed\" record with a major violation (the operator's own closure), and, where only a later \"Approved to Reopen\" shows a closure, the visit with a major violation and no County score in the 14 days before it. The students' point rule was fitted again with them: a routine inspection that started a closure for a health hazard (a County closure order, the operator's own closure with a major cited, or a closure read from a later reopening) counts as 70. \"Self Closed\" and \"Status Verification\" records that cite items are shown, and every record shows the County's inspection type and notes as published. A place whose last closure has no \"Approved to Reopen\" and no graded visit after it leads with that closure, not an older grade. \"Copy the record\" lists closures, the items by theme count every item, and each place lists up to 150 items. On the staff site the phone layout shows the use rule and whom to ask, and every print is logged."],
   ["2026-09-29", "Version 4. The rule is now the simplest one that did as well as the others: points are how far a restaurant's average routine score over two years fell below 100, and the worksheet lists the scores it averages. Bands are kept only where they held at every backtest date, and every scored place shows what places in its group of points did; a place whose two years include a routine inspection that ended in a closure is read from a separate estimate for such places. Places outside the City are described by rates measured outside the City. The City staff site shows who is responsible, that downloads are likely public records, and every check the list has not passed; it keeps no offline copy. An owner or manager may ask whether their business is on the staff site, and every such request puts its points and band on hold the same business day."],
   ["2026-09-24", "Version 3. Every listed place's County records are shown one record at a time with the County's own status text, and the site's readings are labelled \"Our reading\". Each place's record loads on its own. No list shows a position. The students' point rule and its bands appear only in a bands export. System fonts replace Google Fonts, and the offline copy checks the network first for data."],
   ["2026-09-21", "First version, with invented sample data."],
@@ -65,10 +66,10 @@ export default function Privacy({ onNavigate }) {
       {staff && (
         <Section heading="The City staff site">
           <p>
-            You sign in with the site id (such as u07) and access token this site&rsquo;s operator sent you. It is not your City network
-            account: never enter your City user name or password here. Under your sign-in id the server logs each sign-in (with its network
-            address) and each sign-out, each unsuccessful sign-in with the name typed and the address, each place record opened and each
-            list file fetched, each address lookup (not what you typed), and each CSV download and print.
+            You sign in with the sign-in id (such as u07) and access token this site&rsquo;s operator sent you. It is not your City network
+            account: never enter your City user name or password here. Under your sign-in id the server logs each sign-in and sign-out with
+            its network address, each sign-in it refuses with the address (and the id typed, only when it is one of this site&rsquo;s ids),
+            each place record opened and each list file fetched, each address lookup (not what you typed), and each CSV download and print.
           </p>
           <p>
             The log is kept in the site&rsquo;s hosting account at {SITE.host.name}. The site&rsquo;s operator, named under
@@ -158,14 +159,17 @@ export default function Privacy({ onNavigate }) {
           council districts from SANDAG. Nothing else goes in: no reviews, no owners&rsquo; names, no phone numbers.
         </p>
         <p>
-          <b className="font-semibold text-ink">The County&rsquo;s, verbatim:</b> each record&rsquo;s visit date, visit type, status text,
-          score and grade, and each item&rsquo;s text and severity. Each County record is its own row; none is merged with another for
-          display.
+          <b className="font-semibold text-ink">The County&rsquo;s, verbatim:</b> each record&rsquo;s visit date, inspection type, status
+          text, score, grade and notes (such as &ldquo;Impoundment&rdquo;), and each item&rsquo;s text and severity. Each County record is
+          its own row; none is merged with another for display.
         </p>
         <p>
           <b className="font-semibold text-ink">The site&rsquo;s own readings,</b> labelled &ldquo;Our reading&rdquo; where they appear:
-          a routine inspection retyped as a re-grade or reopening visit, the reason given for a closure, the theme each item is put under,
-          and the record flags the filters use{mode === "bands" ? "; and the students' point rule's points and bands, which are the site's alone" : ""}.
+          a routine inspection retyped as a re-grade or reopening visit, the County&rsquo;s Site Investigation and Environmental records
+          grouped as complaint or other field visits, where a closure starts (a &ldquo;Self Closed&rdquo; record with a major violation read
+          as the operator&rsquo;s own closure, and a closure read from a later &ldquo;Approved to Reopen&rdquo; where the record has no
+          closure order), the reason given for a closure, the theme each item is put under, and the record flags the filters
+          use{mode === "bands" ? "; and the students' point rule's points and bands, which are the site's alone" : ""}.
         </p>
       </Section>
 
@@ -196,7 +200,8 @@ export default function Privacy({ onNavigate }) {
           The authors also run a sign-in site offered to City of San Diego staff (not a City site) that shows, for each restaurant, the
           County&rsquo;s record and points from the students&rsquo; point rule. An owner or manager may ask whether their business appears and see exactly what it
           shows: {ownerRoute} with its name and address. {NOT_ISSUES} We answer by email within five business days, and from the day
-          we receive the request its points and band are withheld from the staff site and its worklists.
+          we receive the request its points and band are withheld from the staff site and its worklists. The frozen copies of past
+          worklists, kept only to score a pilot later, are not changed by a hold, and they are never shown to staff.
         </p>
       </Section>
 
@@ -244,7 +249,7 @@ export default function Privacy({ onNavigate }) {
       <Section heading="Changes">
         <ul className="space-y-2">
           {CHANGES.map(([date, what]) => (
-            <li key={date}><b className="tnum font-semibold text-ink">{fmtDate(date)}.</b> {what}</li>
+            <li key={what}><b className="tnum font-semibold text-ink">{fmtDate(date)}.</b> {what}</li>
           ))}
         </ul>
       </Section>

@@ -5,7 +5,9 @@ lower-income or immigrant neighborhoods, and does it protect every neighborhood 
 is the check. Reproduce with `python fairness_check.py` (needs `data/` from `fetch_sdfood.py`).
 Numbers are from the rerun of 2026-09-27 on the 2026-09-19 pull: history since 2023-01, no ZIP
 code, no permit age (see README, "What changed"), and every model trained and scored as of the 1st
-of each inspection's month, as the monthly list is.
+of each inspection's month, as the monthly list is. The two last points under "Limits" (the staff
+rule by council district, and the screen by restaurant name) are the staff site's, from the
+2026-09-29 pull ([docs/MODEL_CARD.md](docs/MODEL_CARD.md)).
 
 ## Method
 
@@ -106,7 +108,7 @@ either way. "No detectable difference" below means exactly that, not that covera
    public site's point card, uses no ZIP code.
 6. **Safeguards that stay:** keep routine inspections everywhere, so the ordering reprioritizes
    within the schedule and never zeroes out an area, and monitor coverage by group once it is in
-   use (the pilot's monitoring rule is in docs/PILOT.md).
+   use (the pilot's monitoring rule is in docs/PILOT.md; the report it needs is not built yet).
 
 ## Equalizing coverage exactly (`threshold_tradeoff.py`)
 
@@ -173,8 +175,9 @@ Inspecting only the model's picks (arm B removes 9,622 routine inspections, and 
 a facility's last visit in 2025+ rises from 266 to 340 days) costs every ordering a detectable
 loss, and the rule and persistence, which read the same thinned record, lose about twice what the
 model does: their intervals do not overlap the model's. A random 15% on top (arm C) gives a little
-back. Coverage by income quartile moves by at most 3 points. This concerns an inspect-less policy; reordering within the schedule removes no inspection.
-Coverage by group is still monitored in use.
+back. Coverage by income quartile moves by at most 3 points. This concerns an inspect-less policy;
+reordering within the schedule removes no inspection. Coverage by group should still be monitored in
+use (docs/PILOT.md; not built yet).
 
 ## Limits
 
@@ -192,9 +195,12 @@ Coverage by group is still monitored in use.
   candidates, then by all labelled places), with an address-cluster bootstrap interval at 95%, a
   family-wise one over the nine districts compared (Bonferroni), and the family-wise one widened by an
   assumed design effect of 2 for inspector clustering. Only District 9 stays above even on both wider
-  intervals; Districts 4 and 6 do at 95% only (MODEL_CARD.md). The site shows the table, and a place
-  page in a City district says how often band 1 places there had a major. Part of a district's gap
-  may be how its inspectors cite: the record does not say which inspector made a visit.
+  intervals. District 6 is above even at 95% and family-wise, but not once inspector clustering is
+  allowed for; District 4 is above even at 95% only (MODEL_CARD.md). The site shows the table, and a
+  place page in a City district says how often band 1 places there had a major. Part of a district's
+  gap may be how its inspectors cite: the record does not say which inspector made a visit. The staff
+  site's district view says the same of its counts of majors, closures and B or C grades: a pattern to
+  take to the County as a question, not a ranking of districts.
 - **Area proxies cannot see who inside an area bears the errors.** A coarse screen by restaurant name
   (keywords suggesting a cuisine; not the owner's ethnicity, and not a validated measure) found that,
   among City restaurants whose next routine inspection was clean, places with East or Southeast Asian

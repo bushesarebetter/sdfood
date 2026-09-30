@@ -2,6 +2,7 @@
 release's gates (a dated, attributed City request and TRUST answer), holds read strictly and checked,
 ops/ with every archived list, a site copied from HEAD, and a record naming both commits."""
 import json
+import re
 import shutil
 import subprocess
 
@@ -168,6 +169,62 @@ def test_the_monitor_summary_ships_as_meta_monitor_and_a_missing_one_says_so(tmp
         assert pcs.monitor_summary(tmp_path)["alerts"] == ["The monitor wrote a summary that cannot be read."], bad
 
 
+def test_every_summary_the_monitor_or_the_refresh_writes_ships_unchanged(tmp_path, monkeypatch):
+    """The hand-off: export_site.monitor_summary (every status it gives), export_site.main's summary when
+    --monitor errors, and refresh_city_site.monitor_failed are each shipped as they are, never read as a
+    summary that cannot be read."""
+    import export_site as es
+    import refresh_city_site as rcs
+    runs = [
+        [],
+        [{"run": "forward_2026-09-29-aaaaaaaa", "complete": False, "window_days": None}],
+        [{"run": "forward_2026-06-01-bbbbbbbb", "complete": False, "window_days": 90,
+          "city": {"bands": {"1": {"labelled": 200, "positives": 40, "rate": 0.2, "interval": [0.15, 0.25], "expected": 0.31}}}}],
+        [{"run": "forward_2025-06-01-dddddddd", "complete": True, "window_days": 365,
+          "city": {"bands": {}, "observed_over_expected": {"observed": 80, "expected": 100.0, "ratio": 0.8},
+                   "band_1_minus_persistence": [-9.0, -1.0]}}],
+    ]
+    shipped = []
+    for r in runs:
+        es.write_monitor_summary(tmp_path, es.monitor_summary(r))
+        want = json.loads((tmp_path / "monitor_summary.json").read_text(encoding="utf-8"))
+        assert pcs.monitor_summary(tmp_path) == want
+        shipped.append(want["status"])
+    assert shipped == ["too early", "too early", "interim", "complete"]
+    (tmp_path / "monitor_summary.json").write_text(json.dumps({"status": "failed", "runs": 0, "next_window_date": None,
+                                                               "alerts": ["The monitor did not run (ValueError)."]}), encoding="utf-8")
+    assert pcs.monitor_summary(tmp_path)["alerts"] == ["The monitor did not run (ValueError)."], "export_site.main's"
+    rcs.monitor_failed(tmp_path / "monitor_summary.json")
+    assert pcs.monitor_summary(tmp_path) == {"status": "failed", "runs": 0, "alerts": ["The monitor did not run for this list."],
+                                            "next_window_date": None}, "refresh_city_site's"
+
+
+def test_a_monitor_summary_for_another_record_or_rule_ships_as_failed(tmp_path):
+    """`python export_site.py && python publish_city_site.py` leaves the previous run's summary on disk: the
+    publish matches its stamps to the export it ships, and never passes an earlier run's off as current."""
+    import export_site as es
+    meta = {"inspections_through": "2026-09-27", "frozen": {"version": "2026-09-01-5f50107e"}}
+    es.write_monitor_summary(tmp_path, es.monitor_summary([], version="2026-09-01-5f50107e", through="2026-09-27"))
+    fresh = json.loads((tmp_path / "monitor_summary.json").read_text(encoding="utf-8"))
+    assert pcs.monitor_summary(tmp_path, meta=meta) == fresh, "stamped for this export: shipped as it is"
+    assert pcs.monitor_summary(tmp_path) == fresh, "no export to match: shipped as it is"
+    for summary, why in [({**fresh, "inspections_through": "2026-09-20"}, "scored the record through 2026-09-20, and this list is the record through 2026-09-27"),
+                         ({**fresh, "rule_version": "2026-06-01-aaaaaaaa"}, "read alerts for rule version 2026-06-01-aaaaaaaa"),
+                         ({**fresh, "rule_version": None}, "read alerts for rule version none"),
+                         ({k: v for k, v in fresh.items() if k not in ("inspections_through", "rule_version")},
+                          "does not say which record it scored")]:
+        (tmp_path / "monitor_summary.json").write_text(json.dumps(summary), encoding="utf-8")
+        got = pcs.monitor_summary(tmp_path, meta=meta)
+        assert got["status"] == "failed" and got["runs"] == 0 and got["next_window_date"] is None, summary
+        assert got["alerts"][0].startswith("The monitor did not run for this list: its summary ") and why in got["alerts"][0], got
+        assert "--monitor" in got["alerts"][0] and "\u2014" not in got["alerts"][0]
+    failed = {"status": "failed", "runs": 0, "alerts": ["The monitor did not run (ValueError)."], "next_window_date": None}
+    (tmp_path / "monitor_summary.json").write_text(json.dumps(failed), encoding="utf-8")
+    assert pcs.monitor_summary(tmp_path, meta=meta) == failed, "a failed run's own sentence is kept"
+    src = (pcs.ROOT / "publish_city_site.py").read_text(encoding="utf-8")
+    assert "monitor_summary(meta=meta)" in src, "the publish matches the summary to the export it ships"
+
+
 def test_staff_are_told_when_the_operator_is_a_student_author():
     assert pcs.independence_problems(GOOD) == []
     assert pcs.independence_problems({**GOOD, "responsible_adult": {"name": "X", "relationship": "author", "email": "x@example.org"}})
@@ -246,9 +303,10 @@ def _git(*a, cwd):
     subprocess.run(["git", *a], cwd=cwd, check=True, capture_output=True)
 
 
-def _live(tmp_path, monkeypatch, held_ids, before=None):
+def _live(tmp_path, monkeypatch, held_ids, applied=None, asked=None):
     """A private checkout with a live list of A and B (both band 1), docs/holds.json holding `held_ids`,
-    and ops/holds.json (what the last publish applied) holding `before`."""
+    ops/holds_applied.json (every id a publish has held on its list) holding `applied`, and ops/holds.json
+    (what the last publish was asked to hold) holding `asked`."""
     out = tmp_path / "city"
     data = out / "public" / "data"
     (data / "place").mkdir(parents=True)
@@ -258,9 +316,10 @@ def _live(tmp_path, monkeypatch, held_ids, before=None):
     for fid in ("DEH-A", "DEH-B"):
         (data / "place" / f"{fid}.json").write_text(json.dumps({"facility_id": fid, "band": "1", "points": 9, "inspections": []}))
     (data / "meta.json").write_text(json.dumps({"run": "forward_2026-09-29-x", "expires": "2026-09-30"}), encoding="utf-8")
-    if before is not None:
-        (out / "ops").mkdir()
-        (out / "ops" / "holds.json").write_text(json.dumps({"facility_ids": before}), encoding="utf-8")
+    for name, ids in ((pcs.APPLIED, applied), ("holds.json", asked)):
+        if ids is not None:
+            (out / "ops").mkdir(exist_ok=True)
+            (out / "ops" / name).write_text(json.dumps({"facility_ids": ids}), encoding="utf-8")
     _git("init", "-q", "-b", "main", cwd=out)
     holds = tmp_path / "holds.json"
     holds.write_text(held_ids if isinstance(held_ids, str) else json.dumps({"facility_ids": held_ids}), encoding="utf-8")
@@ -273,8 +332,9 @@ def _live(tmp_path, monkeypatch, held_ids, before=None):
 
 def test_holds_only_changes_nothing_but_the_held_places(tmp_path, monkeypatch, capsys):
     out, data, pushed = _live(tmp_path, monkeypatch, ["DEH-A"])
-    commit, meta, held, newly = pcs.holds_only(out, GOOD, TODAY, "o/r")
-    assert held == {"DEH-A"} and newly == ["DEH-A"] and pushed and "holds only (1 held, 1 newly held)" in pushed[0]
+    commit, meta, held, newly, on_list = pcs.holds_only(out, GOOD, TODAY, "o/r")
+    assert held == {"DEH-A"} and newly == on_list == ["DEH-A"] and pushed
+    assert "holds only (1 of 1 held ids on the list, 1 newly held)" in pushed[0]
     assert "held now: DEH-A" in capsys.readouterr().out
     shipped = json.loads((data / "facilities.geojson").read_text(encoding="utf-8"))["features"]
     assert shipped[-1]["properties"] == {"facility_id": "DEH-A", "on_hold": True} and shipped[0]["properties"]["band"] == "1"
@@ -282,6 +342,7 @@ def test_holds_only_changes_nothing_but_the_held_places(tmp_path, monkeypatch, c
     assert "band" in json.loads((data / "place" / "DEH-B.json").read_text())
     log = [json.loads(line) for line in (out / "DEPLOYS.jsonl").read_text(encoding="utf-8").splitlines()]
     assert log[-1]["holds_only"] is True and log[-1]["held"] == ["DEH-A"] and log[-1]["newly_held"] == ["DEH-A"]
+    assert log[-1]["held_on_list"] == ["DEH-A"] and pcs.applied_holds(out) == {"DEH-A"}, "what took effect is recorded"
     # an export 1 day from expiry could not be published; a hold still goes out
     with pytest.raises(SystemExit, match="sunset"):
         pcs.holds_only(out, {**GOOD, "sunset": "2026-01-01"}, TODAY, "o/r")
@@ -293,7 +354,7 @@ def test_holds_only_with_nothing_new_records_and_pushes_nothing(tmp_path, monkey
     _git("add", "-A", cwd=out)
     _git("-c", "user.name=t", "-c", "user.email=t@example.org", "commit", "-q", "-m", "x", cwd=out)
     pushed.clear()
-    commit, _, _, newly = pcs.holds_only(out, GOOD, TODAY, "o/r")
+    commit, _, _, newly, _ = pcs.holds_only(out, GOOD, TODAY, "o/r")
     assert commit is None and newly == [] and pushed == []
     assert len((out / "DEPLOYS.jsonl").read_text(encoding="utf-8").splitlines()) == 1
 
@@ -314,9 +375,26 @@ def test_holds_only_refuses_a_hold_that_would_not_apply_before_changing_anything
 
 
 def test_holds_only_lets_an_old_hold_off_the_list_pass_with_a_warning(tmp_path, monkeypatch, capsys):
-    out, data, pushed = _live(tmp_path, monkeypatch, ["DEH-GONE", "DEH-B"], before=["DEH-GONE"])
-    commit, _, held, newly = pcs.holds_only(out, GOOD, TODAY, "o/r")
-    assert commit and newly == ["DEH-B"] and "DEH-GONE is held but no longer on the live list" in capsys.readouterr().out
+    out, data, pushed = _live(tmp_path, monkeypatch, ["DEH-GONE", "DEH-B"], applied=["DEH-GONE"])
+    commit, _, held, newly, on_list = pcs.holds_only(out, GOOD, TODAY, "o/r")
+    assert commit and newly == on_list == ["DEH-B"]
+    assert "DEH-GONE is held and no longer on the list (a publish held it before" in capsys.readouterr().out
+    assert "holds only (1 of 2 held ids on the list, 1 newly held)" in pushed[0]
+    assert pcs.applied_holds(out) == {"DEH-GONE", "DEH-B"}, "the record only grows"
+
+
+def test_holds_only_refuses_an_id_no_publish_applied_even_one_asked_for_before(tmp_path, monkeypatch):
+    """ops/holds.json is what was asked for: a typo in it never became a hold, so it never passes as an old one."""
+    out, data, pushed = _live(tmp_path, monkeypatch, ["DEH-TYPO", "DEH-B"], applied=["DEH-A"], asked=["DEH-TYPO"])
+    before = (data / "facilities.geojson").read_bytes()
+    with pytest.raises(SystemExit, match="DEH-TYPO is not on the live list, and no publish has held it"):
+        pcs.holds_only(out, GOOD, TODAY, "o/r")
+    assert (data / "facilities.geojson").read_bytes() == before and pushed == []
+    # with no record at all (an unreadable one included), nothing off the list passes as an earlier hold
+    (out / "ops" / pcs.APPLIED).write_text("{not json", encoding="utf-8")
+    assert pcs.applied_holds(out) == set()
+    with pytest.raises(SystemExit, match="NOT APPLIED"):
+        pcs.holds_only(out, GOOD, TODAY, "o/r")
 
 
 def test_holds_only_refuses_a_held_place_without_its_place_file(tmp_path, monkeypatch):
@@ -448,6 +526,7 @@ def _full_publish_env(tmp_path, monkeypatch, dirty=False):
     monkeypatch.setattr(pcs, "frozen_problems", lambda meta: [])
     monkeypatch.setattr(pcs, "unpushed_warning", lambda: None)
     monkeypatch.setattr(pcs, "review_status", lambda meta, today: [])
+    monkeypatch.setattr(pcs, "owner_route_problem", lambda approval: None)
     monkeypatch.setattr(pcs, "site_code", lambda commit: {"city_site/server.mjs": b"s", "city_site/render.yaml": b"r",
                                                           "city_site/watch.yml": b"w", "food-dashboard/package.json": b"{}"})
 
@@ -491,6 +570,51 @@ def test_a_full_publish_refuses_a_held_id_in_the_wrong_case(tmp_path, monkeypatc
     with pytest.raises(SystemExit, match="did you mean DEH-A"):
         pcs.main(["--dir", str(out)])
     assert touched == []
+
+
+def test_a_full_publish_says_only_what_it_knows_of_a_held_id_off_its_list(tmp_path, monkeypatch, capsys):
+    """A new list may have lost a place, or the id may be a typo: the warning says which, from the record of
+    what publishes held, and the record gains what this publish held."""
+    out, touched = _full_publish_env(tmp_path, monkeypatch)
+    pcs.HOLDS.write_text(json.dumps({"facility_ids": ["DEH-A", "DEH-GONE", "DEH-TYPO"]}), encoding="utf-8")
+    (out / "ops").mkdir(parents=True)
+    (out / "ops" / pcs.APPLIED).write_text(json.dumps({"facility_ids": ["DEH-GONE"]}), encoding="utf-8")
+    assert pcs.main(["--dir", str(out)]) == 0
+    said = capsys.readouterr().out
+    assert "DEH-GONE is held and no longer on the list (a publish held it before" in said
+    assert "DEH-TYPO is held and not on the list, and no publish has held it before: check the id" in said
+    assert "it left the list after it was held" not in said, "never a reason it cannot know"
+    assert pcs.applied_holds(out) == {"DEH-A", "DEH-GONE"}, "the record gains the place held now, never the typo"
+    record = json.loads((out / "DEPLOYS.jsonl").read_text(encoding="utf-8").splitlines()[-1])
+    assert record["held"] == ["DEH-A", "DEH-GONE", "DEH-TYPO"] and record["held_on_list"] == ["DEH-A"]
+
+
+def test_the_public_sites_owner_route_is_checked_and_its_absence_shown_to_staff(tmp_path, monkeypatch):
+    page = '<script type="module" crossorigin src="/assets/index-ab12.js"></script><link rel="modulepreload" href="/assets/react-cd34.js">'
+    placeholder = 'e?"email "+e:"email the authors (the address appears here once the site\u2019s operator sets it)"'
+    built = 'href:`mailto:${t}`;' + placeholder + ';ownerContact:"FIX@example.org"'
+    unset = 'href:`mailto:${t}`;' + placeholder + ';ownerContact:null'
+
+    def site(bundle):
+        files = {"https://sdfood.onrender.com/": page, "https://sdfood.onrender.com/assets/index-ab12.js": bundle,
+                 "https://sdfood.onrender.com/assets/react-cd34.js": "react"}
+        return lambda url: files[url]
+    assert pcs.owner_route_problem(GOOD, fetch=site(built)) is None, "the address built in, beside the placeholder"
+    assert pcs.owner_route_problem(GOOD, fetch=site(unset)) == pcs.OWNER_ROUTE_ITEM
+    other = {**GOOD, "corrections_contact": {"email": "new@example.org"}}
+    assert pcs.owner_route_problem(other, fetch=site(built)) == pcs.OWNER_ROUTE_ITEM, "a contact changed and not rebuilt"
+    down = lambda url: (_ for _ in ()).throw(OSError("unreachable"))
+    unread = pcs.owner_route_problem(GOOD, fetch=down)
+    assert "could not be read" in unread
+    # staff read these lines on every page: the site's copy rules hold for them (food-dashboard/tests/copy.test.mjs)
+    banned = re.compile(r"\bfail(?:s|ed|ing|ure|ures)?\b|\brisk\b|\bclean\b|\bcaught\b|\bmiss(?:es|ed)\b|\u2014", re.I)
+    assert not banned.search(pcs.OWNER_ROUTE_ITEM) and not banned.search(unread)
+    # a publish tells staff, as an open item, and the operator, as a warning; it never refuses for it
+    out, touched = _full_publish_env(tmp_path, monkeypatch)
+    monkeypatch.setattr(pcs, "owner_route_problem", lambda approval: pcs.OWNER_ROUTE_ITEM)
+    assert pcs.main(["--dir", str(out)]) == 0
+    shipped = json.loads((out / "public" / "data" / "meta.json").read_text(encoding="utf-8"))
+    assert pcs.OWNER_ROUTE_ITEM in shipped["review_status"]
 
 
 def test_publish_needs_the_github_cli(tmp_path, monkeypatch):

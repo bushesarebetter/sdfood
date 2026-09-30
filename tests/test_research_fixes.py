@@ -45,7 +45,7 @@ def test_a_health_closure_at_routine_is_not_a_typical_A(tmp_path):
     f = ew.worklist(insp, info, "2026-10", lambda lo, la: 1)
     assert f.loc[1, "rule_order_all"] == 1, "the place closed by a health order comes first"
     assert f.loc[1, "mean_points"] == 100 - es.CLOSURE_SCORE
-    assert "closed; the County gave no score, this rule counts it as 70" in f.loc[1, "why"] and "typical A" not in f.loc[1, "why"]
+    assert "a health closure, our reading; the County gave no score, this rule counts it as 70" in f.loc[1, "why"] and "typical A" not in f.loc[1, "why"]
     # and the research rule agrees with the worklist
     nxt = rows + [_row(b, "2026-10-05", "Routine", 95, 0) for b in (1, 2, 3)]
     d = mf.routine_rows(mf.add_features(_load(nxt, tmp_path)))

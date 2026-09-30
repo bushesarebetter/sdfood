@@ -6,6 +6,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { MAX_ITEMS } from "../src/lib/inspections.js";
 
 const script = join(dirname(fileURLToPath(import.meta.url)), "..", "scripts", "check-export.mjs");
 
@@ -322,7 +323,7 @@ const latestMeta = {
     status: "not_yet_measurable", major_rate_backtest: 0.175, major_rate_recent: null, recent_quarters: [],
     band_1_share_backtest: 0.025, band_1_share_now: 0.026, latest_quarter: "2026Q3", latest_rate: 0.205, latest_n: 1800,
     refit_needed: false, reasons: [], thresholds: { min: 0.02, standard_errors: 3.0 },
-    note: "In the latest quarter (2026 Q3, through September 19) 20.5% of routine inspections found a major violation, against 17.5% over the backtest year, so the rates here may be low.",
+    note: "In the latest quarter (2026 Q3, through September 19) 20.5% of routine inspections found a major violation, against 17.5% over the backtest's label year before that quarter (September 2025 to June 2026), so the rates here may be low.",
   },
   card: {
     ...newMeta.card, curve, curve_closure: curve,
@@ -353,7 +354,7 @@ const withEstimate = (group, closure = false) => {
 test("the two estimate curves, interim rates, outside baselines, drift by quarter and the district evidence pass when well formed", () => {
   const r = check(withEstimate("scores"), { ...reviewMeta(2), ...latestMeta }, { args: ["--review"] });
   assert.ok(r.ok, r.err);
-  const refit = { ...latestMeta.drift, status: "refit", refit_needed: true, reasons: ["routine major rate 26.5% in 2026Q1, 2026Q2 against 20.0% over the backtest year"],
+  const refit = { ...latestMeta.drift, status: "refit", refit_needed: true, reasons: ["routine major rate 26.5% in 2026Q1, 2026Q2 against 20.0% over the backtest's label year (September 2025 to August 2026)"],
                   recent_quarters: ["2026Q1", "2026Q2"], major_rate_recent: 0.265, note: null };
   assert.ok(check(banded(), { ...reviewMeta(2), ...latestMeta, drift: refit }, { args: ["--review"] }).ok, "a refit");
   assert.ok(check(withEstimate(undefined), { ...reviewMeta(2), ...latestMeta }, { args: ["--review"] }).ok, "an estimate without a group (older export)");
@@ -450,7 +451,7 @@ function roundFivePlace() {
   const grade = { grade: "A", score: 95, date: "2026-05-01", replaced: null, open_closure: { date: "2026-08-21", reason: "health", later_ungraded: ["2026-08-28"] } };
   return place(1, {
     band: "1", points: 21,
-    index: { last_visit: { date: "2026-08-28", type: "reinspection" }, grade },
+    index: { last_visit: { date: "2026-08-28", type: "reinspection", county_type: "Re-inspection" }, grade },
     detail: {
       inspections, violations, violations_total: 5,
       theme_counts: {
@@ -490,6 +491,10 @@ test("malformed round-5 record fields fail", () => {
     idx.grade = { ...idx.grade, open_closure: { ...idx.grade.open_closure, ...patch } };
     f.grade = idx.grade;
   });
+  const lastVisit = (patch) => edit((f, idx) => {
+    idx.last_visit = { ...idx.last_visit, ...patch };
+    f.last_visit = idx.last_visit;
+  });
   const cases = [
     [at(8, { notes: "No Valid Permit" }), /notes that are not a list of the County's note texts/],
     [at(8, { notes: [""] }), /notes that are not a list/],
@@ -509,6 +514,7 @@ test("malformed round-5 record fields fail", () => {
     [openAs({ date: "Aug 21" }), /grade\.open_closure outside null\|\{ date, reason/],
     [openAs({ reason: "fire" }), /grade\.open_closure outside/],
     [openAs({ later_ungraded: ["2026-08-01"] }), /grade\.open_closure outside/, "a later record before the closure"],
+    [openAs({ later_ungraded: ["2026-08-21"] }), /grade\.open_closure outside/, "a record the same day is not a later record"],
     [openAs({ date: "2026-03-03" }), /grade\.open_closure that is not the date of the place's last closure/],
     [openAs({ reason: "permit" }), /grade\.open_closure whose reason is not its closure's/],
     [openAs({ status: "Self Closed" }), /grade\.open_closure whose status is not the County's status text on the record that started it/],
@@ -529,7 +535,17 @@ test("malformed round-5 record fields fail", () => {
       /grade\.open_closure before the grade it follows/,
     ],
     [edit((f) => { f.violations_total = 4; }), /violations_total that is not a count at least the number of items listed/],
-    [edit((f) => { f.violations_total = 9; }), /violations_total above the items listed, although the list was not cut at 60/],
+    [edit((f) => { f.violations_total = 9; }), new RegExp(`violations_total above the items listed, although the list was not cut at ${MAX_ITEMS}`)],
+    [lastVisit({ county_type: "" }), /last_visit county_type that is not the County's inspection type text/],
+    [lastVisit({ county_type: "Routine" }), /last_visit county_type that is not one of the County's types for its visit type/],
+    [
+      edit((f, idx) => {
+        idx.last_visit = { date: "2026-08-28", type: "complaint", county_type: "Environmental" };
+        f.last_visit = idx.last_visit;
+        Object.assign(f.inspections[11], { type: "complaint", county_type: "Site Investigation" });
+      }),
+      /last_visit county_type that is not the County's type on the place file's last record/,
+    ],
     [edit((f) => { f.theme_counts.vermin.major = 1; f.theme_counts.water.major = 2; }), /theme_counts below the items listed \(vermin\)/],
     [edit((f) => { f.theme_counts.vermin.latest = "2026-03-03"; }), /theme_counts below the items listed \(vermin\)/],
     [edit((f) => { f.theme_counts.grp_signs.grp = 2; }), /theme_counts that do not add up to violations_total \(6 against 5\)/],
@@ -544,16 +560,17 @@ test("malformed round-5 record fields fail", () => {
   }
 });
 
-test("past the 60-item cut, the counts hold more than the list", () => {
+test("past the item cut (export_site.MAX_VIOLATIONS, 150), the counts hold more than the list", () => {
+  assert.equal(MAX_ITEMS, 150);
   const p = roundFivePlace();
-  const extra = Array.from({ length: 55 }, (_, k) => ({ date: "2026-05-01", visit: "routine", code: "44", theme: "grp_facility", severity: "grp", description: `x${k}` }));
+  const extra = Array.from({ length: MAX_ITEMS - 5 }, (_, k) => ({ date: "2026-05-01", visit: "routine", code: "44", theme: "grp_facility", severity: "grp", description: `x${k}` }));
   p.file.violations = [...p.file.violations, ...extra];
-  p.file.theme_counts.grp_facility = { major: 0, minor: 0, grp: 70, complaint: 0, latest: "2026-05-01" };
-  p.file.violations_total = 75;
+  p.file.theme_counts.grp_facility = { major: 0, minor: 0, grp: MAX_ITEMS + 10, complaint: 0, latest: "2026-05-01" };
+  p.file.violations_total = MAX_ITEMS + 15;
   const r = check([p], reviewMeta(1), { args: ["--review"] });
   assert.ok(r.ok, r.err);
   p.file.violations.push(extra[0]);
-  assert.match(check([p], reviewMeta(1), { args: ["--review"] }).err, /violations missing or more than 60/);
+  assert.match(check([p], reviewMeta(1), { args: ["--review"] }).err, new RegExp(`violations missing or more than ${MAX_ITEMS}`));
 });
 
 test("a monitor summary, where the export has one, is { status, runs, alerts, next_window_date }", () => {
@@ -579,6 +596,15 @@ test("a monitor summary, where the export has one, is { status, runs, alerts, ne
     assert.match(withMonitor(bad).err, /monitor_summary\.json is not \{ status: too early\|interim\|complete\|failed/, JSON.stringify(bad));
   }
   assert.match(withMonitor("{").err, /monitor_summary\.json does not parse/);
+  const stamped = { ...good, rule_version: "2026-09-01-5f50107e", inspections_through: "2026-09-27",
+    by_district: { run: "forward_2026-06-01-bbbbbbbb", window_days: 90,
+      districts: { 3: { labelled: 40, positives: 9, rate: 0.225, banded: { bands: ["1"], labelled: 12, positives: 4, rate: 0.3333, interval: [0.14, 0.61], expected: null } } } } };
+  assert.ok(withMonitor(stamped).ok, "the stamps and the district figures");
+  assert.ok(withMonitor({ ...stamped, rule_version: null, by_district: null }).ok, "before any rule is frozen, and before a list is scored");
+  for (const bad of [{ ...stamped, rule_version: 5 }, { ...stamped, inspections_through: "last week" }, { ...stamped, by_district: [] },
+    { ...stamped, by_district: { ...stamped.by_district, districts: { 3: { labelled: 4, positives: 9 } } } }]) {
+    assert.match(withMonitor(bad).err, /monitor_summary\.json's rule_version, inspections_through or by_district/, JSON.stringify(bad));
+  }
 });
 
 test("an estimate may name the fitted group it is read from, and a curve the counts each group pools", () => {

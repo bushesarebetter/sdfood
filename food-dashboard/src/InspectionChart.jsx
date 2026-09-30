@@ -1,7 +1,7 @@
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Cell, ReferenceLine } from "recharts";
 import { useAdvanced } from "./useAdvanced";
 import { fmtShort, fmtDate } from "./lib/dates";
-import { visitPhrase, isGraded, countyNotes, countyType, visitLabel } from "./lib/inspections";
+import { visitPhrase, isGraded, countyNotes, countyType, visitLabel, READ_VISIT_TYPES } from "./lib/inspections";
 import { GRADE_SWATCH, OPEN_CLOSURE_COLOR } from "./lib/grades";
 
 const AXIS = { fontSize: 11, fill: "#6B6457", fontFamily: "ui-monospace, Consolas, monospace" };
@@ -12,6 +12,9 @@ const LIGHT = 0.5;
 const NO_SCORE = "#B8AF9C";
 const SCORED_UNGRADED = "#8A8272";
 const CLOSED = OPEN_CLOSURE_COLOR;
+/** The lighter bars' key: every visit type but routine, our reading of the County's type marked. */
+const LIGHTER_KEY = `lighter: ${["followup", "reinspection", "complaint", "status_check"]
+  .map((t) => (READ_VISIT_TYPES.includes(t) ? `${visitLabel(t)} (our reading)` : visitLabel(t))).join(", ")}`;
 
 function PaperTooltip({ active, payload }) {
   if (!active || !payload?.length) return null;
@@ -101,7 +104,7 @@ export default function InspectionChart({ inspections }) {
         {[["A", "A, 90 or more"], ["B", "B, 80 to 89"], ["C", "C, 79 or less"]].map(([g, label]) => (
           <Key key={g} color={GRADE_SWATCH[g]}>{advanced ? g : label}</Key>
         ))}
-        {lighter && <Key color="#55503F" opacity={LIGHT}>lighter: re-grade or reopening visit, reinspection, complaint or other field visit, status verification</Key>}
+        {lighter && <Key color="#55503F" opacity={LIGHT}>{LIGHTER_KEY}</Key>}
         {has((i) => typeof i.score !== "number" && !i.closed) && <Key color={NO_SCORE} short>no score</Key>}
         {has((i) => i.closed) && <Key color={CLOSED} short>start of a closure (our reading)</Key>}
         {has((i) => typeof i.score === "number" && !isGraded(i) && !i.closed) && <Key color={SCORED_UNGRADED}>scored, not graded</Key>}

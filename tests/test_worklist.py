@@ -224,8 +224,8 @@ def test_holds_are_read_strictly_so_a_broken_file_never_releases_them(tmp_path):
 def test_a_closure_reads_as_the_rules_70_not_the_countys_score():
     used = [(95, False, 95), (70, True, None), (70, True, 94)]
     why = ew._why([95], 0, 3, points=12, band="1", card=True, used=used)
-    assert "70 (closed; the County gave no score, this rule counts it as 70)" in why
-    assert "70 (closed; the County's score that day 94, this rule counts a closure as 70)" in why
+    assert "70 (a health closure, our reading; the County gave no score, this rule counts it as 70)" in why
+    assert "70 (a health closure, our reading; the County's score that day 94, this rule counts it as 70)" in why
     assert "mean 78.3" in why
 
 
@@ -300,5 +300,5 @@ def test_every_explanation_averages_the_same_readings_as_its_number(data, tmp_pa
         m = re.search(r"\(mean ([0-9.]+)\)", r["why"])
         if m:
             assert abs(float(m.group(1)) - (100 - r["mean_points"])) < 0.051, (b, r["why"], r["mean_points"])
-    assert "70 (closed; the County's score that day 98, this rule counts a closure as 70)" in f.loc[3, "why"]
+    assert "70 (a health closure, our reading; the County's score that day 98, this rule counts it as 70)" in f.loc[3, "why"]
 

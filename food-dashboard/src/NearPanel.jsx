@@ -154,7 +154,7 @@ export default function NearPanel({ facilities, filters, onPoint, onSelect, comp
                 const p = feature.properties;
                 const mark = markFor(p, { mode });
                 const g = gradeView(p.grade);
-                const where = [!expired ? mark.label : null, g.graded ? `grade ${g.short}` : g.text.toLowerCase()].filter(Boolean).join(", ");
+                const where = [!expired ? mark.label : null, g.graded ? `grade ${g.short}` : g.withDate].filter(Boolean).join(", ");
                 return (
                   <li key={p.facility_id} className="border-b border-rule last:border-b-0">
                     <button onClick={() => onSelect(feature)} className="flex w-full items-baseline gap-3 py-2 text-left hover:bg-paper-sunk">

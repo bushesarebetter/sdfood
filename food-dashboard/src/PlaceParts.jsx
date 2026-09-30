@@ -8,7 +8,7 @@ import { useMeta, useExpired } from "./useMeta";
 import { placeLines } from "./lib/framing";
 import { lastVisitStale, STALE_LABEL } from "./lib/filters";
 import { PLACE_STATUS_TEXT } from "./lib/placeData";
-import { themeCounts, escalationFacts, ESCALATION_NOTE, ESCALATION_TITLE } from "./lib/inspections";
+import { themeCounts, themeCountsNote, escalationFacts, ESCALATION_NOTE, ESCALATION_TITLE, FIELD_TYPES } from "./lib/inspections";
 import { fmtMonth } from "./lib/dates";
 import { SITE } from "./site";
 
@@ -135,9 +135,14 @@ export function EscalationFacts({ flags, large = false }) {
   );
 }
 
-/** Items cited in the three years before the last visit, by theme. */
-export function ThemeList({ violations, advanced = false, large = false }) {
-  const themes = themeCounts(violations);
+/**
+ * Items cited in the three years before the last visit, by theme, from the place: the export's
+ * `theme_counts` (every item in the window, counted before the MAX_ITEMS cut) where it has them, else
+ * the items listed, with a line saying so when that list was cut.
+ */
+export function ThemeList({ place, advanced = false, large = false }) {
+  const themes = themeCounts(place ?? {});
+  const cut = themeCountsNote(place);
   const text = large ? "text-[14.5px]" : "text-[13.5px]";
   if (!themes.length) return <p className={`${text} text-ink-2`}>No items cited in the three years before the last visit.</p>;
   return (
@@ -152,7 +157,7 @@ export function ThemeList({ violations, advanced = false, large = false }) {
               ) : (
                 <>{t.count} {t.count === 1 ? "item" : "items"}{t.major > 0 && <>, <span className="font-medium text-band-1">{t.major} major</span></>}</>
               )}
-              {t.complaint > 0 && <span className="block text-[12.5px]">{t.complaint} found at a complaint visit</span>}
+              {t.complaint > 0 && <span className="block text-[12.5px]">{t.complaint} found at a {FIELD_TYPES} visit</span>}
               <span className="block text-[12.5px]">latest {fmtMonth(t.last)}</span>
             </span>
           </li>
@@ -161,6 +166,7 @@ export function ThemeList({ violations, advanced = false, large = false }) {
       <p className="mt-2 text-[13px] leading-[1.5] text-ink-2">
         {advanced ? "Major / minor / good retail practice. " : ""}Our reading: each item is put under a theme from the County&rsquo;s item text.
       </p>
+      {cut && <p className="mt-1 text-[13px] leading-[1.5] text-ink-2">{cut}</p>}
     </>
   );
 }

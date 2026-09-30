@@ -15,9 +15,12 @@
  * (`meta.card.base_rate`), and with the share that had none. Every scored place
  * also gets an estimate read from a monotone (isotonic) fit of rate by points
  * (`meta.card.curve`; for a place whose two years include a routine inspection
- * that ended in a closure, `meta.card.curve_closure`, and the estimate says
- * so), dated to the backtest it comes from. Places outside the
- * City are described by rates measured outside the City (`meta.card.outside`).
+ * that started a health closure, `meta.card.curve_closure`, and the estimate
+ * says so), dated to the backtest it comes from. A health closure is a County
+ * closure order, the operator's own closure with a major cited, or a closure
+ * read from a later reopening (HEALTH_CLOSURE); the rule counts that routine
+ * inspection as 70. Places outside the City are described by rates, and
+ * estimates, measured outside the City (`meta.card.outside`).
  * None of it is a statement about any one place (GROUP_NOTE).
  */
 import { fmtDate } from "./dates.js";
@@ -165,8 +168,16 @@ export function driftNotYet(meta) {
     `the first is ${MONTH_NAMES[first]} to ${MONTH_NAMES[first + 2]} ${y}, counted from ${fmtDate(isoDay(countable))}.`;
 }
 
-/** Who an estimate describes when it is read from the curve for places with a closure in their two years. */
-export const CLOSURE_GROUP = "whose last two years include a routine inspection that ended in a closure";
+/**
+ * What the rule counts as 70, in words: a routine inspection that started a closure for a health
+ * hazard, which the County's record shows one of three ways (export_site.RULE_TEXT says the same).
+ */
+export const HEALTH_CLOSURE =
+  "a routine inspection that started a closure for a health hazard (a County closure order, the operator's own closure with a major cited, " +
+  "or a closure read from a later reopening)";
+
+/** Who an estimate describes when it is read from the curve for places with a health closure in their two years. */
+export const CLOSURE_GROUP = "whose last two years include a routine inspection that started a health closure";
 
 /** A place outside the City is described by the rates measured outside it, when the export has them. */
 export const isOutside = (p, meta) => p?.council_district == null && Boolean(meta?.card?.outside);
@@ -399,23 +410,25 @@ export function stabilitySentence(p) {
   return `Stayed in band ${p.band} in ${pct(s)} of refits of the rule on resampled data.`;
 }
 
-/** The score the rule counts for a routine inspection that ended in a closure order. */
+/** The score the rule counts for a routine inspection that started a health closure (HEALTH_CLOSURE). */
 export const CLOSURE_SCORE = 70;
 
 /**
  * One score the average reads (`scores_used`, `{date, score, closure, county_score}`), as text:
- * "February 1, 2025: 95", or for a closure, what the County recorded and what the rule counts.
- * An older export's entry without `county_score` says only that the rule counts the closure as 70.
+ * "February 1, 2025: 95", or for a health closure (`closure` is true only for one), what the County
+ * recorded and what the rule counts. An older export's entry without `county_score` says only that
+ * the rule counts the health closure as 70.
  */
 export function scoreUsedText(u) {
   const date = fmtDate(u?.date);
   if (!u?.closure) return `${date}: ${u?.score}`;
-  if (u.county_score === null) return `${date}: closed, no County score; this rule counts it as ${CLOSURE_SCORE}`;
-  if (typeof u.county_score === "number") return `${date}: closed (the County's score that day: ${u.county_score}); this rule counts a closure as ${CLOSURE_SCORE}`;
-  return `${date}: closed; this rule counts a closure as ${CLOSURE_SCORE}`;
+  const closed = "a health closure (our reading)";
+  if (u.county_score === null) return `${date}: ${closed}, no County score; this rule counts it as ${CLOSURE_SCORE}`;
+  if (typeof u.county_score === "number") return `${date}: ${closed} (the County's score that day: ${u.county_score}); this rule counts it as ${CLOSURE_SCORE}`;
+  return `${date}: ${closed}; this rule counts it as ${CLOSURE_SCORE}`;
 }
 
-/** The scores the average reads, as lines, and their mean to one decimal (a closure counted as 70); or null. */
+/** The scores the average reads, as lines, and their mean to one decimal (a health closure counted as 70); or null. */
 export function scoresRead(used) {
   if (!Array.isArray(used) || !used.length) return null;
   const values = used.map((u) => (u?.closure ? CLOSURE_SCORE : u?.score));
@@ -519,6 +532,35 @@ export function curveGroupRows(curve) {
 }
 
 /**
+ * The fitted groups of one area's curves, as the About page shows them: the City's (`meta.card`), or
+ * with `outside` those measured outside the City (`meta.card.outside`), which every place outside the
+ * City is read from. `[{group, curve, rows}]`, the scores curve first, then the closure curve where the
+ * export has one; `group` is the estimate's `group` that reads the curve (curveFor) and `rows` its
+ * curveGroupRows. Null when the area has no curve, or a curve without `groups` (an older export).
+ */
+export function groupTables(meta, { outside = false } = {}) {
+  const o = outside ? outsideOf(meta) : meta?.card;
+  if (!o?.curve) return null;
+  const tables = [["scores", o.curve], ...(o.curve_closure ? [["closure", o.curve_closure]] : [])]
+    .map(([group, curve]) => ({ group, curve, rows: curveGroupRows(curve) }));
+  return tables.every((t) => t.rows) ? tables : null;
+}
+
+/**
+ * The fewest labelled places in any fitted group of these tables (groupTables), for "groups of at
+ * least N places": the curves' own floor (`model`, "... groups of at least 200 places ...") when no
+ * group shown has fewer, else the smallest group when every group has a count; null when neither can
+ * be said, so the page states no number its own table would contradict.
+ */
+export function groupFloor(tables) {
+  const counts = (tables ?? []).flatMap((t) => t.rows.map((g) => g.labelled));
+  const known = counts.filter((n) => typeof n === "number");
+  const stated = (tables ?? []).map((t) => /at least (\d+)/.exec(String(t.curve?.model ?? ""))?.[1]).filter(Boolean).map(Number);
+  if (stated.length && known.every((n) => n >= Math.min(...stated))) return Math.min(...stated);
+  return known.length && known.length === counts.length ? Math.min(...known) : null;
+}
+
+/**
  * Where the finer counts inside one fitted group differ, the lowest and highest of them:
  * `[{lo, hi, min: bin, max: bin}]` for each group holding two or more whole `bins` whose rates differ.
  * Empty without groups or bins.
@@ -542,7 +584,7 @@ export const pointsSpan = pointsRange;
 
 /**
  * Band 1's backtest rate by how its places got there (`meta.card.band_1_by_route`): through a
- * closure counted as 70, or on routine scores alone. Takes an object keyed by route or a list of
+ * health closure counted as 70, or on routine scores alone. Takes an object keyed by route or a list of
  * `{route, rate, interval}`; null when neither route has a rate.
  */
 export function band1ByRoute(meta) {
@@ -563,8 +605,8 @@ export function routeSentence(meta) {
   const { closure: c, scores: s } = r;
   const next = "had a major violation at their next routine inspection";
   if (c && s) {
-    return `In the backtest, about ${inHundred(c.rate)} in 100 band 1 places that were in it because of a closure counted as ${CLOSURE_SCORE} ${next}${likely(c.interval)}, against about ${inHundred(s.rate)} in 100 of those in it on routine scores alone${likely(s.interval)}.`;
+    return `In the backtest, about ${inHundred(c.rate)} in 100 band 1 places that were in it because of a health closure counted as ${CLOSURE_SCORE} ${next}${likely(c.interval)}, against about ${inHundred(s.rate)} in 100 of those in it on routine scores alone${likely(s.interval)}.`;
   }
-  if (c) return `In the backtest, about ${inHundred(c.rate)} in 100 band 1 places that were in it because of a closure counted as ${CLOSURE_SCORE} ${next}${likely(c.interval)}.`;
+  if (c) return `In the backtest, about ${inHundred(c.rate)} in 100 band 1 places that were in it because of a health closure counted as ${CLOSURE_SCORE} ${next}${likely(c.interval)}.`;
   return `In the backtest, about ${inHundred(s.rate)} in 100 band 1 places that were in it on routine scores alone ${next}${likely(s.interval)}.`;
 }

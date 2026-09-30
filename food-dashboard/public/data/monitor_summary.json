@@ -2,5 +2,8 @@
   "status": "too early",
   "runs": 0,
   "alerts": [],
-  "next_window_date": null
+  "next_window_date": null,
+  "rule_version": "2026-09-01-5f50107e",
+  "inspections_through": "2026-08-31",
+  "by_district": null
 }

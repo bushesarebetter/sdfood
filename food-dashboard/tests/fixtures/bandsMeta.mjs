@@ -26,7 +26,7 @@ export const staffMeta = {
   inspections_through: "2026-09-19",
   catch_run: { as_of: "2025-09-01" },
   card: {
-    rule: "Places get 100 minus their rounded average routine score over two years, a closure counted as 70.",
+    rule: "Places get 100 minus their rounded average routine score over two years, a health closure counted as 70.",
     trained_on: "2023-07-01 to 2025-09-01 (27 monthly snapshots, 41,000 labelled rows, county-wide restaurants)",
     base_rate: 0.21,
     bands: [

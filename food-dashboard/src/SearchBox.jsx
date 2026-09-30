@@ -148,7 +148,7 @@ export default function SearchBox({ facilities, onSelect, large = false }) {
                   <span className="min-w-0 flex-1">
                     <span className={`block truncate text-ink ${large ? "text-[15px]" : "text-[13.5px]"}`}>{p.name}</span>
                     <span className="block truncate text-[12.5px] text-ink-2">
-                      {p.address}, {typeLabel(p.facility_type)}, {g.graded ? `grade ${g.short}` : g.text.toLowerCase()}
+                      {p.address}, {typeLabel(p.facility_type)}, {g.graded ? `grade ${g.short}` : g.withDate}
                     </span>
                   </span>
                   {!expired && mark.label && (

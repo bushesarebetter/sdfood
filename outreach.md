@@ -3,7 +3,9 @@
 For City of San Diego staff and council offices. Fill in the `[brackets]`. Link the research
 dashboard (`dashboard.html`, `[dashboard link]`; counts only, no facility rows), never the public
 site. The staff site's address may go to a City requestor; its sign-ins go only to named staff, after
-the steps in [docs/STAFF_SITE.md](docs/STAFF_SITE.md). Every number here is from the README,
+the steps in [docs/STAFF_SITE.md](docs/STAFF_SITE.md), by a channel the City approves. A message that
+sends one says it is this site's sign-in id and access token, not the person's City account, and
+never to enter a City password on the site. Every number here is from the README,
 docs/MODEL_CARD.md and FAIRNESS.md. When quoting days sooner, say what they are: about 2% of the
 277–303 days between a facility's routine inspections, found earlier within the month; never
 prevented illness.
@@ -28,18 +30,21 @@ We are Chenhao Zhang and Ayan Pendharkar, two high-school students at Canyon Cre
 County's published food-inspection results we built a site for City staff. For every restaurant and
 market in the City (and, with a switch, the rest of the county) it shows the County's full
 inspection record on one page, where to send a resident's complaint, and a simple point rule that
-marks the places whose record points to a major violation at the next routine inspection, with each
-point explained. The County is the data source and the inspecting agency. We are independent and not
-affiliated with or endorsed by the County of San Diego.
+summarizes each restaurant's routine scores over two years, with each point explained. The points
+summarize the County's record; they are not a forecast for any one place. The County is the data
+source and the inspecting agency. Independent student project, not affiliated with or endorsed by the
+City of San Diego or the County of San Diego.
 
 The site exists, behind a sign-in (https://sdfood-city.onrender.com), but no one at the City has
 access yet, and no one will until:
 
-1. someone at the City asks for it in writing and names the office that would own it;
-2. the City tells us whether its TRUST Ordinance (SDMC §§ 210.0101–210.0112) applies. If it does,
-   the City needs Privacy Advisory Board review (§ 210.0104) and a Council vote (§ 210.0106) before
-   any staff use, even though the site is free; and
-3. our adult point of contact, [NAME, ROLE], has agreed a one-page data-use note with you.
+1. someone at the City asks for it in writing (we record their name and the date); and
+2. the City tells us whether its TRUST Ordinance (SDMC §§ 210.0101–210.0112) applies (we record who
+   gave the answer, and when). If it does, the City needs Privacy Advisory Board review (§ 210.0104)
+   and a Council vote (§ 210.0106) before any staff use, even though the site is free.
+
+Until both are on record the site shows the named list only to the students who build and check it.
+If you can, please also tell us which office would own it.
 
 What it shows, checked on the inspections that followed three earlier dates (the last was looked at
 while the rule was built, so a test on later inspections is under way):
@@ -92,9 +97,9 @@ Hi [Name],
 We are two students at Canyon Crest Academy (Chenhao Zhang and Ayan Pendharkar). Using your
 published results on SD Food Info, we tested whether ordering each month's routine inspections by
 each facility's own record would find major violations sooner. We have built a sign-in site for City
-staff, which we will open only after the City asks for it and names an owner, and we would like your
-comment before anything is published.
-We are independent, not affiliated with or endorsed by the County.
+staff, which we will open to them only after the City asks for it in writing and says whether its TRUST
+Ordinance applies, and we would like your comment before anything is published. Independent student
+project, not affiliated with or endorsed by the City of San Diego or the County of San Diego.
 
 - **What we saw in your published record:** apart from school kitchens, whose twice-yearly
   inspections federal law requires for schools in the national school lunch program, how often a
@@ -161,7 +166,8 @@ Chenhao Zhang and Ayan Pendharkar · Adult point of contact: [NAME, ROLE, EMAIL]
   lowest- and highest-income quartiles is +3.4 points for the model (95% CI −4.6 to +11.7) and
   +4.6 for the rule (−4.1 to +13.5): "no detectable difference", not proof of evenness. The rule's
   false-positive rate is 16.7% in the lowest-income quartile against 15.3% in the highest, with
-  overlapping intervals. The model uses no ZIP code, and coverage by group is monitored in any pilot.
+  overlapping intervals. The model uses no ZIP code, and the pilot plan reports coverage by group
+  each month (docs/PILOT.md; that report is still to be built).
 - **"What would it take?"** Someone has to produce and send each month's list. Our script builds
   the lists from refreshed data; someone at the County would still pass a district's list to its
   inspection supervisor. The estimate assumes a finding does not depend on the day of the month, and it

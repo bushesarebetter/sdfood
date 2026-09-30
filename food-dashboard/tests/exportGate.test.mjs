@@ -187,6 +187,8 @@ test("a public build on the host stops without the owner contact; a local build 
     assert.equal(ownerContactProblem({ RENDER: "true" }, undefined, { review: true }), null);
     assert.equal(ownerContactProblem({ RENDER: "true" }, " owners@example.org "), null);
     assert.equal(ownerContactProblem({ RENDER: "false" }, "").level, "warn");
+    // the gate passes a value with spaces around it, so the site trims it the same way before the mailto link
+    assert.match(readFileSync(join(root, "src", "site.js"), "utf8"), /ownerContact: String\(import\.meta\.env\?\.VITE_OWNER_CONTACT \?\? ""\)\.trim\(\) \|\| null/);
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }

@@ -5,7 +5,7 @@
  * worded by lib/recordFacts.js closureEntries, as the place's panel words
  * them.
  */
-import { inspectionStats, themeCounts, themeCountsNote, typeLabel, visitPhrase, recordGradeText, withinMonths } from "./inspections.js";
+import { inspectionStats, themeCounts, themeCountsNote, typeLabel, visitPhrase, recordGradeText, withinMonths, SAME_CLOSURE } from "./inspections.js";
 import { gradeView } from "./grades.js";
 import { closureLines } from "./recordFacts.js";
 import { fmtMonth } from "./dates.js";
@@ -37,7 +37,7 @@ function closureCounts(s) {
   const parts = [];
   if (s.closureEpisodes) {
     const notes = [plural(s.orderedClosedRecords, "“Ordered Closed” record")];
-    if (s.orderedClosedRecords > s.closureEpisodes) notes.push("a further order before the place reopened counts as the same closure");
+    if (s.orderedClosedRecords > (s.orderClosures ?? 0)) notes.push(SAME_CLOSURE);
     if (s.selfClosures) notes.push(`${s.selfClosures} “Self Closed”`);
     if (s.inferredClosures) notes.push(`${s.inferredClosures} shown only by a later “Approved to Reopen”`);
     parts.push(`${plural(s.closureEpisodes, "closure")} in our reading (${notes.join("; ")}): ${s.closures} for a health hazard${s.permitClosures ? `, ${s.permitClosures} for a permit matter` : ""}${s.otherClosures ? `, ${s.otherClosures} with no major violation cited` : ""}`);

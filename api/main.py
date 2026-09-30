@@ -5,16 +5,19 @@ monthly worklists export_worklist.py writes (data/worklists/<yyyy-mm>/district-<
 listed restaurant and market's County inspection record, the students' point rule's points and
 band, district summaries and per-district monthly worklists.
 
-    SDFOOD_API_KEYS=key1,key2 uvicorn api.main:app --reload       # http://localhost:8000/docs
+    SDFOOD_API_LOCAL=1 SDFOOD_API_KEYS=key1,key2 uvicorn api.main:app --reload   # http://localhost:8000/docs
 
 Every data endpoint needs an `X-API-Key` header with one of SDFOOD_API_KEYS. The interactive docs
 (/docs, /redoc) and /health carry no data and are open; set SDFOOD_API_DOCS=0 to turn the docs off
 in production. See docs/API.md.
 
-A deployed image carries data/site/api_release.json (deploy_api.py writes it): the staff release's
-sunset date and whether the City's request and TRUST answer are on record. Past that sunset (the date
-in San Diego), or without that answer, every data endpoint answers 503, as the staff site closes
-itself; /health says why. Without the file (a local run) nothing is closed."""
+A deployed image carries data/site/api_release.json (deploy_api.py writes it, after its checks): the
+staff release's sunset date and whether the City's request and TRUST answer are on record. Past that
+sunset (the date in San Diego), or without that answer, every data endpoint answers 503, as the staff
+site closes itself; /health says why. Without the file it is closed too: an image built or refreshed by
+any other path has passed none of those checks. Only a run on your own machine opens without it, and
+only when it says so (SDFOOD_API_LOCAL=1, and no SDFOOD_BUILD, which deploy_api.py stamps into every
+image)."""
 from __future__ import annotations
 
 import csv
@@ -41,6 +44,7 @@ ROOT = Path(__file__).resolve().parents[1]
 FLAGS = ("major", "closed", "bc", "repeat")
 MONTH = r"^\d{4}-(0[1-9]|1[0-2])$"
 RELEASE_FILE = "api_release.json"                # = deploy_api.RELEASE_FILE, in the data folder
+LOCAL_ENV = "SDFOOD_API_LOCAL"                   # "1": a run on your own machine, open without a release record
 ISO_DATE = r"\d{4}-\d{2}-\d{2}"
 POINT_RULE_NOTE = ("band and points: the students' point rule, a summary of the County's inspection record; "
                    "not a County grade or rating")
@@ -67,11 +71,17 @@ def san_diego_today() -> str:
         return (datetime.now(timezone.utc) - timedelta(hours=7)).date().isoformat()
 
 
-def closed_reason(release, day: str) -> str | None:
-    """Why the image serves no data, or None. `release` is data/site/api_release.json as read (None when
-    there is none: a local run)."""
+def is_local() -> bool:
+    """A run on your own machine, said so (SDFOOD_API_LOCAL=1), never an image deploy_api.py built (SDFOOD_BUILD)."""
+    return os.environ.get(LOCAL_ENV) == "1" and not os.environ.get("SDFOOD_BUILD")
+
+
+def closed_reason(release, day: str, local: bool = False) -> str | None:
+    """Why the service serves no data, or None. `release` is data/site/api_release.json as read (None when
+    there is none): without it the service is closed, unless it is a `local` run."""
     if release is None:
-        return None
+        return None if local else ("it has no release record (api_release.json): deploy it with deploy_api.py, which "
+                                   "writes one after its checks")
     if not isinstance(release, dict):
         return "its release record (api_release.json) cannot be read"
     if release.get("access_approved") is not True:
@@ -82,6 +92,25 @@ def closed_reason(release, day: str) -> str | None:
     if day > sunset:
         return f"its sunset date, {sunset}, has passed"
     return None
+
+
+# A visit type in words, as the staff site's CSV writes it (food-dashboard/src/lib/inspections.js
+# VISIT_LABELS, READ_VISIT_TYPES and visitPhrase): our reading of the County's type is marked as such.
+VISIT_LABELS = {"routine": "routine inspection", "reinspection": "reinspection", "followup": "re-grade or reopening visit",
+                "complaint": "complaint or other field visit", "status_check": "status verification"}
+READ_VISIT_TYPES = ("followup", "complaint")
+
+
+def visit_phrase(visit):
+    """A record's visit in words, with our reading marked and the County's own type beside it when the
+    export has it: "complaint or other field visit (our reading; County type: Site Investigation)"."""
+    kind = visit.get("type") or "routine"
+    label = VISIT_LABELS.get(kind, str(kind))
+    if kind not in READ_VISIT_TYPES:
+        return label
+    ct = visit.get("county_type")
+    ct = ct.strip() if isinstance(ct, str) else ""
+    return f"{label} (our reading{f'; County type: {ct}' if ct else ''})"
 
 
 def csv_cell(v):
@@ -143,7 +172,7 @@ class Store:
 
     @property
     def closed(self) -> str | None:
-        return closed_reason(self.release, san_diego_today())
+        return closed_reason(self.release, san_diego_today(), local=is_local())
 
     @property
     def stale(self) -> bool:
@@ -195,10 +224,15 @@ def require_key(request: Request, key: str | None = Security(api_key_header)):
 
 class Grade(BaseModel):
     model_config = ConfigDict(extra="allow")
-    grade: str = Field(description="The letter on the County's card in the window")
+    grade: str = Field(description="The latest letter on the County's record in the window, from a routine inspection "
+                                   "or a re-grade. With open_closure, it is the letter from before that closure: the "
+                                   "County posts no card while a place is closed")
     score: int | None = None
     date: str
     replaced: dict | None = Field(None, description="The routine B or C a re-grade replaced, if any")
+    open_closure: dict | None = Field(None, description="The place's last closure when no \"Approved to Reopen\" and no "
+                                                        "graded visit follow it: {date, reason, later_ungraded, status}; "
+                                                        "our reading of the record")
 
 
 class Facility(BaseModel):
@@ -408,7 +442,7 @@ def export_csv(district: list[int] | None = Query(None), band: list[str] | None 
                flag: list[str] | None = Query(None), q: str | None = None):
     s = get_store()
     cols = ["facility_id", "name", "address", "facility_type", "council_district", "band", "points", "grade",
-            "grade_date", "last_visit_date", "last_visit_type", "flags", "lon", "lat"]
+            "grade_date", "open_closure_date", "last_visit_date", "last_visit_type", "flags", "lon", "lat"]
     buf = io.StringIO()
     w = csv.writer(buf)
     w.writerow(cols + ["list_run", "list_expires", "about_band_points"])
@@ -417,7 +451,8 @@ def export_csv(district: list[int] | None = Query(None), band: list[str] | None 
         w.writerow([csv_cell(v) for v in [
                     p["facility_id"], p["name"], p["address"], p["facility_type"], p.get("council_district"),
                     p.get("band") or "", p.get("points") if p.get("points") is not None else "", g.get("grade", ""),
-                    g.get("date", ""), lv.get("date", ""), lv.get("type", ""), " ".join(p.get("flags") or []),
+                    g.get("date", ""), (g.get("open_closure") or {}).get("date", ""), lv.get("date", ""),
+                    visit_phrase(lv) if lv else "", " ".join(p.get("flags") or []),
                     p["lon"], p["lat"], s.meta["run"], s.meta.get("expires") or "", POINT_RULE_NOTE]])
     return Response(buf.getvalue(), media_type="text/csv",
                     headers={"Content-Disposition": f'attachment; filename="sd-food-{s.meta["run"]}.csv"'})
@@ -510,7 +545,7 @@ def worklist(month: str = PathParam(pattern=MONTH, description="yyyy-mm"),
 
 
 @app.post("/v1/admin/reload", tags=["service"], dependencies=[Depends(require_key)],
-          summary="Reload the export and worklists from disk after a refresh")
+          summary="Reload the export and worklists from disk (a local run: a deployed image is refreshed by deploy_api.py)")
 def reload():
     s = get_store()
     try:

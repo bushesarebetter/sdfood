@@ -112,7 +112,8 @@ test("visits and kinds of place have plain names, and every reading has a one-li
   assert.equal(typeLabel("limited"), "Limited-preparation food service");
   assert.equal(typeLabel("something"), "Food facility");
   assert.equal(OUR_READING.health, "a major violation was cited that day.");
-  assert.equal(OUR_READING.permit, "no major violation was cited that day and the inspector's notes mention a permit, so we read the closure as a permit matter.");
+  // The permit reading points at the text the site shows ("County note: No Valid Permit"), not at notes it does not.
+  assert.equal(OUR_READING.permit, "no major violation was cited that day and a County note that day mentions a permit, so we read the closure as a permit matter.");
   for (const k of ["followup", "complaint", "health", "permit", "other", "selfClosed", "inferred", "reopenOnly", "themes", "flags"]) {
     assert.ok(OUR_READING[k].length < 130, k);
   }
@@ -120,7 +121,7 @@ test("visits and kinds of place have plain names, and every reading has a one-li
 
 test("a closure read as other says what was not cited, never that the record is silent", () => {
   assert.equal(inspections.CLOSURE_LABELS.other, "no major violation cited");
-  assert.equal(OUR_READING.other, "no item marked major was cited that day and no note mentions a permit; the County's record gives no reason.");
+  assert.equal(OUR_READING.other, "no item marked major was cited that day and no County note that day mentions a permit; the County's record gives no reason.");
   const all = Object.values(OUR_READING).join(" ") + Object.values(inspections.CLOSURE_LABELS).join(" ");
   assert.doesNotMatch(all, /does not say why|reason not given/);
 });
@@ -190,7 +191,7 @@ test("a place's own closures and the County's Ordered Closed rows are counted ap
 
 test("theme counts read the export's theme_counts when it gives them, and say when the list was cut", () => {
   const { themeCountsNote, itemsShown, MAX_ITEMS } = inspections;
-  assert.equal(MAX_ITEMS, 60);
+  assert.equal(MAX_ITEMS, 150, "export_site.MAX_VIOLATIONS: above the most any place has had (83)");
   // 80 items cited, 60 listed: the listed ones hold every major and the newest others.
   const listed = [
     ...Array.from({ length: 10 }, () => ({ date: "2026-03-01", visit: "routine", theme: "temperature", severity: "major" })),
@@ -218,7 +219,7 @@ test("theme counts read the export's theme_counts when it gives them, and say wh
   const counted = { violations: listed, violations_total: 80 };
   assert.equal(themeCounts(counted).find((x) => x.theme === "grp_equipment").count, 50);
   assert.equal(themeCountsNote(counted), "Showing 60 of 80 items, majors first: counts of minor and good-retail-practice items, and their latest dates, may be low.");
-  // An older export at the cut does not say how many more there were.
+  // An older export, cut at 60 and with no total, does not say how many more there were.
   assert.match(themeCountsNote({ violations: listed }), /^Showing the first 60 items, majors first; the export lists no more/);
   assert.equal(themeCountsNote({ violations: listed.slice(0, 20) }), null, "a list below the cut is whole");
   assert.equal(themeCountsNote({ violations: listed.slice(0, 20), violations_total: 20 }), null);
@@ -261,7 +262,7 @@ test("a closure the County reopened shows the reopening date; nothing else does"
   assert.equal(reopenedText({ ...reopen, reopened_on: "2025-01-10" }), null, "only a closure carries it");
 });
 
-test("a place's page lists the County's escalation criteria it meets, in order, and nothing else", () => {
+test("a place's page lists the escalation facts it meets (our counts of the patterns the County's Guide names), in order, and nothing else", () => {
   assert.deepEqual(inspections.escalationFacts(["major", "lt90_2", "closures2", "vermin"]).map((f) => f.key), ["closures2", "lt90_2"]);
   assert.match(inspections.escalationFacts(["repeat_item"])[0].label, /^Same major item at two or more routine inspections/);
   assert.deepEqual(inspections.escalationFacts(undefined), []);

@@ -11,12 +11,11 @@
 #   - the export can be read without signing in (GET /data/meta.json must be refused: 401, or a 303 to
 #     /login).
 # A failure opens an issue titled "staff site check failed", or comments on the one already open, so a
-# problem that lasts a week is one issue, not seven; everyone watching the repository is notified. A
-# scheduled run that is cancelled (it ran out of time) does the same.
+# problem that lasts a week is one issue, not seven; everyone watching the repository is notified.
 # Without failing the check, it also opens an issue, once while it is open, when
 #   - the sunset date is less than 30 days away;
-#   - the latest quarter's major-violation rate differs from the backtest year's (/healthz "drift_note"),
-#     before any refit is due: the rates the site shows are probably off;
+#   - the latest quarter's major-violation rate differs from the label year's months before it
+#     (/healthz "drift_note"), before any refit is due: the rates the site shows are probably off;
 #   - the monitor has an alert, or did not run for the live list (/healthz "monitor_alert"): its sentences
 #     are in ops/monitor_summary.json in this repository.
 # The site's address is the repository variable SITE_URL (Settings, Secrets and variables, Actions,
@@ -85,8 +84,8 @@ jobs:
             notice "staff site comes down on its sunset date, $sunset" "The site closes itself after $sunset. Before then, record a City owner and a new sunset date and publish again, or plan the take-down (docs/STAFF_SITE.md)."
           fi
           if [ "$refit" = false ] && [ "$drift_note" = true ]; then
-            echo "::warning::the latest quarter's major-violation rate differs from the backtest year's"
-            notice "the latest quarter's major-violation rate differs from the backtest year's" "The health check reports a drift note (meta.json drift.note, shown with each estimate on the site). No refit is due yet: the formal drift check needs a complete quarter after the backtest year. Until then the rates the site shows are probably off. Read the note, and tell the City's owner of the site (docs/RUNBOOK.md)."
+            echo "::warning::the latest quarter's major-violation rate differs from the label year's months before it"
+            notice "the latest quarter's major-violation rate differs from the label year's months before it" "The health check reports a drift note (meta.json drift.note, shown with each estimate on the site). No refit is due yet: the formal drift check needs a complete quarter after the backtest year. Until then the rates the site shows are probably off. Read the note, and tell the responsible adult, and the City's requestor or owner of the site once there is one (docs/RUNBOOK.md)."
           fi
           if [ "$monitor_alert" = true ]; then
             echo "::warning::the monitor has an alert (status ${monitor:-unknown})"
@@ -95,14 +94,13 @@ jobs:
           cat "$problems" >> "$GITHUB_STEP_SUMMARY"
           [ ! -s "$problems" ]
       - name: open an issue, or add to the one already open
-        # A step past its time limit is a failure; a scheduled run cancelled as a whole also reports. A run
-        # cancelled by hand does not.
-        if: failure() || (cancelled() && github.event_name == 'schedule')
+        # The check step past its own time limit is a failure too, so a site that hangs reports here.
+        if: failure()
         timeout-minutes: 3
         env: { GH_TOKEN: "${{ github.token }}", TITLE: "staff site check failed" }
         run: |
           found="$(cat "$RUNNER_TEMP/problems.md" 2>/dev/null)"
-          [ -n "$found" ] || found="- the check did not finish (it ran out of time or was cancelled): treat the site as down until a check passes"
+          [ -n "$found" ] || found="- the check did not finish: treat the site as down until a check passes"
           body="$(date -u +%F): $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"$'\n\n'"$found"
           n=$(gh issue list -R "$GITHUB_REPOSITORY" --state open --limit 200 --json number,title \
                 | jq -r --arg t "$TITLE" '[.[] | select(.title == $t)][0].number // empty')

@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { recordFacts, closureEntries, closureLines } from "../src/lib/recordFacts.js";
+import { MAX_ITEMS } from "../src/lib/inspections.js";
 
 const visit = (date, type, extra = {}) => ({ date, status: "Complete", type, score: null, grade: null, major: 0, minor: 0, grp: 0, closed: false, closure: null, reopened: null, ...extra });
 const routine = (date, score, grade, extra = {}) => visit(date, "routine", { score, grade, ...extra });
@@ -27,7 +28,7 @@ test("reopening is stated only when the record says the County approved it; its 
   const notReopened = { inspections: [routine("2026-02-01", null, null, { status: "Ordered Closed", major: 1, closed: true, closure: "health", reopened: false })], violations: [] };
   assert.deepEqual(recordFacts(notReopened)[0].county, ["Ordered Closed on February 1, 2026.", NO_REOPEN]);
   const permit = { inspections: [routine("2026-02-01", 96, "A", { status: "Ordered Closed", closed: true, closure: "permit", reopened: false })], violations: [] };
-  assert.equal(recordFacts(permit)[0].reading, "Our reading: no major violation was cited that day and the inspector's notes mention a permit, so we read the closure as a permit matter.");
+  assert.equal(recordFacts(permit)[0].reading, "Our reading: no major violation was cited that day and a County note that day mentions a permit, so we read the closure as a permit matter.");
   // An export from before `reopened` was set says nothing either way.
   const unknown = { inspections: [routine("2026-02-01", null, null, { status: "Ordered Closed", major: 1, closed: true, closure: "health", reopened: null })], violations: [] };
   assert.deepEqual(recordFacts(unknown)[0].county, ["Ordered Closed on February 1, 2026."]);
@@ -90,7 +91,7 @@ test("a closure read as other names what the County cited that day, never that t
     "Items cited that day: item 21, “Hot & cold water available” (minor violation).",
     "Approved to Reopen on April 5, 2026.",
   ]);
-  assert.equal(c.reading, "Our reading: no item marked major was cited that day and no note mentions a permit; the County's record gives no reason.");
+  assert.equal(c.reading, "Our reading: no item marked major was cited that day and no County note that day mentions a permit; the County's record gives no reason.");
   assert.doesNotMatch(text([c]), /does not say why|reason not given/);
   const bare = { inspections: [routine("2026-04-03", null, null, { status: "Ordered Closed", closed: true, closure: "other", reopened: false })], violations: [] };
   assert.equal(recordFacts(bare)[0].county[1], "No items were cited that day.");
@@ -146,7 +147,7 @@ test("the panel and the pasted text take a closure's words from one place", () =
 
 test("a theme quotes the County's item text, counts Site Investigation and Environmental findings, and needs a major or minors at two inspections", () => {
   const p = {
-    inspections: [routine("2025-11-11", 94, "A"), visit("2026-01-15", "complaint"), routine("2026-03-02", 86, "B", { major: 2 })],
+    inspections: [routine("2025-11-11", 94, "A"), visit("2026-01-15", "complaint", { major: 1 }), routine("2026-03-02", 86, "B", { major: 1, minor: 1 })],
     violations: [
       v("2026-03-02", "temperature", "major"),
       v("2026-01-15", "temperature", "major", { visit: "complaint", description: "Proper cooling methods" }),
@@ -183,14 +184,28 @@ test("field visits are counted by the County's own type, and the grouping is our
   assert.match(f.reading, /^Our reading: .*complaint or other field visits\.$/);
 });
 
-test("a theme's reading says when its counts come from a list the export cut at 60", () => {
-  const majors = Array.from({ length: 58 }, (_, k) => v(`2026-0${1 + (k % 8)}-02`, "temperature", "major"));
-  const minors = [v("2026-02-02", "vermin", "minor", { code: "23" }), v("2026-05-02", "vermin", "minor", { code: "23" })];
-  const p = { inspections: [routine("2026-01-02", 80, "B"), routine("2026-08-02", 81, "B")], violations: [...majors, ...minors], violations_total: 75 };
+test("a theme's reading says when the 12 months go past the export's cut: the records cite more than it lists", () => {
+  // 190 minor violations at two routine inspections in the window; the export lists the newest MAX_ITEMS.
+  const minors = (date, n) => Array.from({ length: n }, () => v(date, "vermin", "minor", { code: "23", description: "Premises free of rodents/insects" }));
+  const p = {
+    inspections: [routine("2026-01-02", 80, "B", { minor: 100 }), routine("2026-08-02", 81, "B", { minor: 90 })],
+    violations: [...minors("2026-01-02", MAX_ITEMS - 90), ...minors("2026-08-02", 90)],
+    violations_total: 190,
+  };
+  const note = `Showing ${MAX_ITEMS} of the 190 major and minor violations the County's records in these 12 months cite, majors first`;
   const vermin = recordFacts(p).find((f) => f.key === "theme-vermin");
-  assert.match(vermin.reading, /Showing 60 of 75 items, majors first/);
-  const whole = { ...p, theme_counts: { temperature: { major: 58, minor: 0, grp: 0, complaint: 0, latest: "2026-08-02" }, vermin: { major: 0, minor: 17, grp: 0, complaint: 0, latest: "2026-08-02" } } };
-  assert.doesNotMatch(recordFacts(whole).find((f) => f.key === "theme-vermin").reading, /Showing/, "the export counted every item");
+  assert.equal(vermin.county[0], `${MAX_ITEMS} minor violations cited in the 12 months before its last visit, most recently in August 2026.`);
+  assert.ok(vermin.reading.includes(note), vermin.reading);
+  // Whole counts for the 36 months (theme_counts) do not make the 12 months' facts whole: the line stays.
+  const counted = { ...p, theme_counts: { vermin: { major: 0, minor: 190, grp: 0, complaint: 0, latest: "2026-08-02" } } };
+  assert.ok(recordFacts(counted).find((f) => f.key === "theme-vermin").reading.includes(note), "theme_counts or not");
+  // A list that holds every item the records cite needs no line.
+  const whole = { ...p, inspections: [routine("2026-01-02", 80, "B", { minor: MAX_ITEMS - 90 }), routine("2026-08-02", 81, "B", { minor: 90 })], violations_total: MAX_ITEMS };
+  assert.doesNotMatch(recordFacts(whole).find((f) => f.key === "theme-vermin").reading, /Showing/);
+  // With no theme to carry it, the line stands alone.
+  const bare = { inspections: [routine("2026-08-02", 81, "B", { major: 1, minor: 3 })], violations: [] };
+  const alone = recordFacts(bare).find((f) => f.key === "theme-cut");
+  assert.match(alone.county[0], /^Showing 0 of the 4 major and minor violations the County's records in these 12 months cite, majors first: /);
 });
 
 test("a B or C, or a re-grade after one, is stated from the index grade", () => {

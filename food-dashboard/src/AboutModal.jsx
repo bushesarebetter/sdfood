@@ -2,8 +2,8 @@ import Dialog, { CloseButton } from "./Dialog";
 import { useAdvanced } from "./useAdvanced";
 import { useExpired, useMeta, useMode, useSample } from "./useMeta";
 import {
-  GROUP_NOTE, auditedBandsName, bandDefs, bandPoints, bandSummary, backtestList, costLimitSentence, curveGroupRows, curveGroupSpread, driftLines,
-  frozenLine, persistenceSentence, pointsSpan, rateRatio, restRate, restRatio, routeSentence, ruleSentence, utilityRows,
+  GROUP_NOTE, HEALTH_CLOSURE, auditedBandsName, bandDefs, bandPoints, bandSummary, backtestList, costLimitSentence, curveGroupSpread, driftLines,
+  frozenLine, groupFloor, groupTables, persistenceSentence, pointsSpan, rateRatio, restRate, restRatio, routeSentence, ruleSentence, utilityRows,
 } from "./lib/bands";
 import { districtStatus, isStaff, reviewStatus } from "./lib/staff";
 import { gradeContextSentence } from "./lib/framing";
@@ -101,17 +101,26 @@ export default function AboutModal({ onClose, onNavigate }) {
 
         <Section heading="The County's words and ours">
           <p>
-            Shown as the County published them: each record&rsquo;s date, visit type, status text (such as
+            Shown as the County published them: each record&rsquo;s date, its inspection type (such as &ldquo;Routine&rdquo;,
+            &ldquo;Re-inspection&rdquo;, &ldquo;Site Investigation&rdquo; or &ldquo;Status Verification&rdquo;), status text (such as
             &ldquo;Complete&rdquo;, &ldquo;Ordered Closed&rdquo; or &ldquo;Approved to Reopen&rdquo;), score, grade, the
             County&rsquo;s own notes on it (such as &ldquo;Impoundment&rdquo;), and each item&rsquo;s text and severity.
           </p>
           <p>
             Marked &ldquo;Our reading&rdquo; wherever they appear: re-grade or reopening visits ({rule(OUR_READING.followup)}),
-            closure reasons, the theme of each item ({rule(OUR_READING.themes)}), and the record flags used by the filters (
-            {rule(OUR_READING.flags)}){mode === "bands" ? "; and the points and bands of the students' point rule, which are ours entirely" : ""}.
+            complaint or other field visits ({rule(OUR_READING.complaint)}), closure reasons, the theme of each item (
+            {rule(OUR_READING.themes)}), and the record flags used by the filters ({rule(OUR_READING.flags)})
+            {mode === "bands" ? "; and the points and bands of the students' point rule, which are ours entirely" : ""}.
           </p>
           <p>
-            Dropped as not inspections: &ldquo;No Access&rdquo; visits, and &ldquo;Self Closed&rdquo; or &ldquo;Status
+            Where a closure starts is our reading too, and marked so. A County &ldquo;Ordered Closed&rdquo; record starts one; so does
+            a &ldquo;Self Closed&rdquo; record with a major violation cited that day, read as the operator&rsquo;s own closure. Where
+            only a later &ldquo;Approved to Reopen&rdquo; shows a closure, the latest visit in the 14 days before it with a major
+            violation and no County score is read as its start, and that visit still shows the County&rsquo;s own status text. An
+            &ldquo;Approved to Reopen&rdquo; with no such visit before it is shown as it is, and no closure is read into the record.
+          </p>
+          <p>
+            Dropped as not inspections: &ldquo;No Access&rdquo; and &ldquo;Incomplete&rdquo; records, and &ldquo;Self Closed&rdquo; or &ldquo;Status
             Verification&rdquo; records that cite no item and were not ordered closed. Those that do are shown with the
             County&rsquo;s status text. A score of 0 means not scored, and no grade is ever made from a score.
           </p>
@@ -165,7 +174,8 @@ function Rule({ meta, advanced, expired }) {
   const limit = costLimitSentence(meta);
   const byRoute = routeSentence(meta);
   const drift = driftLines(meta);
-  const fitted = fittedRows(card);
+  const fitted = fittedRows(meta);
+  const outsideFitted = card?.outside ? fittedRows(meta, { outside: true }) : null;
   const finer = curveRows(card);
   return (
     <>
@@ -235,32 +245,33 @@ function Rule({ meta, advanced, expired }) {
           <p>
             Every scored place is also given an estimate, with a likely range: what places with about its points did in the backtest.
             {fitted ? (
-              <> Point values are pooled into groups of at least {poolFloor(card)} labelled places, and every place in a group is
-                given the group&rsquo;s rate, even where the finer counts inside it differ{spreadText(card)}. A monotone fit then keeps
-                the rate from falling as points rise, so neighbouring groups can read the same rate. Each place&rsquo;s estimate
-                names the group of points it is read from.</>
+              <> Point values are pooled into groups{fitted.floor != null && <> of at least {num(fitted.floor)} labelled places</>}, and every
+                place in a group is given the group&rsquo;s rate, even where the finer counts inside it differ{spreadText(card)}. A monotone
+                fit then keeps the rate from falling as points rise, so neighbouring groups can read the same rate. Each place&rsquo;s
+                estimate names the group of points it is read from.</>
             ) : (
               <> It is read from a monotone fit to the counts below: more points never means a lower rate.</>
             )}
             {card && "curve_closure" in card && (
-              <> There are two fits: one for places whose two scored years include no closure, and one for places whose two years
-                include a routine inspection that ended in a closure, which the rule counts as 70; each place is read from its own,
-                and an estimate from the second says so.</>
+              <> There are two fits: one for places whose two scored years include no health closure, and one for places whose two
+                years include {HEALTH_CLOSURE}, which the rule counts as 70; each place is read from its own, and an estimate from the
+                second says so.</>
             )}{" "}
-            {fitted ? "Each group, and the rate every place in it is given:" : "The counts themselves:"}
+            {!fitted ? "The counts themselves:" : card?.outside
+              ? `Each group of places in the City, and the rate every place in it is given (places outside the City are read from ${outsideFitted ? "the groups measured outside it, under Outside the City" : "rates measured outside it"}):`
+              : "Each group, and the rate every place in it is given:"}
           </p>
           {fitted ? (
-            <Table
-              head={["Points", "Places", "Had a major", "Rate given (likely range)"]}
-              rows={fitted.rows}
-              note={fitted.blank ? "Places and majors are left blank for a group whose finer counts run across its edges." : null}
-            />
+            <Table head={FITTED_HEAD} rows={fitted.rows} note={fitted.blank ? BLANK_NOTE : null} />
           ) : (
             <Table head={["Points", "Places", "Had a major", "Rate"]} rows={finer} />
           )}
           {fitted && advanced && finer.length > 0 && (
             <>
-              <p>The finer counts by points, from the same backtest. No place is read from these; they show how the rate moves inside each group.</p>
+              <p>
+                The finer counts by points{card?.outside ? " for places in the City" : ""}, from the same backtest. No place is read from
+                these; they show how the rate moves inside each group.
+              </p>
               <Table head={["Points", "Places", "Had a major", "Rate"]} rows={finer} />
             </>
           )}
@@ -304,6 +315,17 @@ function Rule({ meta, advanced, expired }) {
               : "The bands did not hold there, so places outside the City show their points and estimate but no band."}
             {typeof card.outside.base_rate === "number" && <> Outside the City, {pct(card.outside.base_rate)} of scored restaurants had a major at their next routine inspection.</>}
           </p>
+          {outsideFitted && (
+            <>
+              <p>
+                Every scored place outside the City is given its estimate from fits measured outside the City, pooled the same way
+                {outsideFitted.floor != null && <> into groups of at least {num(outsideFitted.floor)} labelled places</>}
+                {"curve_closure" in card.outside && <>, one for places whose two scored years include no health closure and one for places whose two years include one</>}.
+                Each group outside the City, and the rate every place in it is given:
+              </p>
+              <Table head={FITTED_HEAD} rows={outsideFitted.rows} note={outsideFitted.blank ? BLANK_NOTE : null} />
+            </>
+          )}
         </Section>
       )}
 
@@ -315,6 +337,12 @@ function Rule({ meta, advanced, expired }) {
         <Section heading="What this list has not passed">
           <p>A public release of this list would need every check below to pass. The staff site shows the list anyway, with this said:</p>
           <ul className="list-disc space-y-1 pl-5">{reviewStatus(meta).map((r, i) => <li key={i}>{r}</li>)}</ul>
+          {districtStatus(meta) && reviewStatus(meta).some((r) => /^district \d+:/i.test(r)) && (
+            <p>
+              For the district lines, By council district, above, says which districts stay above even once chance across the
+              districts and inspectors are allowed for, and so which the staff notice&rsquo;s instruction on districts names.
+            </p>
+          )}
         </Section>
       )}
     </>
@@ -332,65 +360,70 @@ const totalRow = (c, label) => [
   typeof c?.labelled === "number" && c.labelled > 0 && typeof c?.positives === "number" ? pct(c.positives / c.labelled) : "",
 ];
 
-const NO_CLOSURE_LABEL = "Places whose two scored years include no closure";
-const CLOSURE_LABEL = "Places whose two years include a closure counted as 70";
+/**
+ * Who a curve covers, heading its rows: "Places in the City whose two years include a health closure
+ * counted as 70" (a health closure: HEALTH_CLOSURE). `where` is "", " in the City" (when the export
+ * has places outside it too) or " outside the City".
+ */
+const curveLabel = (closure, where = "") =>
+  `Places${where} ${closure ? "whose two years include a health closure counted as 70" : "whose two scored years include no health closure"}`;
+
+const FITTED_HEAD = ["Points", "Places", "Had a major", "Rate given (likely range)"];
+const BLANK_NOTE = "Places and majors are left blank for a group whose finer counts run across its edges.";
 
 /**
- * The finer counts under the estimate curves (`bins`). An export with `curve_closure` fits `curve` to
- * the places whose two scored years include no closure, so each curve is headed by the places it
- * covers, the closure curve (when there is one) second; an older export's one curve covers every
- * scored place. No place is read from these (fittedRows is what places are told).
+ * The finer counts under the City's estimate curves (`bins`). An export with `curve_closure` fits
+ * `curve` to the places whose two scored years include no health closure, so each curve is headed by
+ * the places it covers, the closure curve (when there is one) second; an older export's one curve
+ * covers every scored place. No place is read from these (fittedRows is what places are told).
  */
 function curveRows(card) {
   if (!card) return [];
   const plain = binRows(card.curve);
   if (!("curve_closure" in card)) return plain;
-  const rows = plain.length ? [totalRow(card.curve, NO_CLOSURE_LABEL), ...plain] : [];
-  if (card.curve_closure) rows.push(totalRow(card.curve_closure, CLOSURE_LABEL), ...binRows(card.curve_closure));
+  const where = card.outside ? " in the City" : "";
+  const rows = plain.length ? [totalRow(card.curve, curveLabel(false, where)), ...plain] : [];
+  if (card.curve_closure) rows.push(totalRow(card.curve_closure, curveLabel(true, where)), ...binRows(card.curve_closure));
   return rows;
 }
 
 /**
- * What places are told, one row per fitted group of each curve (lib/bands.js curveGroupRows): its
- * points, its places and majors where the export's counts allow, and the rate and likely range every
- * place in it is given, the same the estimate on a place's page states. `{rows, blank}`, blank when a
- * group's counts could not be given; null for an export whose curves have no `groups`.
+ * What places are told, one row per fitted group of each of an area's curves (lib/bands.js
+ * groupTables: the City's, or with `outside` those measured outside the City, which every place
+ * outside it is read from): its points, its places and majors where the export's counts allow, and
+ * the rate and likely range every place in it is given, the same the estimate on a place's page
+ * states. `{rows, blank, floor}`: blank when a group's counts could not be given, floor the fewest
+ * places in a group (groupFloor); null for an area whose curves have no `groups`.
  */
-function fittedRows(card) {
-  if (!card?.curve) return null;
-  const two = "curve_closure" in card;
-  const curves = [[card.curve, two ? NO_CLOSURE_LABEL : null], ...(two && card.curve_closure ? [[card.curve_closure, CLOSURE_LABEL]] : [])];
+function fittedRows(meta, { outside = false } = {}) {
+  const tables = groupTables(meta, { outside });
+  if (!tables) return null;
+  const card = meta.card;
+  const two = "curve_closure" in (outside ? card.outside : card);
+  const where = outside ? " outside the City" : card.outside ? " in the City" : "";
   const rows = [];
   let blank = false;
-  for (const [c, label] of curves) {
-    const groups = curveGroupRows(c);
-    if (!groups) return null;
-    if (label) rows.push(totalRow(c, label));
-    for (const g of groups) {
+  for (const t of tables) {
+    if (two) rows.push(totalRow(t.curve, curveLabel(t.group === "closure", where)));
+    for (const g of t.rows) {
       blank ||= g.labelled == null;
       const range = typeof g.low === "number" && typeof g.high === "number" ? ` (${pct(g.low)} to ${pct(g.high)})` : "";
       rows.push([pointsSpan(g.lo, g.hi).replace(/ points?$/, ""), num(g.labelled), num(g.positives), `${pct(g.rate)}${range}`]);
     }
   }
-  return rows.length ? { rows, blank } : null;
-}
-
-/** The fewest labelled places in a group, from the curve's own description ("groups of at least 200 places"). */
-function poolFloor(card) {
-  const m = /at least (\d+)/.exec(String(card?.curve?.model ?? ""));
-  return m ? Number(m[1]).toLocaleString("en-US") : "200";
+  return rows.length ? { rows, blank, floor: groupFloor(tables) } : null;
 }
 
 /**
  * Where the finer counts inside a fitted group run from low to high, as the About page states it:
- * " (in the group from 7 to 25 points whose two years include a closure, from about 14 in 100 at 7 to
- * 10 points to 50 in 100 at 19 to 25 points)"; "" when no group's finer counts differ.
+ * " (in the group from 7 to 25 points whose two years include a health closure, from about 14 in 100
+ * at 7 to 10 points to 50 in 100 at 19 to 25 points)"; "" when no group's finer counts differ.
  */
 function spreadText(card) {
   if (!card) return "";
   const hundred = (x) => Math.round(x * 100);
   const parts = [];
-  for (const [c, who] of [[card.curve, "curve_closure" in card ? " whose two scored years include no closure" : ""], [card.curve_closure, " whose two years include a closure"]]) {
+  for (const [c, who] of [[card.curve, "curve_closure" in card ? " whose two scored years include no health closure" : ""], [card.curve_closure, " whose two years include a health closure"]]) {
     for (const s of curveGroupSpread(c)) {
       parts.push(`in the group from ${s.lo} to ${s.hi} points${who}, from about ${hundred(s.min.rate)} in 100 at ${pointsSpan(s.min.min_points, s.min.max_points)} ` +
         `to ${hundred(s.max.rate)} in 100 at ${pointsSpan(s.max.min_points, s.max.max_points)}`);

@@ -3,7 +3,7 @@ that Render builds and serves behind a sign-in (city_site/server.mjs). The real 
 this public repository. The staff site is a release of named results like any other, so it has its
 own gates (docs/STAFF_SITE.md, docs/PUBLISHING.md "Release path 4").
 
-    python export_site.py && python publish_city_site.py                  # after each refresh
+    python export_site.py && python export_site.py --monitor && python publish_city_site.py   # after each refresh
     python publish_city_site.py --wait https://sdfood-city.onrender.com   # and wait until Render serves it
     python publish_city_site.py --holds-only                              # apply docs/holds.json to what is live now
 
@@ -30,11 +30,16 @@ Refuses to push unless:
   * every run registered for the prospective test (docs/prospective/REGISTERED.json) has its archive,
     with its registered hash, here or in the private repository's ops/archive/;
   * the push goes to a private repository and nowhere else (check_target).
---holds-only also refuses a newly held id that is not on the live list (ids are case-sensitive), before
-it changes anything.
+--holds-only also refuses, before it changes anything, a held id that is not on the live list and that no
+publish has applied (ops/holds_applied.json records every id a publish has held on its list; ids are
+case-sensitive). A full publish only warns about a held id that is not on its list, saying whether a
+publish held it before. Each publish also checks that the public site's privacy page carries the
+corrections contact's email (VITE_OWNER_CONTACT, owner_route_problem): until it does, staff are told,
+as an open item.
 It also ships, in the staff copy of meta.json: who is responsible and whom to write to, the sunset
 date, whether the City has recorded a request for access (access_approved: dated, attributed entries
-on or before the day of publishing), the monitor's summary (monitor), and every check this list has
+on or before the day of publishing), the monitor's summary (monitor: the staff notice turns an alert on
+a list it has scored into an instruction, lib/staff.js monitorGuidance), and every check this list has
 not passed (review_status): the public-release gates, and in plain words what has not been done (no
 lawyer, no County comment, no owner told, no City request or TRUST determination), which the site
 shows on every page. Holds in docs/holds.json take effect here, without a rebuild: a held place keeps
@@ -53,7 +58,7 @@ VITE_GOOGLE_MAPS_*, and the sign-ins (city_site/render.yaml lists them): SITE_US
 per person; SITE_OPERATORS, the ids that see the named list before access_approved; SITE_PASSWORD and
 SITE_USER, the operator's own older sign-in, never given to anyone (by default an operator only while
 it is the only sign-in); SITE_CONTACT, whom to ask for access. Each push redeploys it."""
-import argparse, getpass, hashlib, io, json, os, re, shutil, subprocess, sys, tarfile, time, urllib.request
+import argparse, getpass, hashlib, io, json, os, re, shutil, subprocess, sys, tarfile, time, urllib.parse, urllib.request
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path, PurePosixPath
 
@@ -79,6 +84,10 @@ EXIT_NOT_SERVED = 5                                   # pushed, but not served w
 MONITOR_FILES = ("monitor.json", "monitor.md", "monitor_summary.json")
 MONITOR_STATUSES = ("too early", "interim", "complete", "failed")
 HOLDS_FORMAT = '{"facility_ids": ["DEH2022-FFPP-000001", ...]} (ids exactly as the list shows them)'
+# In the private checkout's ops/: every id a publish has held while it was on the list. ops/holds.json is what
+# was asked for; this is what took effect, so an id that never matched a listed place is never in it.
+APPLIED = "holds_applied.json"
+PUBLIC_SITE = "https://sdfood.onrender.com"           # = food-dashboard/src/site.js SITE.siteUrl
 
 
 def run(cmd, cwd):
@@ -439,6 +448,33 @@ def hold_problems(fc, details, held):
     return bad
 
 
+def applied_holds(out):
+    """Every id a publish has held while it was on the list (ops/holds_applied.json in the private checkout).
+    Empty when there is no record yet, or one that cannot be read: then no held id off the list passes as an
+    earlier hold."""
+    ids, _ = read_holds(Path(out) / "ops" / APPLIED)
+    return ids
+
+
+def record_applied(out, ids):
+    """Add `ids`, the held places on the list just written, to ops/holds_applied.json. Returns the record."""
+    path = Path(out) / "ops" / APPLIED
+    path.parent.mkdir(parents=True, exist_ok=True)
+    every = sorted(applied_holds(out) | set(ids))
+    path.write_text(json.dumps({"facility_ids": every, "_note": "every id a publish has held while it was on the "
+                                "list (publish_city_site.py); docs/holds.json is what was asked for"}, indent=2) + "\n",
+                    encoding="utf-8")
+    return every
+
+
+def off_list_warning(fid, applied):
+    """What can be said of a held id that is not on the list: only whether a publish held it before."""
+    if fid in applied:
+        return f"{fid} is held and no longer on the list (a publish held it before, so it has left the list since)"
+    return (f"{fid} is held and not on the list, and no publish has held it before: check the id (ids are "
+            "case-sensitive: copy it from the place's page), or the place has left the list")
+
+
 def independence_problems(a):
     """Shown to staff, not a refusal: the operator named is one of the students who built the list."""
     adult = (a or {}).get("responsible_adult") or {}
@@ -449,10 +485,46 @@ def independence_problems(a):
     return []
 
 
-def monitor_summary(site=None):
+def _get_text(url, timeout=60):
+    req = urllib.request.Request(url, headers={"User-Agent": "sdfood publish_city_site.py (owner route check)"})
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return r.read(20_000_000).decode("utf-8", "replace")
+
+
+OWNER_ROUTE_ITEM = ("the public site does not yet give an owner an email address to ask whether their business is on this "
+                    "list (VITE_OWNER_CONTACT on the public site)")
+
+
+def owner_route_problem(approval, fetch=None, site=PUBLIC_SITE):
+    """Shown to staff, not a refusal: an owner can find out whether their business is on this list only from the
+    public site's privacy page, which gives an email address built into its page at build time (VITE_OWNER_CONTACT,
+    docs/HOSTING.md "The public site"). None when the scripts the live page loads carry a mailto link and the
+    corrections contact's email; otherwise the open item, and when the page cannot be read, a line saying so.
+    (The page's placeholder for an unset address is always in the scripts, beside the address, so it proves
+    nothing either way.) `fetch(url)` returns the text at `url`."""
+    fetch = fetch or _get_text
+    email = (((approval or {}).get("corrections_contact") or {}).get("email") or "").strip().lower()
+    if not EMAIL.fullmatch(email):
+        return OWNER_ROUTE_ITEM
+    base = site.rstrip("/") + "/"
+    try:
+        page = fetch(base)
+        scripts = sorted(set(re.findall(r'(?:src|href)="([^"]*/assets/[^"?#]+\.js)"', page)))
+        bodies = [fetch(urllib.parse.urljoin(base, path)).lower() for path in scripts]
+    except Exception as e:                            # never block a staff release on the public site being down
+        return (f"the public site could not be read to confirm it gives an owner an email address to ask whether their "
+                f"business is on this list ({type(e).__name__})")
+    if any("mailto:" in b for b in bodies) and any(email in b for b in bodies):
+        return None
+    return OWNER_ROUTE_ITEM
+
+
+def monitor_summary(site=None, meta=None):
     """The monitor's summary (export_site.py --monitor writes data/site/monitor_summary.json) for the staff
     copy of meta.json, as meta.monitor. A monitor that has not run, or whose summary cannot be read, is
-    shipped as "failed" with a sentence saying so: /healthz reports it and the daily check opens an issue."""
+    shipped as "failed" with a sentence saying so: /healthz reports it and the daily check opens an issue.
+    With `meta`, the export this publish ships, so is a summary the monitor wrote for another record or
+    rule (monitor_stale): after `python export_site.py` alone, the file on disk is the previous run's."""
     path = Path(SITE if site is None else site) / "monitor_summary.json"
     s = _json(path, None)
     nxt = s.get("next_window_date") if isinstance(s, dict) else None
@@ -460,9 +532,30 @@ def monitor_summary(site=None):
             and isinstance(s.get("runs"), int) and not isinstance(s.get("runs"), bool) and s["runs"] >= 0
             and isinstance(s.get("alerts"), list) and all(isinstance(a, str) and a.strip() for a in s["alerts"])
             and (nxt is None or (isinstance(nxt, str) and ISO_DATE.fullmatch(nxt)))):
-        return s
+        stale = monitor_stale(s, meta) if meta is not None and s["status"] != "failed" else None
+        if not stale:
+            return s
+        return {"status": "failed", "runs": 0, "next_window_date": None,
+                "alerts": [f"The monitor did not run for this list: its summary {stale}. Run python export_site.py "
+                           "--monitor, then publish again."]}
     why = "has not run for this list" if not path.exists() else "wrote a summary that cannot be read"
     return {"status": "failed", "runs": 0, "alerts": [f"The monitor {why}."], "next_window_date": None}
+
+
+def monitor_stale(summary, meta):
+    """Why a monitor summary is not for this export, or None. export_site.monitor_summary stamps the last
+    day of the record it scored (inspections_through) and the frozen rule it read alerts for
+    (rule_version); both must be this export's. A summary with no stamps is from a monitor older than the
+    stamps, so it cannot be matched to any export."""
+    if "inspections_through" not in summary or "rule_version" not in summary:
+        return "does not say which record it scored"
+    through, version = meta.get("inspections_through"), (meta.get("frozen") or {}).get("version")
+    if summary["inspections_through"] != through:
+        return f"scored the record through {summary['inspections_through']}, and this list is the record through {through}"
+    if summary["rule_version"] != version:
+        return (f"read alerts for rule version {summary['rule_version'] or 'none'}, and this list applies "
+                f"{version or 'no frozen rule'}")
+    return None
 
 
 def staff_meta(meta, approval, status, published_by, today, monitor=None):
@@ -511,6 +604,8 @@ responsible (STAFF_APPROVAL.json) and the places on hold (holds.json).
 - rule.json: the frozen rule the list applies (docs/rule.json).
 - pull_meta.json: the County pull the list was built from (date, count, sha256).
 - STAFF_APPROVAL.json, holds.json: the release's approval and the places on hold.
+- holds_applied.json: every id a publish has held while it was on the list, kept across publishes. A held
+  id off the live list passes `--holds-only` only when it is here (it left the list after it was held).
 - monitor.json, monitor.md, monitor_summary.json: the monitor's last scoring of the archived lists (the
   summary is also in the live meta.json, as monitor).
 - archive/<run>/: every archived list (ranking.csv.gz, meta.json, manifest.json), written once and never
@@ -571,11 +666,12 @@ def copy_archives(ops, site=None):
 def write_ops(out, commit="HEAD", export_commit=None):
     """ops/ in the private checkout: the source of the site (`commit`) and, when it differs, of the list
     (`export_commit`), the frozen rule, pull meta, approval, holds, the monitor's output and every archived
-    list. Stops, before anything is pushed, when a registered run's archive is not there with its hash."""
+    list; the record of applied holds (APPLIED) is kept. Stops, before anything is pushed, when a registered
+    run's archive is not there with its hash."""
     ops = out / "ops"
     ops.mkdir(exist_ok=True)
     for old in ops.iterdir():
-        if old.is_file():
+        if old.is_file() and old.name != APPLIED:     # the record of applied holds is kept, and added to
             old.unlink()
     subprocess.run(["git", "archive", "--format=tar.gz", "-o", str(ops / "source.tar.gz"), commit], cwd=ROOT, check=True)
     if export_commit and export_commit != commit:
@@ -665,9 +761,11 @@ def commit_and_push(out, message):
 
 
 def holds_only(out, approval, today, repo):
-    """Apply docs/holds.json to the list that is live, and nothing else. A newly held id that is not on the
-    live list (a typo, a wrong case) stops it before anything changes, and the result is checked before
-    anything is written. Returns (the commit pushed or None, the live meta, the held ids, the ids newly held)."""
+    """Apply docs/holds.json to the list that is live, and nothing else. A held id that is not on the live
+    list and that no publish has held (ops/holds_applied.json: a typo, a wrong case, even one already in
+    ops/holds.json) stops it before anything changes, and the result is checked before anything is written.
+    Returns (the commit pushed or None, the live meta, the held ids, the ids newly held, the held ids on the
+    live list)."""
     problems = approval_problems(approval, today)
     if problems:
         sys.exit("NOT PUBLISHED to the staff site:\n  - " + "\n  - ".join(problems))
@@ -679,18 +777,22 @@ def holds_only(out, approval, today, repo):
                  lambda r: run(["gh", "repo", "view", r, "--json", "visibility", "--jq", ".visibility"], out).strip())
     fc = json.loads((data / "facilities.geojson").read_text(encoding="utf-8"))
     listed = {f["properties"]["facility_id"] for f in fc["features"]}
-    before, _ = read_holds(out / "ops" / HOLDS.name)             # the holds the last publish applied
+    applied = applied_holds(out)                                 # every id a publish has held on its list
     missing, typos = hold_matches(held, listed)
-    # A new id must be on the list; an older one may have left it since (the County dropped the place).
+    # An id off the list passes only when a publish held it before (it left the list since): anything else
+    # may be a typo, and a hold that applies to nothing must never pass for one in place.
     refused = [f"{fid} is not on the live list: did you mean {typos[fid]}? (ids are case-sensitive)" if fid in typos
-               else f"{fid} is not on the live list (ids are case-sensitive: copy it from the place's page)"
-               for fid in missing if fid in typos or fid not in before]
+               else (f"{fid} is not on the live list, and no publish has held it (ops/{APPLIED}): copy the id from the "
+                     "place's page (ids are case-sensitive). If the place has left the list, take the id out of "
+                     "docs/holds.json and keep the request in the corrections log")
+               for fid in missing if fid in typos or fid not in applied]
     if refused:
         sys.exit("NOT APPLIED: nothing was changed or pushed, so no hold is in place for:\n  - " + "\n  - ".join(refused))
     for fid in missing:
-        print(f"warning: {fid} is held but no longer on the live list (it left the list after it was held)")
+        print(f"warning: {off_list_warning(fid, applied)}")
     was_held = {f["properties"]["facility_id"] for f in fc["features"] if f["properties"].get("on_hold")}
-    details = {fid: _json(data / "place" / f"{fid}.json", None) for fid in held & listed}
+    on_list = sorted(held & listed)
+    details = {fid: _json(data / "place" / f"{fid}.json", None) for fid in on_list}
     changed = apply_holds(fc, details, held)
     bad = hold_problems(fc, changed, held)
     if bad:
@@ -701,19 +803,22 @@ def holds_only(out, approval, today, repo):
     if HOLDS.exists():
         (out / "ops").mkdir(exist_ok=True)
         shutil.copy2(HOLDS, out / "ops" / HOLDS.name)
-    newly = sorted((held & listed) - was_held)
+    record_applied(out, on_list)
+    newly = sorted(set(on_list) - was_held)
     for fid in newly:
         print(f"held now: {fid}")
     meta = _json(data / "meta.json", {})
     if not subprocess.run(["git", "status", "--porcelain"], cwd=out, capture_output=True, text=True).stdout.strip():
-        return None, meta, held, newly                               # nothing changed: no record, no push
+        return None, meta, held, newly, on_list                      # nothing changed: no record, no push
     at = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
     history = out / "DEPLOYS.jsonl"
     prior = history.read_text(encoding="utf-8") if history.exists() else ""
     history.write_text(prior + json.dumps({"at": at, "run": meta.get("run"), "holds_only": True, "by": getpass.getuser(),
-                                           "held": sorted(held), "newly_held": newly}) + "\n", encoding="utf-8")
-    commit = commit_and_push(out, f"City site: holds only ({len(held)} held, {len(newly)} newly held), {meta.get('run')}")
-    return commit, meta, held, newly
+                                           "held": sorted(held), "held_on_list": on_list, "newly_held": newly}) + "\n",
+                       encoding="utf-8")
+    commit = commit_and_push(out, f"City site: holds only ({len(on_list)} of {len(held)} held ids on the list, "
+                                  f"{len(newly)} newly held), {meta.get('run')}")
+    return commit, meta, held, newly, on_list
 
 
 def wait_or_say(url, commit, done):
@@ -745,8 +850,9 @@ def main(argv=None):
                  f"that can push to {args.repo}.")
     if args.holds_only:
         ensure_checkout(out, args.repo)
-        commit, meta, held, newly = holds_only(out, approval, today, args.repo)
-        print(f"holds: {len(held)} held, {len(newly)} newly held" + (f" ({', '.join(newly)})" if newly else "")
+        commit, meta, held, newly, on_list = holds_only(out, approval, today, args.repo)
+        print(f"holds: {len(on_list)} of {len(held)} held ids are on the live list, {len(newly)} newly held"
+              + (f" ({', '.join(newly)})" if newly else "")
               + (f"; pushed {commit[:7]}" if commit else "; nothing changed, nothing pushed"))
         if commit and args.wait:
             return wait_or_say(args.wait, commit, lambda h: f"live: {args.wait} serves {h.get('run')} with the holds")
@@ -763,16 +869,15 @@ def main(argv=None):
     missing, typos = hold_matches(held, {f["properties"]["facility_id"] for f in fc["features"]})
     problems += [f"docs/holds.json holds {fid}, which is not on the list: did you mean {typos[fid]}? (ids are "
                  "case-sensitive)" for fid in sorted(typos)]
-    details = {fid: _json(SITE / "place" / f"{fid}.json", None) for fid in held - set(missing)}
+    on_list = sorted(held - set(missing))
+    details = {fid: _json(SITE / "place" / f"{fid}.json", None) for fid in on_list}
     changed = apply_holds(fc, details, held)
     problems += hold_problems(fc, changed, held)
     problems += archive_problems([SITE / "archive", out / "ops" / "archive"])
     if problems:
         sys.exit("NOT PUBLISHED to the staff site:\n  - " + "\n  - ".join(problems))
-    for fid in missing:
-        if fid not in typos:
-            print(f"warning: docs/holds.json holds {fid}, which is not on this list (it left the list after it was held)")
-    for w in approval_warnings(approval, today) + [w for w in [unpushed_warning()] if w]:
+    owner = owner_route_problem(approval)             # shown to staff below, as an open item
+    for w in approval_warnings(approval, today) + [w for w in [unpushed_warning(), owner] if w]:
         print(f"warning: {w}")
     if export_sha != head:
         print(f"warning: the list was built by sdfood@{export_sha[:7]} and the site is sdfood@{head[:7]}: ops/ keeps "
@@ -792,6 +897,10 @@ def main(argv=None):
         remote = f"https://github.com/{args.repo}.git"
     check_target(push_urls(out) or [remote], args.repo,
                  lambda r: run(["gh", "repo", "view", r, "--json", "visibility", "--jq", ".visibility"], out).strip())
+    applied = applied_holds(out)                              # the checkout's record of the holds publishes applied
+    for fid in missing:
+        if fid not in typos:
+            print(f"warning: docs/holds.json: {off_list_warning(fid, applied)}")
 
     for p in out.iterdir():                                   # a clean copy each time, keeping .git, .github, ops, the history
         if p.name in KEEP:
@@ -808,15 +917,18 @@ def main(argv=None):
     for fid, d in changed.items():
         (data / "place" / f"{fid}.json").write_text(json.dumps(d, separators=(",", ":")), encoding="utf-8")
     (data / "facilities.geojson").write_text(json.dumps(fc, separators=(",", ":")), encoding="utf-8")
-    status = (open_items(approval, today) + independence_problems(approval) + drift_items(meta)
-              + review_status(meta, today))
-    shipped = staff_meta(meta, approval, status, getpass.getuser(), today, monitor_summary())
+    status = (open_items(approval, today) + ([owner] if owner else []) + independence_problems(approval)
+              + drift_items(meta) + review_status(meta, today))
+    shipped = staff_meta(meta, approval, status, getpass.getuser(), today, monitor_summary(meta=meta))
+    if shipped["monitor"]["status"] == "failed":
+        print(f"warning: {shipped['monitor']['alerts'][0]} (shipped to staff as the monitor's status \"failed\")")
     (data / "meta.json").write_text(json.dumps(shipped, indent=2), encoding="utf-8")
     # Only here, in the private repository: tells the site's build (scripts/exportGate.mjs, vite.config.js)
     # that this is the signed-in staff site, whose unpublished export is checked in review mode.
     (out / STAFF_MARKER).write_text("The City staff site. Private: never publish this repository or its build.\n",
                                     encoding="utf-8")
     write_ops(out, head, export_sha)
+    record_applied(out, on_list)
     (out / "README.md").write_text(
         "# San Diego Food Inspection Record: City staff site\n\nPRIVATE. Generated by publish_city_site.py in "
         "the sdfood repository; do not edit here. Holds the real export: never make this repository public, "
@@ -829,7 +941,7 @@ def main(argv=None):
     prior = history.read_text(encoding="utf-8") if history.exists() else ""
     history.write_text(prior + json.dumps({"at": shipped["staff_release"]["at"], "run": meta["run"],
                                            "places": meta.get("places"), "by": shipped["staff_release"]["by"], **shas,
-                                           "review_status": status, "held": sorted(held),
+                                           "review_status": status, "held": sorted(held), "held_on_list": on_list,
                                            "monitor": shipped.get("monitor", {}).get("status")}) + "\n", encoding="utf-8")
     commit = commit_and_push(out, f"City site: {meta['run']}, inspections through {meta['inspections_through']}, "
                                   f"site from sdfood@{head[:7]}, list from sdfood@{export_sha[:7]}")
@@ -840,7 +952,7 @@ def main(argv=None):
     with open(DEPLOY_LOG, "a", encoding="utf-8") as fh:
         fh.write(json.dumps({"at": shipped["staff_release"]["at"], "run": meta["run"], "places": meta.get("places"),
                              "commit": commit, "source": head[:7], **shas, "by": shipped["staff_release"]["by"],
-                             "review_status": status, "held": sorted(held)}) + "\n")
+                             "review_status": status, "held": sorted(held), "held_on_list": on_list}) + "\n")
     print(f"pushed {meta['run']} ({meta['places']} places) to {args.repo} as {commit[:7]}"
           + (f"; {len(status)} public-release gates not passed, shown to staff" if status else ""))
     if args.wait:

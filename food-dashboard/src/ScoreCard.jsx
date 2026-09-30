@@ -6,10 +6,10 @@ import { shownBand } from "./lib/marks";
 
 /**
  * "How the points add up" (`bands` mode). It leads with the estimate: what places with about this
- * place's points did in the backtest (places whose two years include a closure, when the export read
+ * place's points did in the backtest (places whose two years include a health closure, when the export read
  * it from their own curve), dated to that backtest, with a range that reflects sampling only, and the
  * export's drift note when it has one. Then the students' point rule in one sentence, each count from
- * the record times its weight, and the total; the scores the average reads (what the County recorded for a closure, and
+ * the record times its weight, and the total; the scores the average reads (what the County recorded for a health closure, and
  * that the rule counts it as 70), so the points can be checked by hand; then where that total falls:
  * the band's range of points and what the band has been worth in the backtest, or, for a place in
  * no band, where the lowest band starts. Plain mode lists the rows that add points and counts the

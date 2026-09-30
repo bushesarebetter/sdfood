@@ -88,9 +88,9 @@ export default function PlaceCard({ placeKey, facilities, error = null, onRetry 
       <h1 className="font-serif text-[34px] font-medium leading-[1.08] tracking-[-0.02em] text-ink sm:text-[42px]">{p.name}</h1>
       <p className="mt-2 text-[15px] text-ink-2">{p.address}</p>
       <div className="mt-3 flex flex-wrap items-center gap-2 empty:hidden">
-        {g.graded && (
+        {(g.graded || g.closedOpen) && (
           <p className="inline-block border px-2 py-[3px] text-[13px] font-semibold" style={{ color: g.textColor ?? undefined, borderColor: g.textColor ?? "#B8AF9C" }}>
-            Grade {g.short}
+            {g.graded ? `Grade ${g.short}` : g.text}
           </p>
         )}
         <StaleBadge place={p} meta={meta} className="!px-2 !py-[3px] !text-[13px]" />
@@ -117,6 +117,7 @@ export default function PlaceCard({ placeKey, facilities, error = null, onRetry 
       ) : (
         <>
           <Section heading="The County's record">
+            <p className="mb-3 text-[13.5px] text-ink-2">{copy.detailHistoryNote}.</p>
             <InspectionChart inspections={place.inspections} />
             <div className="mt-3">
               <RecordSummary place={place} meta={meta} large />
@@ -134,7 +135,7 @@ export default function PlaceCard({ placeKey, facilities, error = null, onRetry 
           </Section>
 
           <Section heading={copy.detailFindings}>
-            <ThemeList violations={place.violations} advanced={advanced} large />
+            <ThemeList place={place} advanced={advanced} large />
           </Section>
 
           {hasCard && (

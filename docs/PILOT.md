@@ -50,11 +50,15 @@ list was inspected that month: a list runs about 2.1 times a month's volume. Wit
 - **Usual order:** the dates the inspections were actually done. In 2025-26 it put an inspection
   that found a major ahead of a clean one in the same district-month no more often than chance
   ([COUNTY_METHOD.md](COUNTY_METHOD.md)); the pilot checks that again on the County's own schedule.
-- **The list as sent:** places meeting the County's own criteria for a closer look (two or more
-  health closures, the same major item at two or more routine inspections, or two or more routine
-  scores below 90, in two years) first; then everything on one scale, 100 minus the mean routine
-  score: the students' point rule's points where it scores a place, the one-line rule's where it
-  does not.
+- **The list as sent:** first, places showing a pattern the County's Operator's Guide names (p. 8),
+  by our counts in the 24 months before the list date (`export_worklist.ESCALATION`): major
+  violations at two or more routine inspections, two or more health closures, the same major item at
+  two or more routine inspections, or two or more routine scores below 90. The County sets no count or
+  period, and meeting one is not a County finding. Then everything else on one scale, 100 minus the
+  mean routine score: the students' point rule's points where it scores a place, the one-line rule's
+  where it does not, mixed together; a place on hold comes last. The arm is the order the month's
+  frozen `scoring.csv` records (`rule_order`); this description of it was corrected on 2026-09-29
+  ("Corrections to this text", below).
 - **The one-line rule alone:** lowest mean routine score on record first.
 - **The research model** (`model_food.py`), frozen in `scoring.csv`.
 - **Persistence** (prior-year majors, then the last score), for reference.
@@ -153,10 +157,13 @@ month, and driving time.
 
 ## Stopping and fairness monitoring
 
-- **Silent phase:** nothing changes, so there is nothing to stop. Each month the monitor reports,
-  by income quartile and %-Hispanic tercile, the share of majors in the first 20% of the list's
-  order and of the usual order. A gap of more than 10 points against any group in two consecutive
-  months goes to the County before any active phase.
+- **Silent phase:** nothing changes, so there is nothing to stop. Each month a coverage report is to
+  give, by income quartile and %-Hispanic tercile, the share of majors in the first 20% of the list's
+  order and of the usual order, from the frozen `scoring.csv` joined to ZIP figures from the ACS as in
+  `fairness_check.py`. That report is not built yet: it is to be built, and checked on the backtest,
+  before the silent phase starts (the staff site's monitor, `export_site.py --monitor`, scores the
+  point rule's bands and estimates, not coverage by group). A gap of more than 10 points against any
+  group in two consecutive months goes to the County before any active phase.
 - **Active phase:** a district-month arm stops if, after three months, majors are found later
   than in the usual order (the CI lies below zero); if the coverage gap above persists for two
   months; if routine inspections completed per month fall by more than 5%; or whenever the County
@@ -169,9 +176,10 @@ month, and driving time.
   participating inspection supervisors.
 - **The City staff site.** While the pilot runs, no band, point or list from the staff site (or the
   staff API) may reach an inspector, a supervisor or a business: the pilot would then measure the
-  list's influence, not its accuracy. The staff site says so in a banner during the pilot, and its
-  access log records each place opened; the analysis reports the primary result both with and
-  without the inspections at places staff looked at in the month before.
+  list's influence, not its accuracy. The staff site is to say so in its notice while the pilot runs
+  (not built yet: no pilot is running), and its access log records each place opened, under the
+  sign-in id; the analysis reports the primary result both with and without the inspections at
+  places staff looked at in the month before.
 - **We will not publish a named list.** The public website in `food-dashboard/` shows only
   invented sample data, and no real names are published from the County's data without the
   County's review. Lists held by the City or the County are their records and may be released under
@@ -183,4 +191,26 @@ month, and driving time.
 - **Project point of contact (an adult, not a student):** `[NAME, ROLE, EMAIL, PHONE: to be filled in before the County is contacted]`
 - **County contact:** `[Food, Water and Housing Division contact, once agreed]`
 - **Authors:** Chenhao Zhang and Ayan Pendharkar, students at Canyon Crest Academy. Independent
-  research, not affiliated with or endorsed by the County of San Diego.
+  student project, not affiliated with or endorsed by the City of San Diego or the County of San
+  Diego.
+
+## Corrections to this text
+
+This design is pre-registered, so a change to its text is listed here rather than made silently.
+
+- **2026-09-29, "The list as sent".** The text named three patterns and presented them as criteria
+  the County itself sets for a closer look. The worklists now put first the places meeting any of
+  four counts (`export_worklist.ESCALATION`; major violations at two or more routine inspections was
+  added the same day), and these are our counts of patterns the County's Operator's Guide names, not
+  County criteria. Each frozen copy's manifest (`rule`) says which order its month's list was sent in,
+  and the arm is the order in that copy's `scoring.csv`: the analysis uses the frozen copy whose
+  hashes were sent, never this description.
+- **2026-09-29, "Stopping and fairness monitoring".** The monthly coverage report by group is not
+  built yet; the text had described it as the monitor's. It is now described as work to finish
+  before the silent phase starts, and the pilot notice on the staff site likewise.
+- **2026-09-29, the data rules.** The rules that build the lists changed: a "Self Closed" or "Status
+  Verification" record that cites items is now kept (a "Self Closed" one with a major is read as a
+  closure), and a closure is read from a later "Approved to Reopen" when no closure order shows one
+  (README, "What changed"). A list frozen from an export made before the change was built with the
+  earlier rules: its manifest's `export_run` names the export, and that export's provenance names the
+  code.

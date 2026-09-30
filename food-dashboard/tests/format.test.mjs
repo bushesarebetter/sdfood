@@ -36,6 +36,19 @@ test("record mode: the County's record, our flags and the list dates, with no po
   assert.equal(get("lat"), "32.75");
 });
 
+test("the last visit's type is written as every view words it: our reading marked, with the County's own type", () => {
+  const at = (last_visit) => parse(facilitiesToCsv([{ ...feature, properties: { ...feature.properties, last_visit } }], { meta }))("last_visit_type");
+  assert.equal(at({ date: "2026-06-08", type: "complaint", county_type: "Site Investigation" }),
+    "complaint or other field visit (our reading; County type: Site Investigation)");
+  assert.equal(at({ date: "2026-06-08", type: "followup", county_type: "Routine" }), "re-grade or reopening visit (our reading; County type: Routine)");
+  assert.equal(at({ date: "2026-06-08", type: "complaint" }), "complaint or other field visit (our reading)", "an index from before county_type");
+  assert.equal(at({ date: "2026-06-08", type: "routine", county_type: "Routine" }), "routine inspection", "the County's own type is unmarked");
+  assert.equal(at({ date: "2026-06-08", type: "status_check", county_type: "Status Verification" }), "status verification");
+  assert.equal(at(null), "");
+  assert.doesNotMatch(facilitiesToCsv([{ ...feature, properties: { ...feature.properties, last_visit: { date: "2026-06-08", type: "complaint" } } }], { meta }), /,complaint,/,
+    "never the bare code");
+});
+
 test("bands mode adds band, points and review state, and a held place shows neither", () => {
   const get = parse(facilitiesToCsv([feature], { meta, mode: "bands" }));
   assert.equal(get("band"), "1");
@@ -180,4 +193,18 @@ test("one phrase for the list's order, on screen and on paper: the columns chose
     "by band and points, places in no band first, then by council district, lowest first", "several columns, in order");
   assert.equal(orderPhrase({ sorting: [{ id: "points", desc: true }] }), "by points, most first");
   assert.equal(orderPhrase({ sorting: [{ id: "mystery", desc: true }] }), "by mystery, descending", "an unknown column still says something true");
+});
+
+test("a closure no reopening follows has its own column beside the grade, which keeps the letter; every row has the column", () => {
+  for (const mode of ["record", "bands"]) {
+    const cols = csvColumns({ mode });
+    assert.equal(cols[cols.indexOf("replaced_date") + 1], "open_closure_date", mode);
+  }
+  const open = { ...feature, properties: { ...feature.properties,
+    grade: { grade: "A", score: 94, date: "2025-07-28", replaced: null, open_closure: { date: "2026-09-01", reason: "health", later_ungraded: [] } } } };
+  const get = parse(facilitiesToCsv([open], { meta }));
+  assert.equal(get("open_closure_date"), "2026-09-01");
+  assert.equal(get("grade"), "A", "the letter stays in its column");
+  assert.equal(get("grade_date"), "2025-07-28");
+  assert.equal(parse(facilitiesToCsv([feature], { meta }))("open_closure_date"), "", "empty without an open closure");
 });

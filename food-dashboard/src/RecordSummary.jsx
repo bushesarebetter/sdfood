@@ -1,4 +1,4 @@
-import { inspectionStats, visitPhrase, countyType, OUR_READING } from "./lib/inspections";
+import { inspectionStats, visitPhrase, countyType, OUR_READING, SAME_CLOSURE } from "./lib/inspections";
 import { gradeView } from "./lib/grades";
 import { gradeContextSentence } from "./lib/framing";
 import { fmtDate, fmtMonth } from "./lib/dates";
@@ -13,6 +13,8 @@ const plural = (n, one, many = `${one}s`) => (n === 1 ? one : many);
  * cited in the three years before the last visit, and, over the whole record,
  * reinspections and closures: our count of closures beside the County's own
  * count of "Ordered Closed" records, with our reading of each marked as ours.
+ * When there are more "Ordered Closed" records than closures that start at
+ * one, it says by what rule a further order joins a closure (SAME_CLOSURE).
  */
 export default function RecordSummary({ place, meta, large = false }) {
   const text = large ? "text-[15px]" : "text-[13.5px]";
@@ -21,6 +23,7 @@ export default function RecordSummary({ place, meta, large = false }) {
   const n = (x) => <b className="tnum font-semibold text-ink">{x}</b>;
   const closures = stats?.closureEpisodes ?? 0;
   const orders = stats?.orderedClosedRecords ?? 0;
+  const joined = orders > (stats?.orderClosures ?? 0);
   const ct = stats ? countyType(stats.last) : null;
 
   return (
@@ -52,7 +55,7 @@ export default function RecordSummary({ place, meta, large = false }) {
                   {closures > 0 && (
                     <>
                       {" "}and {n(closures)} {plural(closures, "closure")} in our reading
-                      {orders > closures && <> (a further order before the place reopened is part of the same closure)</>}
+                      {joined && <> ({SAME_CLOSURE})</>}
                     </>
                   )}
                 </>
@@ -71,7 +74,7 @@ export default function RecordSummary({ place, meta, large = false }) {
             <p className="text-[13px]">
               Our reading of the closures: {stats.closures} on a day a major violation was cited
               {stats.permitClosures > 0 && <>; {stats.permitClosures} where {OUR_READING.permit.replace(/\.$/, "")}</>}
-              {stats.otherClosures > 0 && <>; {stats.otherClosures} on a day no major violation and no permit note was recorded</>}
+              {stats.otherClosures > 0 && <>; {stats.otherClosures} on a day no major violation was cited and no County note mentioned a permit</>}
               {stats.selfClosures > 0 && <>; a &ldquo;Self Closed&rdquo; record is read as the operator&rsquo;s own closure</>}.
             </p>
           )}

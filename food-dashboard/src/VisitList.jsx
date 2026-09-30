@@ -1,14 +1,15 @@
 import {
   visitLabel, recordGradeText, reopenedText, closureWords, closureEnd, countyNotes, countyType,
-  OUR_READING, CLOSURE_LABELS, CLOSURES, READ_VISIT_TYPES,
+  OUR_READING, CLOSURE_LABELS, CLOSURES, READ_VISIT_TYPES, KEPT_NOTE,
 } from "./lib/inspections";
 import { fmtDate } from "./lib/dates";
 
 const sentence = (s) => `${s.charAt(0).toUpperCase()}${s.slice(1)}`;
 
 /**
- * Every County record for a place, one row per record, oldest first, with
- * the County's status text, its inspection type and its notes verbatim. A
+ * The County records the export keeps for a place, one row per record,
+ * oldest first, with the County's status text, its inspection type and its
+ * notes verbatim; under them, which records are left out (KEPT_NOTE). A
  * visit we read as a re-grade or reopening visit, or as a complaint or other
  * field visit, and the reason for a closure are marked as our reading; so are
  * a closure that only a later "Approved to Reopen" shows and an "Approved to
@@ -17,7 +18,7 @@ const sentence = (s) => `${s.charAt(0).toUpperCase()}${s.slice(1)}`;
  * and no graded visit after it says so. The page shows it open; the panel
  * keeps it folded.
  */
-export default function VisitList({ inspections, open = false, heading = "Every County record" }) {
+export default function VisitList({ inspections, open = false, heading = "The County records we keep" }) {
   const list = (inspections ?? []).filter((i) => i?.date);
   if (!list.length) return null;
   const has = (pred) => list.some(pred);
@@ -78,6 +79,7 @@ export default function VisitList({ inspections, open = false, heading = "Every 
           {reopenOnly && <span> No closure placed: {OUR_READING.reopenOnly}</span>}
         </p>
       )}
+      <p className="mt-2 text-[13px] leading-[1.5] text-ink-2">{KEPT_NOTE}</p>
     </div>
   );
   if (open) return table;

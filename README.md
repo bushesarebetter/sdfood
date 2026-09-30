@@ -5,8 +5,9 @@ Order each month's routine food inspections by each facility's own inspection re
 schedule. This is the classic "help a public agency allocate a scarce resource" setup (cf.
 Chicago's food-inspection model).
 
-**By Ayan Pendharkar** (research) **and Chenhao Zhang**, students at Canyon Crest Academy, San Diego. Independent: not affiliated with or endorsed by the
-County of San Diego. The data were collected from the County's public SD Food Info search on 2026-09-19, pending an
+**By Ayan Pendharkar** (research) **and Chenhao Zhang**, students at Canyon Crest Academy, San Diego.
+Independent student project, not affiliated with or endorsed by the City of San Diego or the County of
+San Diego. The data were collected from the County's public SD Food Info search on 2026-09-19, pending an
 official extract from the County. That pull ran before `fetch_sdfood.py` was changed to send an
 identifying User-Agent (2026-09-22): it sent a browser User-Agent. Later pulls identify themselves.
 
@@ -41,12 +42,18 @@ identifying User-Agent (2026-09-22): it sent a browser User-Agent. Later pulls i
 - **For the City and the County:** monthly worklists per council district (`export_worklist.py`)
   and a pre-registered silent pilot the City can propose to the County ([docs/PILOT.md](docs/PILOT.md)).
 
-Every figure in this README, FAIRNESS.md, outreach.md, docs/ and the dashboard was regenerated on
-2026-09-27, after the September 2026 fixes (training and scoring as of the 1st of the month, closures
-read as 70, two-year persistence, time-based early stopping, Kaplan–Meier due dates, whole-ZIP
-fairness intervals, a feedback test that deletes skipped inspections), from the 2026-09-19 pull
-(inspections through 2026-09-18). What the docs say about the County's own method was checked
-against the County's published sources the same day ([docs/COUNTY_METHOD.md](docs/COUNTY_METHOD.md)).
+Two pulls are behind the figures. The research figures (this README apart from the October 2026
+worklist count and "For the City: the staff site", FAIRNESS.md apart from its staff-rule district and
+name figures, outreach.md's research numbers, docs/COUNTY_METHOD.md, docs/PILOT.md and the research
+dashboard) were regenerated on 2026-09-27, after the September 2026 fixes (training and scoring as of
+the 1st of the month, closures read as 70, two-year persistence, time-based early stopping,
+Kaplan–Meier due dates, whole-ZIP fairness intervals, a feedback test that deletes skipped
+inspections), from the 2026-09-19 pull (inspections through 2026-09-18). The staff site's figures
+("For the City: the staff site" below, docs/MODEL_CARD.md and docs/CLOSURE_SENSITIVITY.md, and the
+staff rule's figures in FAIRNESS.md and outreach.md) and the October 2026 worklists come from the
+2026-09-29 pull (inspections through 2026-09-28), run `forward_2026-09-29-9a49dda0`. What the docs say
+about the County's own method was checked against the County's published sources on 2026-09-27
+([docs/COUNTY_METHOD.md](docs/COUNTY_METHOD.md)).
 
 ## What changed (September 2026)
 
@@ -56,9 +63,9 @@ The inspection table every script reads (`data/sd_inspections.csv`) is built wit
 rules as the public site's exporter (`export_site.load_places`, tested). From the same pull:
 
 - **5,403 records that were not inspections are gone:** 3,785 "Status Verification" checks,
-  1,617 "No Access" / "Self Closed" visits where the inspector could not inspect (1,436 of them
-  routine) and 1 incomplete record. They had counted as inspections with no violations, and a
-  routine one left a score of `0` in the facility's history.
+  1,617 "No Access" or "Self Closed" records (1,436 of them routine) and 1 incomplete record. They
+  had counted as inspections with no violations, and a routine one left a score of `0` in the
+  facility's history. (Since 2026-09-29 the rule is narrower, below.)
 - **1,823 "routine" visits are now `Follow-up`:** a routine within 30 days after a routine scored
   under 90 (a B/C) or after a closure order is the County's re-grade or reopening visit. The 359
   re-grades came a median 6 days after the B/C and found a major 3% of the time; the 1,464
@@ -70,6 +77,28 @@ rules as the public site's exporter (`export_site.load_places`, tested). From th
 
 The authors also rebuilt the old rules on the same pull and recovered the figures published
 earlier; the script for that check is not in the repository, so its numbers are not repeated here.
+
+**The data rules of 2026-09-29.** A "Self Closed" record is the operator closing, not an inspector
+unable to inspect, and some carry cited items, so the rules changed after the research rerun above
+(`export_site.load_places`, which `fetch_sdfood.py --csv-only` also uses):
+
+- "No Access" and "Incomplete" records are still dropped, and so are "Self Closed" and "Status
+  Verification" records that cite no item (and, for a status verification, are not a closure order).
+  The rest are kept: 129 of them in the 2026-09-29 pull, against 5,315 dropped. A "Self Closed" record
+  that cites a major is read as the operator's own closure (a health closure, counted as 70 at a
+  routine), and a kept "Status Verification" is shown on the site but never read by the features.
+- When the County's record shows a closure only through a later "Approved to Reopen", the closure is
+  placed at the latest visit with no County score that cited a major in the 14 days before it (our
+  reading, 21 in that pull), and the re-score on reopening becomes a follow-up. A reopening with no
+  such visit is marked, and nothing is guessed (66).
+- The CSV's `insp_type` for a complaint or other field visit is the County's own type ("Site
+  Investigation" or "Environmental"), and a kept status check's is "Status Verification", which
+  `model_food.load` leaves out. New columns: `county_type` (the County's type for every record in the
+  row) and `closure_inferred`; `closure_order` now also marks a "Self Closed" closure and a closure
+  read from a reopening.
+
+The research figures in this README predate these rules. A rerun of the research scripts on a table
+rebuilt with `fetch_sdfood.py --csv-only` applies them.
 
 ### The model, the comparison and the deliverable
 
@@ -145,8 +174,9 @@ but a browser User-Agent. `fetch_sdfood.py` now identifies itself (`SDFOOD_CONTA
 extract should replace it.
 
 - **92,404 inspections**, 15,870 facilities, **2023-01-03 → 2026-09-18** (~3.7 yr).
-- **64,081 routine** inspections (18,669 in 2025); plus 21,943 re-inspections, 4,557 complaint
-  visits and 1,823 follow-ups (re-grade or reopening visits).
+- **64,081 routine** inspections (18,669 in 2025); plus 21,943 re-inspections, 4,557 complaint or
+  other field visits (our reading of the County's "Site Investigation" and "Environmental" types) and
+  1,823 follow-ups (re-grade or reopening visits).
 - Per inspection: type, status, score, grade, date, counts of major, minor and good-retail-practice
   items, and closure orders with a reason. `score` is set only for real routine scores.
 - **Survivorship:** SD Food Info lists only facilities that exist today (below).
@@ -172,8 +202,9 @@ extract should replace it.
   first); **persistence** (routine inspections with a major in the prior 12 months, then majors,
   then the lowest last routine score over two years; `export_site.persistence`); the last routine
   score; the mean routine score over the prior 12 months; the prior major-violation rate. A routine
-  that ended in a health closure order reads as a score of 70, as in the students' point rule. Ties at
-  the cut are split pro rata (the expectation under a random order).
+  inspection that started a closure for a health hazard (a County closure order, the operator's own
+  closure with a major cited, or a closure read from a later reopening) reads as a score of 70, as in
+  the students' point rule. Ties at the cut are split pro rata (the expectation under a random order).
 
 | 2025+ test, trained and scored as of the 1st | ROC-AUC | top 20% → share of major violations | precision in top 20% | lift |
 |---|---|---|---|---|
@@ -363,7 +394,8 @@ Scored as of the 1st, with whole ZIPs per income group and 95% intervals that re
   recall spread across groups at 9.1 points against 10.8 (FAIRNESS.md).
 - The model with ZIP, which is not used, shows the audit's one detectable gap (above).
 
-Keep routine inspections everywhere and monitor coverage by group in use.
+Keep routine inspections everywhere and, in any use, monitor coverage by group (the pilot's coverage
+report is designed in docs/PILOT.md and not built yet).
 
 ## Feedback loop (see feedback_check.py)
 
@@ -397,13 +429,19 @@ For a month (by default the one after the data end), one CSV per council distric
   routine interval (a Kaplan–Meier median that counts still-open intervals) minus 30. In a backtest
   over 2025-01 to 2026-08, **67%** of each month's City routine inspections (at facilities already
   on the record) came from that month's list, and 32% of a list was inspected that month: a list
-  runs about 2.1 times a month's volume. For October 2026: 1,393 facilities across the nine
-  districts. Only the kinds of place the site lists appear: never a private home (home kitchens,
-  cottage food), a health-care kitchen, a school or a food truck at its commissary.
-- **The order:** the students' point rule's points first (the site's rule, below: the average routine
-  score over two years), then places it does not score by the one-line rule. Each row says why it
-  sits where it does, from the same scores its worksheet lists, with its last routine outcome, its
-  closure orders in two years and the County's escalation facts.
+  runs about 2.1 times a month's volume. For October 2026: about 1,400 facilities across the nine
+  districts (each month's `manifest.json` gives the exact count; the latest run wrote 1,392). Only the
+  kinds of place the site lists appear: never a private home (home kitchens, cottage food), a
+  health-care kitchen, a school or a food truck at its commissary.
+- **The order:** first, the places showing a pattern the County's Operator's Guide names, by our
+  counts in the 24 months before the list date (major violations at two or more routine inspections,
+  two or more health closures, the same major item at two or more routine inspections, or two or more
+  routine scores below 90; not County findings). Then every other place on one scale, 100 minus the
+  mean routine score: the students' point rule's points where it scores a place (the site's rule,
+  below: the average routine score over two years), and the one-line rule's where it does not, mixed
+  together. Places on hold come last. Each row says why it sits where it does, from the same scores
+  its worksheet lists, with its last routine outcome, its closures in two years, which of those
+  counts it meets, and the date of a closure with no reopening on record (`no_reopen_on_record`).
 - **A frozen copy** (read-only, timestamped, with sha256 hashes and every active facility's
   position under each ordering) lets a silent pilot be scored later against exactly what was sent:
   [docs/PILOT.md](docs/PILOT.md). The pilot's primary test is whether the rule's head start is
@@ -458,25 +496,30 @@ python -m pytest tests     # includes tests/test_worklist.py
 
 | | City staff site (live) | `api/` (optional) | public site | `dashboard.html` |
 |---|---|---|---|---|
-| For | City of San Diego staff | City staff, by key | the public, once approved | the research summary |
+| For | City of San Diego staff (offered; no City office uses it yet) | City staff, by key | the public, once approved | the research summary |
 | Shows | every listed restaurant and market in the county with the County's record; the students' point rule's points, band and estimate; where to route a complaint | the same as JSON and CSV, district summaries, monthly worklists | the invented sample | counts only (no facility rows) |
 | Access | a sign-in per person, after the steps in [docs/STAFF_SITE.md](docs/STAFF_SITE.md) | an API key ([docs/API.md](docs/API.md)) | only if every gate passes ([docs/PUBLISHING.md](docs/PUBLISHING.md)) | open |
 
 **The students' point rule** is one line: a restaurant's points are how far its average routine
-score over the last two years fell below 100 (a closure order counts as 70), and every place's page
-lists the scores it averages. No transparent rule came within 0.01 AUC of the black-box yardsticks,
-so it was chosen by the fallback added after that first run: the sparsest rule within 0.01 AUC of the
-best transparent one. It is frozen (`docs/rule.json`): every export applies it unchanged.
-Restaurants with 8 points or more had a major violation at their next routine inspection at about
-1.7 times the rate of all scored restaurants (36.6% against 21.2%), about the same at every backtest
-date, and every scored place shows what places with about its points did (from about 7 in 100 at 0
-points to about 38 in 100 at 9 or more). Ranking by recent majors does about as well: the rule is a
-transparent summary of the County's record, not a better predictor. How it was chosen and checked,
+score over the last two years fell below 100 (a routine inspection that started a closure for a
+health hazard counts as 70: a County closure order, the operator's own closure with a major cited,
+or a closure read from a later reopening), and every place's page lists the scores it averages. No
+transparent rule came within 0.01 AUC of the black-box yardsticks, so it was chosen by the fallback
+added after that first run: the sparsest rule within 0.01 AUC of the best transparent one. It is
+frozen (`docs/rule.json`): every export applies it unchanged. Restaurants with 8 points or more had
+a major violation at their next routine inspection at about 1.7 times the rate of all scored
+restaurants (36.6% against 21.2%), about the same at every backtest date, and every scored place
+shows what places in its group of points did (for City places whose two years include no health
+closure, from about 7 in 100 at 0 points to about 40 in 100 at 8 or more; for places whose points
+include a health closure, about 32 in 100). Ranking by recent majors does about as well: the rule is
+a transparent summary of the County's record, not a better predictor. How it was chosen and checked,
 and what it is not for: [docs/MODEL_CARD.md](docs/MODEL_CARD.md).
 
 ```bash
-SDFOOD_CONTACT=you@example.org python refresh_city_site.py   # weekly: pull, export, worklists, publish, wait
+python refresh_city_site.py --check                          # what a refresh needs, checked; changes nothing
+SDFOOD_CONTACT=you@example.org python refresh_city_site.py   # weekly: pull, export, monitor, worklists, publish, wait
 python export_site.py                          # -> data/site/ (every place; points, bands, estimates; report.md; archive/)
+python export_site.py --monitor                # score the archived lists on later inspections -> monitor.md, monitor_summary.json
 python export_worklist.py                      # -> data/worklists/<month>/district-<n>.csv
 python publish_city_site.py --wait https://sdfood-city.onrender.com   # the staff site, through its gates
 python export_site.py --publish                # the public site: only if every gate passes

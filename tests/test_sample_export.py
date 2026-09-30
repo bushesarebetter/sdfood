@@ -63,7 +63,8 @@ def test_index_and_place_files_are_deterministic_and_match():
         assert any(s in p["address"] for s in mod.STREETS)
         assert p["facility_type"] in {"restaurant", "limited", "market"}
         assert 1 <= p["council_district"] <= 9
-        assert p["last_visit"] == {"date": detail["inspections"][-1]["date"], "type": detail["inspections"][-1]["type"]}
+        assert p["last_visit"] == {"date": detail["inspections"][-1]["date"], "type": detail["inspections"][-1]["type"],
+                                   "county_type": detail["inspections"][-1]["county_type"]}, "with the County's own type text"
         assert set(p["flags"]) <= RECORD_FLAGS | set(THEMES) - {"other"}, "a major's theme is never flagged as other"
         lon, lat = f["geometry"]["coordinates"]
         assert 32.4 < lat < 33.2 and -117.4 < lon < -116.8
@@ -100,9 +101,11 @@ def test_records_carry_the_county_status_and_single_record_grades():
         if g:
             record = [i for i in d["inspections"] if i["date"] == g["date"] and i["grade"] == g["grade"] and i["score"] == g["score"]]
             assert record, "the grade shown is one County record's letter"
-        assert len(d["violations"]) <= 60
+        assert len(d["violations"]) <= mod.MAX_ITEMS == 150
         sev = [v["severity"] for v in d["violations"]]
-        assert sev == sorted(sev, key=["major", "minor", "grp"].index), "majors first"
+        assert sev == sorted(sev, key=lambda x: x != "major"), "majors first"
+        for group in ([v for v in d["violations"] if v["severity"] == "major"], [v for v in d["violations"] if v["severity"] != "major"]):
+            assert [v["date"] for v in group] == sorted(v["date"] for v in group), "then the rest, each oldest first, as export_site"
         for v in d["violations"]:
             assert v["theme"] in THEMES and v["severity"] in SEVERITIES and v["visit"] in VISIT_TYPES
             assert v["code"] and v["description"]
@@ -178,7 +181,10 @@ def test_the_rarer_records_the_real_export_keeps():
             after = recs[recs.index(last) + 1:]
             assert not any(i["status"] == "Approved to Reopen" for i in after)
             assert not any(i["type"] in ("routine", "followup") and i["grade"] and i["date"] > oc["date"] for i in after)
-            assert oc["later_ungraded"] == sorted({i["date"] for i in after if not i["grade"]})
+            # as export_site.open_closure: ungraded records on later days, not a further order in the same closure
+            assert oc["later_ungraded"] == sorted({i["date"] for i in after if i["date"] > oc["date"] and not i["grade"]
+                                                   and i["status"] != "Ordered Closed"
+                                                   and not (i["status"] == "Self Closed" and i["major"])})
             assert oc["date"] >= g["date"]
             assert oc.get("status") == last["status"] in ("Ordered Closed", "Self Closed"), \
                 "the County's status text on the record that started it, so a Self Closed one is never called an order"
@@ -191,22 +197,25 @@ def test_theme_counts_count_every_item_before_the_cut():
     for d in places.values():
         tc, listed = d["theme_counts"], d["violations"]
         assert d["violations_total"] == sum(c["major"] + c["minor"] + c["grp"] for c in tc.values())
-        assert d["violations_total"] >= len(listed) and (len(listed) == 60 or d["violations_total"] == len(listed))
-        if len(listed) == 60:
+        assert d["violations_total"] >= len(listed) and (len(listed) == mod.MAX_ITEMS or d["violations_total"] == len(listed))
+        if len(listed) == mod.MAX_ITEMS:
             continue                                        # cut: the counts hold more than the list
         for theme, c in tc.items():
             items = [v for v in listed if v["theme"] == theme]
             assert (c["major"], c["minor"], c["grp"]) == tuple(sum(v["severity"] == s for v in items) for s in ("major", "minor", "grp"))
             assert c["complaint"] == sum(v["visit"] == "complaint" for v in items)
             assert c["latest"] == max(v["date"] for v in items)
-    # Past the cut, the counts keep what the list drops.
+    # Past the cut, the counts keep what the list drops, and the cut drops the oldest non-major items.
     items = [{"date": f"2026-0{1 + k % 8}-01", "visit": "routine", "code": "40", "theme": "grp_equipment", "severity": "grp",
-              "description": "x"} for k in range(70)] + [{"date": "2026-02-01", "visit": "complaint", "code": "7", "theme": "temperature",
-                                                         "severity": "major", "description": "y"}]
+              "description": "x"} for k in range(170)] + [{"date": "2026-02-01", "visit": "complaint", "code": "7", "theme": "temperature",
+                                                          "severity": "major", "description": "y"}]
     inspections = [{"date": "2026-08-01"}]
-    assert len(mod.exported(items, inspections)) == 60
+    shown = mod.exported(items, inspections)
+    assert len(shown) == mod.MAX_ITEMS and shown[0]["severity"] == "major"
+    kept = [v["date"] for v in shown[1:]]
+    assert kept == sorted(kept) and kept[-1] == "2026-08-01" and kept.count("2026-01-01") < 22, "the oldest go first"
     tc = mod.theme_counts(mod.in_window(items, inspections))
-    assert tc["grp_equipment"]["grp"] == 70 and tc["temperature"] == {"major": 1, "minor": 0, "grp": 0, "complaint": 1, "latest": "2026-02-01"}
+    assert tc["grp_equipment"]["grp"] == 170 and tc["temperature"] == {"major": 1, "minor": 0, "grp": 0, "complaint": 1, "latest": "2026-02-01"}
 
 
 def test_the_added_records_leave_the_rule_the_flags_and_the_backtest_as_they_were(monkeypatch):
@@ -224,7 +233,9 @@ def test_the_added_records_leave_the_rule_the_flags_and_the_backtest_as_they_wer
     assert meta == meta0, "the rule, its bands, the backtest, drift and the district figures are unchanged"
     for f, f0 in zip(fc["features"], fc0["features"]):
         p, p0 = f["properties"], f0["properties"]
-        assert {k: v for k, v in p.items() if k != "grade"} == {k: v for k, v in p0.items() if k != "grade"}
+        # the County's type on a complaint visit is its own draw (Site Investigation or Environmental)
+        drop = lambda q: {k: ({**v, "county_type": None} if k == "last_visit" else v) for k, v in q.items() if k != "grade"}
+        assert drop(p) == drop(p0)
         for k in ("score_card", "scores_used", "estimate"):
             assert places[p["facility_id"]].get(k) == places0[p0["facility_id"]].get(k)
 
@@ -313,6 +324,11 @@ def test_meta_carries_the_frozen_rule_drift_routes_and_district_precision():
     assert dr["status"] == "not_yet_measurable" and dr["recent_quarters"] == [] and dr["major_rate_recent"] is None
     assert dr["latest_quarter"] == "2026Q3" and isinstance(dr["latest_n"], int) and dr["latest_n"] >= 200
     assert dr["note"] is None or re.fullmatch(r"In the latest quarter \(2026 Q3, through August 31\) \d+\.\d% of routine .* may be (low|high)\.", dr["note"])
+    # As export_site.drift_check: the label year month by month, and the note's baseline its months
+    # before the latest quarter, so the two never share an inspection.
+    assert dr["backtest_span"] == "September 2025 to August 2026" and dr["latest_baseline_span"] == "September 2025 to June 2026"
+    assert dr["major_rate_backtest_n"] - dr["latest_baseline_n"] == dr["latest_n"], "July and August 2026 are the latest quarter"
+    assert 0 <= dr["latest_baseline"] <= 1 and dr["latest_baseline"] != dr["major_rate_backtest"]
     assert meta["catch_run"]["eligible"] == meta["catch_run"]["candidates"], "the sample's backtest rows are its scored places"
     route = meta["card"]["band_1_by_route"]
     band_1 = next(b for b in meta["card"]["bands"] if b["band"] == "1")
@@ -328,6 +344,27 @@ def test_meta_carries_the_frozen_rule_drift_routes_and_district_precision():
         assert iv is None or (0 <= iv[0] <= row["precision"] <= iv[1] <= 1)
     _, _, record = mod.build(200, seed=5, mode="record")
     assert not {"frozen", "drift", "fairness"} & set(record)
+
+
+def test_the_sample_drift_note_sets_the_latest_quarter_against_the_label_year_before_it(monkeypatch):
+    """As export_site.drift_check: when the latest quarter moves clearly, the note sets it against the
+    label year's months before that quarter (named, with their own count), never against a pool that
+    holds the quarter itself, and says which way the rates here lean."""
+    mod = load()
+    rng = random.Random(9)
+    places = [mod.make_place(rng, i + 1, 9) for i in range(1400)]
+    by_m = mod.routine_by_month(places)
+    before = [m for m in by_m if "2025-09" <= m <= "2026-06"]
+    want = sum(by_m[m][1] for m in before) / sum(by_m[m][0] for m in before)
+    real = mod.major_rate_by_quarter
+    for rate, lean in ((0.40, "low"), (0.05, "high")):
+        monkeypatch.setattr(mod, "major_rate_by_quarter", lambda ps, r=rate: ({**real(ps)[0], "2026Q3": r}, real(ps)[1]))
+        dr = mod.drift(places, None, None, None, None)
+        assert dr["latest_baseline"] == round(want, 4) and dr["latest_baseline_n"] == sum(by_m[m][0] for m in before)
+        assert dr["note"] == (f"In the latest quarter (2026 Q3, through August 31) {rate:.1%} of routine inspections found a major "
+                              f"violation, against {want:.1%} over the backtest's label year before that quarter "
+                              f"(September 2025 to June 2026), so the rates here may be {lean}.")
+        assert dr["status"] == "not_yet_measurable" and not dr["refit_needed"], "a note is not a refit trigger"
 
 
 def test_district_shares_of_the_wrongly_named_are_over_labelled_scored_places_with_family_wise_intervals():
@@ -452,11 +489,14 @@ def test_written_export_passes_the_site_check(tmp_path):
     mod = load()
     for mode in ("bands", "record"):
         out = tmp_path / mode
-        mod.write(out, *mod.build(250, seed=4, mode=mode))
+        fc, places, meta = mod.build(250, seed=4, mode=mode)
+        mod.write(out, fc, places, meta)
         assert len(list((out / "place").glob("*.json"))) == 250
         monitor = out / "monitor_summary.json"
         if mode == "bands":
-            assert json.loads(monitor.read_text(encoding="utf-8")) == {"status": "too early", "runs": 0, "alerts": [], "next_window_date": None}
+            assert json.loads(monitor.read_text(encoding="utf-8")) == {
+                "status": "too early", "runs": 0, "alerts": [], "next_window_date": None,
+                "rule_version": meta["frozen"]["version"], "inspections_through": meta["inspections_through"], "by_district": None}
         else:
             assert not monitor.exists(), "a record export has no forward test"
         node = shutil.which("node")

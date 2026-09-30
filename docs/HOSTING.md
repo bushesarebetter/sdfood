@@ -1,6 +1,7 @@
 # Hosting on Render
 
-Three services can run in one Render workspace. The first is what the City uses.
+Three services can run in one Render workspace. The first is the staff site offered to the City; no
+City office uses it yet ([outreach.md](../outreach.md), [STAFF_SITE.md](STAFF_SITE.md)).
 
 | | City staff site (live) | Staff API (optional) | Public site |
 |---|---|---|---|
@@ -20,19 +21,31 @@ Use policy: [STAFF_SITE.md](STAFF_SITE.md). Running it week to week: [RUNBOOK.md
 
 Copy `docs/STAFF_APPROVAL.example.json` to `docs/STAFF_APPROVAL.json` (gitignored) and fill in a
 responsible adult, a corrections contact and a sunset date. `publish_city_site.py` refuses to publish
-without them.
+without them. The City's request (`city_requestor`: a name and a date), its TRUST Ordinance answer
+(`trust_determination`: the result, who gave it and a date) and, if the ordinance applies, the Council's
+approval (`council_approval`: the resolution and the date of the vote) count only when every date is
+YYYY-MM-DD on or before the day of publishing: leave a section empty until the event has happened. A
+section filled in but not counted is named in the publish's warnings and in
+`refresh_city_site.py --check`.
 
 ### Once: the private repository
 
-`python export_site.py && python publish_city_site.py` creates `ChenhaoZhang01/sdfood-city` (private) on
-its first run, and pushes the built site's sources, the real export, `server.mjs`, a record of the
-Render settings (`render.yaml`) and a daily check (`.github/workflows/watch.yml`). It refuses to push to
-any repository that is not that one, and not private. Then, on GitHub:
+`python export_site.py && python export_site.py --monitor && python publish_city_site.py` creates
+`ChenhaoZhang01/sdfood-city` (private) on its first run (without `--monitor`, the publish ships the
+monitor as "failed": its summary on disk would be an earlier run's), and pushes the built site's
+sources, the real export, `server.mjs`, a record of the Render settings (`render.yaml`) and a daily
+check (`.github/workflows/watch.yml`). It needs the GitHub CLI, signed in (`gh auth login`). It
+refuses to push to any repository that is not that one, and not private, and it refuses a working
+tree with uncommitted changes to tracked files: the site's code is taken from the commit
+(`git archive` of HEAD), never from disk. Then, on GitHub:
 
 - Settings: turn off "Allow forking" (`gh repo edit ChenhaoZhang01/sdfood-city --allow-forking=false`).
   Never make it public: a public repository cannot hide its history.
 - Add the co-author and the responsible adult as collaborators, and have them watch the repository, so
   the daily check's issues reach them.
+- If the site is served at another address, set the repository variable `SITE_URL` (Settings, Secrets
+  and variables, Actions, Variables): the daily check reads it, and falls back to
+  `https://sdfood-city.onrender.com`.
 
 ### Once: the Render service
 
@@ -46,23 +59,32 @@ New, Web Service, from the private repository (Render's GitHub App needs access 
 | Build command | `npm ci && npx vite build` |
 | Start command | `node server.mjs` |
 | Health check path | `/healthz` (a new deploy that does not answer never replaces the live one) |
-| Environment | `NODE_VERSION` = `24`; `SITE_USERS` = `id:token,...` (one per person, pseudonymous ids such as `u01`, tokens 16+ characters); `SITE_CONTACT` = who to ask for access (a role address, shown on the sign-in page); `VITE_GOOGLE_MAPS_API_KEY` and `VITE_GOOGLE_MAPS_MAP_ID` (section 4; add `https://sdfood-city.onrender.com/*` to the key's allowed websites). `SITE_OPERATORS` = the ids that see the named list before the City's request and TRUST answer are on record (default: the `SITE_PASSWORD` user). Never set `SESSION_IDLE_MS`, `SESSION_MAX_MS`, `GEOCODE_UPSTREAM` or `GEOCODE_FAIL_MS` on Render: they exist for the tests |
+| Environment | `NODE_VERSION` = `24`; `SITE_USERS` = `id:token,...` (one per person, pseudonymous ids such as `u01`, tokens 16+ characters); `SITE_OPERATORS` = the ids, comma-separated, that see the named list before the City's request and TRUST answer are on record (the operator's own `SITE_USERS` id); `SITE_CONTACT` = who to ask for access (a role address, shown on the sign-in page); `VITE_GOOGLE_MAPS_API_KEY` and `VITE_GOOGLE_MAPS_MAP_ID` (section 4; add `https://sdfood-city.onrender.com/*` to the key's allowed websites). `SITE_PASSWORD` (user `SITE_USER`, default `city`) is the operator's own older sign-in, never given to anyone; with `SITE_OPERATORS` unset it is an operator only while it is the only sign-in (no `SITE_USERS`). `render.yaml` lists every one of these. Never set `SESSION_IDLE_MS`, `SESSION_MAX_MS`, `GEOCODE_UPSTREAM` or `GEOCODE_FAIL_MS` on Render: they exist for the tests |
 
 The build checks the export it ships (`scripts/exportGate.mjs`, in review mode because of the staff
 marker file; a staff export past its sunset fails the build) and turns off the offline cache
 (`vite.config.js`; the staff build also removes any service worker and cache an earlier version left).
 
-**Signing in.** The server shows its own sign-in page (`/login`) and keeps a session in memory: a
+**Signing in.** The server shows its own sign-in page (`/login`). It asks for a "Sign-in id" and an
+"Access token" that this site's operator sent; says this is not a City network account, and never to
+enter a City user name or password there; says whom to ask for access (`SITE_CONTACT`, or else the
+person who sent the link); and says what the site logs. It keeps a session in memory: a
 random id in an `HttpOnly; Secure; SameSite=Strict` cookie, ended by "Sign out" (`/logout`), 30 idle
 minutes, 10 hours, or any restart (a redeploy, a free-plan sleep, a change to the environment: removing
 someone from `SITE_USERS` takes effect then). Because the cookie is `SameSite=Strict`, a link opened
 from email or Teams shows the sign-in page even to someone signed in. After 10 failed sign-ins in 15
 minutes, one name is locked out from one address (not the whole office); past 300 failures in 15
-minutes, every sign-in reply waits 2 seconds. `SITE_PASSWORD` (one shared sign-in, user `city`) still
-works while people move to their own; remove it once they have. The server refuses to start if any
-sign-in is shorter than 16 characters, and closes the site's data after the sunset date in the
-deployed `meta.json`. Turn on two-factor sign-in for the Render and GitHub accounts: anyone who can
-open the Render dashboard can read the sign-ins. To keep the access log, add a log stream (RUNBOOK.md).
+minutes, every sign-in reply waits 2 seconds. A refused sign-in is logged with the id typed only when
+it is one of the site's ids. `SITE_PASSWORD` is the operator's own older sign-in, never given to anyone:
+before adding the first `SITE_USERS` entry, add your own id there and name it in `SITE_OPERATORS` (with
+`SITE_USERS` set and `SITE_OPERATORS` unset, nobody sees the named list until `access_approved`), then
+remove `SITE_PASSWORD` once your id works. The server logs a warning at startup while `SITE_PASSWORD` is
+set alongside `SITE_USERS`, when `SITE_OPERATORS` names an id no sign-in has, and when no sign-in is an
+operator. The server refuses to start if any sign-in is shorter than 16 characters; shows the named list
+to anyone but an operator only when the deployed `meta.json` says `access_approved: true` (no other
+value); and closes the site's data after the sunset date in the deployed `meta.json`. Turn on
+two-factor sign-in for the Render and GitHub accounts: anyone who can open the Render dashboard can
+read the sign-ins and the access log. To keep the access log, add a log stream (RUNBOOK.md).
 
 From a terminal (Basic auth, `curl -u`, no longer works):
 
@@ -74,12 +96,20 @@ curl -b jar -c jar -X POST https://sdfood-city.onrender.com/logout
 
 ### Checks
 
-- `https://sdfood-city.onrender.com/healthz` answers `{"ok": true, "run": ..., "expires": ..., "source": ...,
-  "sunset": ..., "closed": null, "refit_needed": false, "rule_version": ..., "access_approved": ...}`.
-- The site shows its sign-in page; your sign-in opens it; "Sign out" signs you out, in every browser.
+- `https://sdfood-city.onrender.com/healthz` answers `{"ok": true, "run": ..., "inspections_through": ...,
+  "expires": ..., "stale": false, "source": ..., "server": ..., "sunset": ..., "closed": null,
+  "refit_needed": false, "drift_note": ..., "monitor": ..., "monitor_alert": ..., "rule_version": ...,
+  "access_approved": false, "named_list": "operators only"}`. `source` is the commit Render serves and
+  `server` a hash of the running `server.mjs`. `drift_note` and `monitor_alert` are only true or false
+  (the note and the alerts stay behind the sign-in), and `monitor` is the monitor's status
+  ([RUNBOOK.md](RUNBOOK.md), "Reading the monitor"). `access_approved` and `named_list` count only the
+  value `true`: until then `named_list` is `"operators only"`.
+- The site shows its sign-in page, with "For access, ask ..." (`SITE_CONTACT`) and the log notice; your
+  sign-in opens it; "Sign out" signs you out, in every browser.
 - `curl -i https://sdfood-city.onrender.com/data/meta.json` without a sign-in answers 401.
 - The staff bar at the top of every page names the contact, and its notice, open by itself after each
-  sign-in, says as instructions what the list has not passed.
+  sign-in, says as instructions what the list has not passed (and, when there is one, what the drift
+  note or a monitor alert means for the rates).
 - The watch workflow (`.github/workflows/watch.yml` in the private repository) runs daily; run it once
   by hand after setup (`gh workflow run watch.yml -R ChenhaoZhang01/sdfood-city`).
 
@@ -172,7 +202,8 @@ Put them in `SDFOOD_API_KEYS`, comma-separated, on the service's **Environment**
 checked, so it takes seconds. To withdraw a key, delete it the same way. Send keys by a channel the
 City approves, never in a public place.
 
-The key is the only gate: Render's IP allowlists for web services need a Scale or Enterprise
+The key is the only gate on who may call it (the image itself serves nothing past its sunset or
+without `access_approved`, below): Render's IP allowlists for web services need a Scale or Enterprise
 workspace. `/docs` and `/health` are open and carry no data.
 
 ### Every refresh
@@ -187,11 +218,21 @@ python export_worklist.py                                 # data/worklists/<mont
 python deploy_api.py                                      # build, check, push, deploy, wait
 ```
 
-`deploy_api.py` stops, before anything is pushed, if the export is missing, is the sample, is
-incomplete or has expired, or if the image does not serve it correctly on port 10000. After the push
-it checks again that the package is private. Then it moves `latest` to the new image, has Render
-deploy that exact image by its digest through the hook, and waits until `/health` reports the new
-build. `--dry-run` prints every step without running any.
+`deploy_api.py` stops, before anything is pushed, if the staff release's approval is missing,
+incomplete or past its sunset; if the City's request and TRUST answer are not on record
+(`access_approved`: the API has no operator-only view, so every key holder would get the named
+list); if `docs/holds.json` cannot be read, or a place on hold still shows its points or band in the
+export or in a worklist the image carries; if the export is missing, is the sample, is incomplete or
+has expired; or if the image does not serve it correctly on port 10000. Before the build it writes
+`data/site/api_release.json` (the approval's sunset, `access_approved` and the held ids), which the
+image carries: past that sunset (the date in San Diego), without `access_approved`, or without that
+file at all, every data route answers 503, and `/health` gives the reason as `closed`. So
+`deploy_api.py` is the only way to build and ship the image: `api/Dockerfile` names the file, a
+build without it stops, and the script removes it once its build has read it. The local check
+refuses an image whose `/health` does not report that sunset. After the push it checks again that
+the package is private. Then it moves `latest` to the new image, has Render deploy that exact image
+by its digest through the hook, and waits until `/health` reports the new build. `--dry-run` prints
+every step without running any.
 
 **Why `latest`.** When the hook names an image, Render deploys it once. Any later deploy (saving an
 environment variable, say) goes back to the Image URL in the service's settings, which is
@@ -199,7 +240,11 @@ environment variable, say) goes back to the Image URL in the service's settings,
 
 **Never roll back.** A rollback serves an image that no gate checked today, and it undoes every hold
 since. Fix the export (or add the hold) and run `deploy_api.py` again; to take the API down at once,
-suspend the service.
+suspend the service. A hold reaches the API only through a new image: the same day, export again, write
+each month's worklists the image carries again (`python export_worklist.py --month <yyyy-mm>`), and run
+`deploy_api.py` ([RUNBOOK.md](RUNBOOK.md), "One place"). If that cannot be done the same day (the export
+cannot run, say), suspend the API service until it has been. The frozen pilot copies of the worklists
+are not in the image.
 
 ## 2. The public site
 
@@ -223,14 +268,17 @@ same values for a new **Static Site**:
 | Root Directory | `food-dashboard` |
 | Build Command | `npm ci && npm run build` |
 | Publish Directory | `dist` (relative to the root directory) |
-| Environment | `NODE_VERSION` = `24`. Set it explicitly: an older service defaults to the Node version from when it was created. `SKIP_INSTALL_DEPS` = `true`: the build command installs from the lockfile itself, so Render need not install first. Also `VITE_GOOGLE_MAPS_API_KEY` and `VITE_GOOGLE_MAPS_MAP_ID` (section 4) |
+| Environment | `NODE_VERSION` = `24`. Set it explicitly: an older service defaults to the Node version from when it was created. `SKIP_INSTALL_DEPS` = `true`: the build command installs from the lockfile itself, so Render need not install first. `VITE_OWNER_CONTACT` = the corrections contact's email in `docs/STAFF_APPROVAL.json` (`corrections_contact`), set on the host, never in the repository: the privacy page gives it to an owner who asks whether their business is on the staff site, and a public build on Render (`RENDER=true`) stops without an email address there (`scripts/exportGate.mjs`; a local build only warns). Also `VITE_GOOGLE_MAPS_API_KEY` and `VITE_GOOGLE_MAPS_MAP_ID` (section 4) |
 | Redirects/Rewrites | Source `/*`, Destination `/index.html`, Action **Rewrite** (not Redirect), so a deep link such as `/place/SAMPLE-FFPP-00011` loads the app. Render does not read `vercel.json`. |
 | Headers | `/assets/*` `Cache-Control: public, max-age=31536000, immutable`; `/data/*` `Cache-Control: public, max-age=3600, must-revalidate`; `/*` `X-Content-Type-Options: nosniff` and `Referrer-Policy: strict-origin-when-cross-origin` |
 | Previews | Off: a preview copies the site's environment and runs the pull request's build scripts |
 
-Vite writes `VITE_*` values into the build, so after changing one choose **Save, rebuild, and
-deploy** ("Save and deploy" reuses the old build). A root directory also means only changes under
-`food-dashboard/` redeploy the site.
+Vite writes `VITE_*` values into the build, so after changing one (`VITE_OWNER_CONTACT` too,
+whenever the corrections contact changes) choose **Save, rebuild, and deploy** ("Save and deploy"
+reuses the old build). Every staff publish reads this site's live page and checks that a script it
+loads carries the corrections contact's email; until one does, the staff notice lists it as an open
+item ("the public site does not yet give an owner an email address ...") and the publish warns the
+operator. A root directory also means only changes under `food-dashboard/` redeploy the site.
 
 The rewrite also answers a missing `/data/place/<id>.json` with the page (200, `text/html`)
 instead of a 404. The site reads that as "no such place".
@@ -292,12 +340,14 @@ tags in `index.html`, and the key's referrer list.
 ## 5. Before sending anyone a link
 
 Staff API:
-- [ ] `/health` shows `"status": "ok"` and `"stale": false`
+- [ ] `/health` shows `"status": "ok"`, `"stale": false`, the approval's `sunset` and `"closed": null`
 - [ ] `/v1/summary` answers 401 without a key and 200 with one
 - [ ] The package page on GitHub says Private
 - [ ] The Render pull token's expiry is on a calendar
 
 Public site:
+- [ ] `/privacy`, under "Corrections" and "The City staff version", shows an email address (not "the
+      address appears here once ...")
 - [ ] The map renders with the Map ID's style, not the "for development purposes only" watermark
 - [ ] A deep link such as `/place/SAMPLE-FFPP-00011` loads the app (the rewrite works)
 - [ ] The browser console is clean, in particular no `RefererNotAllowedMapError`

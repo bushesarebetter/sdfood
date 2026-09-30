@@ -65,25 +65,42 @@ export const GUIDANCE = {
   drift: "The County's record has changed since the rule was checked, so the rates on this site may be out of date.",
   driftLow: "In the latest quarter the County's inspectors found major violations more often than in the backtest the rates come from, so every rate on this site is probably low.",
   driftHigh: "In the latest quarter the County's inspectors found major violations less often than in the backtest the rates come from, so every rate on this site is probably high.",
+  monitor: "Scored on the inspections made since, an earlier list did not hold up as its backtest said it would (the monitor has an alert, and the daily check tells the site's operator): read the rates and bands on this site with that in mind.",
   prospective: "The rule has not yet been tested on inspections made after it was frozen.",
   adult: "No independent adult has signed off on this list; its operator is a student author.",
 };
 
 /**
- * What the export's drift note (`meta.drift.note`, the latest quarter against the backtest) means for
- * the rates, as an instruction: GUIDANCE.driftLow or driftHigh, by the note's own "may be low" or "may
- * be high", else by `latest_rate` against `major_rate_backtest`. Null without a note. It is not a
- * refit alarm (GUIDANCE.drift is): the formal check cannot run until a quarter after the backtest year
- * is complete.
+ * What the export's drift note (`meta.drift.note`, the latest quarter against the label year's months
+ * before it) means for the rates, as an instruction: GUIDANCE.driftLow or driftHigh, by the note's own
+ * "may be low" or "may be high", else by `latest_rate` against the note's own baseline,
+ * `latest_baseline` (`major_rate_backtest` in an older export, which has none). Null without a note.
+ * It is not a refit alarm (GUIDANCE.drift is): the formal check cannot run until a quarter after the
+ * backtest year is complete.
  */
 export function driftNoteGuidance(meta) {
   const note = driftNote(meta);
   if (!note) return null;
   const said = /\bmay be (low|high)\b/i.exec(note)?.[1]?.toLowerCase();
   if (said) return said === "low" ? GUIDANCE.driftLow : GUIDANCE.driftHigh;
-  const now = meta?.drift?.latest_rate, then = meta?.drift?.major_rate_backtest;
+  const d = meta?.drift;
+  const now = d?.latest_rate, then = typeof d?.latest_baseline === "number" ? d.latest_baseline : d?.major_rate_backtest;
   if (typeof now !== "number" || typeof then !== "number" || now === then) return null;
   return now > then ? GUIDANCE.driftLow : GUIDANCE.driftHigh;
+}
+
+/**
+ * What the monitor's summary (`meta.monitor`, the publisher's copy of export_site.py --monitor's
+ * monitor_summary.json) means for someone using the list: GUIDANCE.monitor while a list it has scored
+ * (interim or complete) has an alert, else null. A monitor that did not run for this list says nothing
+ * about the rates, so it is the operator's to fix (/healthz and the daily check say so), not an
+ * instruction here. An older export has no `monitor`.
+ */
+export function monitorGuidance(meta) {
+  const m = meta?.monitor;
+  if (!m || typeof m !== "object" || !["interim", "complete"].includes(m.status)) return null;
+  const alerts = Array.isArray(m.alerts) ? m.alerts.filter((a) => typeof a === "string" && a.trim()) : [];
+  return alerts.length ? GUIDANCE.monitor : null;
 }
 
 const APOS = "['’]";
@@ -165,7 +182,9 @@ const lowAboveEven = (iv) => Array.isArray(iv) && typeof iv[0] === "number" && i
  * inspectors), and fairnessLine names only them; of the rest, those whose 95% `interval` for the
  * district alone starts above 1, split by whether the family-wise one does too. Sentences, in that
  * order; null for an export without `evidence_above_even` (one from before it existed). `staff` says
- * that the staff notice and the district view name only the first group.
+ * that the instruction on districts in the staff notice and the district view (fairnessLine) names
+ * only the first group; the notice's list of open checks still gives every district line the
+ * public-release check writes.
  */
 export function districtStatus(meta, { staff = isStaff(meta) } = {}) {
   const ev = evidenceDistricts(meta);
@@ -180,10 +199,10 @@ export function districtStatus(meta, { staff = isStaff(meta) } = {}) {
   const is = (list) => (list.length > 1 ? "are" : "is");
   const out = [];
   if (ev.length) {
-    const named = staff ? `, so the staff notice and the district view name ${ev.length > 1 ? "only these" : "only it"}` : "";
+    const named = staff ? `, so the instruction on districts in the staff notice and the district view names ${ev.length > 1 ? "only these" : "only it"}` : "";
     out.push(`Only ${districtsPhrase(ev)} ${ev.length > 1 ? "stay" : "stays"} above even on both wider intervals, allowing for ${across} and for inspectors${named}.`);
   } else {
-    out.push(`No district stays above even on both wider intervals, allowing for ${across} and for inspectors${staff ? ", so the staff notice and the district view name none" : ""}.`);
+    out.push(`No district stays above even on both wider intervals, allowing for ${across} and for inspectors${staff ? ", so no instruction in the staff notice or the district view names a district" : ""}.`);
   }
   family.sort((a, b) => a - b);
   alone.sort((a, b) => a - b);
@@ -222,6 +241,9 @@ export function reviewGuidance(meta) {
   // Not an open check: the export's own note on the latest quarter, as an instruction.
   const note = driftNoteGuidance(meta);
   if (note) out.push(note);
+  // Not an open check either: the monitor's alert on a list it has scored.
+  const mon = monitorGuidance(meta);
+  if (mon) out.push(mon);
   if (has(/prospective test/)) out.push(GUIDANCE.prospective);
   if (has(/responsible adult|student author/)) out.push(GUIDANCE.adult);
   return out;

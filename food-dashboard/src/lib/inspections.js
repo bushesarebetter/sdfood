@@ -28,8 +28,14 @@
  *
  * `violations` holds the items cited in the 36 months before the last visit:
  * major violations, minor violations and good-retail-practice items (`grp`),
- * majors first, at most 60. `theme_counts` and `violations_total`, where the
- * export gives them, count every item in that window before the cut.
+ * majors first, at most MAX_ITEMS (150; the most any place has had is 83).
+ * `theme_counts` and `violations_total`, where the export gives them, count
+ * every item in that window before the cut.
+ *
+ * The export keeps a County record when it is an inspection: "No Access" and
+ * "Incomplete" records are left out, and so is a "Self Closed" or "Status
+ * Verification" record that cites no item and was not ordered closed, with
+ * the notes on it (KEPT_NOTE).
  *
  * Grades are the County's letters as recorded. None is ever derived from a
  * score: a visit the County did not grade has no grade here either.
@@ -204,6 +210,9 @@ export const COUNTY_TYPES = {
   status_check: ["Status Verification"],
 };
 
+/** The County's own types a complaint or other field visit stands for, in words: "Site Investigation or Environmental". */
+export const FIELD_TYPES = COUNTY_TYPES.complaint.join(" or ");
+
 export const SEVERITY_LABELS = { major: "major violation", minor: "minor violation", grp: "good-retail-practice item" };
 
 /** Our reading of a closure's reason, in a few words. */
@@ -217,14 +226,29 @@ export const OUR_READING = {
   followup: "a routine inspection within 30 days after a B, a C or a closure is read as a re-grade or reopening visit.",
   complaint: "the County's Site Investigation and Environmental records are read as complaint or other field visits.",
   health: "a major violation was cited that day.",
-  permit: "no major violation was cited that day and the inspector's notes mention a permit, so we read the closure as a permit matter.",
-  other: "no item marked major was cited that day and no note mentions a permit; the County's record gives no reason.",
+  permit: "no major violation was cited that day and a County note that day mentions a permit, so we read the closure as a permit matter.",
+  other: "no item marked major was cited that day and no County note that day mentions a permit; the County's record gives no reason.",
   selfClosed: "a Self Closed record with a major violation cited that day is read as the operator's own closure.",
   inferred: "an Approved to Reopen with no closure order before it is read as ending a closure that began at this visit.",
   reopenOnly: "no closure could be placed before this Approved to Reopen, and none is read into the record.",
   themes: "each item is put under a theme from the County's item text.",
   flags: "read from the 12 months before the list date, and 24 months for the four escalation facts.",
 };
+
+/**
+ * Under the list of a place's records: which County records the export leaves out, and where to see
+ * them. The list's heading says it holds the records we keep, never every record.
+ */
+export const KEPT_NOTE =
+  "Left out as not inspections: “No Access” and “Incomplete” records, and “Self Closed” or “Status Verification” records " +
+  "that cite no item and were not ordered closed, with any County note on them. The County's own inspection search has every record.";
+
+/**
+ * When a place has more "Ordered Closed" records than closures that start at one: the rule by which
+ * a further order joins the closure before it (export_site: EPISODE_GAP_DAYS, and an episode ends at
+ * the County's "Approved to Reopen" or a graded routine or re-grade on a later day).
+ */
+export const SAME_CLOSURE = "a further order within 30 days of the last, with no reopening or graded visit between, is part of the same closure";
 
 const typeOf = (i) => i?.type ?? "routine";
 export const visitLabel = (type) => VISIT_LABELS[type ?? "routine"] ?? String(type);
@@ -341,6 +365,8 @@ export function inspectionStats(p) {
     permitClosures: closedBy("permit"),
     otherClosures: closedBy("other"),
     closureEpisodes: closed.length,
+    // The closures that start at an "Ordered Closed" record: fewer than orderedClosedRecords when a further order joined one.
+    orderClosures: closed.filter((i) => i.status === "Ordered Closed").length,
     inferredClosures: closed.filter(isInferredClosure).length,
     selfClosures: closed.filter(isSelfClosed).length,
     // The County's own rows: every record whose status is "Ordered Closed", whether or not it starts an episode.
@@ -354,7 +380,9 @@ export function inspectionStats(p) {
 }
 
 /** The export lists at most this many items per place (export_site.MAX_VIOLATIONS), majors first. */
-export const MAX_ITEMS = 60;
+export const MAX_ITEMS = 150;
+/** An export from before `violations_total` listed at most this many, and did not say whether it cut. */
+const OLD_MAX_ITEMS = 60;
 
 const count = (x) => (Number.isInteger(x) && x >= 0 ? x : 0);
 const byWorst = (a, b) => b.major - a.major || b.count - a.count || (b.last ?? "").localeCompare(a.last ?? "");
@@ -363,7 +391,7 @@ const byWorst = (a, b) => b.major - a.major || b.count - a.count || (b.last ?? "
  * Items cited in the three years before the last visit, grouped by theme,
  * worst first: majors, then count, then recency. Given a place, it reads the
  * export's `theme_counts` (every item in the window, counted before the
- * 60-item cut) when there are any; given a list of items, or a place from an
+ * MAX_ITEMS cut) when there are any; given a list of items, or a place from an
  * export without them, it counts the items listed.
  */
 export function themeCounts(input = []) {
@@ -402,19 +430,20 @@ export function themeCounts(input = []) {
 
 /**
  * How many of a place's items the export lists: { shown, total, cut }. `total`
- * is `violations_total` where the export gives it; an older export at the
- * 60-item cut does not say how many more there were (total null, cut true).
+ * is `violations_total` where the export gives it; an older export, which
+ * listed at most 60 and gave no total, does not say how many more there were
+ * (total null, cut true at 60).
  */
 export function itemsShown(p) {
   const shown = Array.isArray(p?.violations) ? p.violations.length : 0;
   const total = Number.isInteger(p?.violations_total) && p.violations_total >= shown ? p.violations_total : null;
-  return { shown, total, cut: total != null ? total > shown : shown >= MAX_ITEMS };
+  return { shown, total, cut: total != null ? total > shown : shown >= OLD_MAX_ITEMS };
 }
 
 /**
  * The line a view shows under counts read from the listed items when the
- * export cut them at 60, or null: counts from `theme_counts` are whole, and
- * so is a list that was not cut.
+ * export cut them, or null: counts from `theme_counts` are whole, and so is
+ * a list that was not cut.
  */
 export function themeCountsNote(p) {
   const { shown, total, cut } = itemsShown(p);

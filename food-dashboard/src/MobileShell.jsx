@@ -169,7 +169,7 @@ function PlaceList({ facilities, filters, onSelect, note, top = 0 }) {
                 <span className="block text-[15px] leading-snug text-ink">{p.name}</span>
                 <span className="block text-[13px] text-ink-2">
                   {!expired && m.label && <span className="font-semibold" style={{ color: m.text ?? undefined }}>{m.label}, </span>}
-                  {typeLabel(p.facility_type)}, {g.graded ? `grade ${g.short}` : g.withDate ?? g.text.toLowerCase()}
+                  {typeLabel(p.facility_type)}, {g.graded ? `grade ${g.short}` : g.withDate}
                 </span>
                 <StaleBadge place={p} meta={meta} className="mt-1" />
               </button>

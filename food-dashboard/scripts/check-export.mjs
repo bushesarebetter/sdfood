@@ -20,7 +20,9 @@
  *    (with a major) and not marked `closure_inferred`;
  *  - where they are given (an export from before them passes without them):
  *    `notes` that are not a list of the County's note texts; a `county_type`
- *    that is not one of the County's types for the visit type; a
+ *    (on a record, or on the index's `last_visit`) that is not one of the
+ *    County's types for the visit type, or a `last_visit.county_type` that
+ *    is not the place file's last record's; a
  *    `closure_inferred` that is not on a closure, is on an "Ordered Closed"
  *    record, or has no "Approved to Reopen" (reopened_on); a
  *    `reopen_without_closure` that is not on an "Approved to Reopen" record;
@@ -32,8 +34,9 @@
  *    the record that started it); `theme_counts` of the wrong shape, below the
  *    items listed, or not adding up to `violations_total`; a
  *    `violations_total` below the items listed, or above them when the list
- *    was not cut at 60; and a monitor_summary.json outside { status, runs,
- *    alerts, next_window_date };
+ *    was not cut at MAX_ITEMS (150); and a monitor_summary.json outside { status, runs,
+ *    alerts, next_window_date }, or with a rule_version, inspections_through or
+ *    by_district of the wrong shape;
  *  - a place file that is missing, that does not match its index entry, or
  *    that has no index entry;
  *  - record mode carrying bands fields; in bands mode, a band meta.card.bands
@@ -160,11 +163,11 @@ const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const isGrade = (g) => g && GRADES.includes(g.grade) && ISO.test(g.date ?? "") && (g.score === null || typeof g.score === "number");
 // open_closure: the place's last closure has no "Approved to Reopen" and no graded visit after it (null otherwise).
 const isOpenClosure = (o) => o === null || (isObj(o) && ISO.test(o.date ?? "") && CLOSURES.includes(o.reason)
-  && (!("later_ungraded" in o) || (Array.isArray(o.later_ungraded) && o.later_ungraded.every((x) => ISO.test(x ?? "") && x >= o.date)))
+  && (!("later_ungraded" in o) || (Array.isArray(o.later_ungraded) && o.later_ungraded.every((x) => ISO.test(x ?? "") && x > o.date)))
   && (!("status" in o) || (typeof o.status === "string" && o.status.trim() !== "")));
 const gradeProblem = (g) => {
   if (!isGrade(g) || (g.replaced != null && !isGrade(g.replaced))) return "grade outside { grade: A|B|C, score, date, replaced }";
-  if ("open_closure" in g && !isOpenClosure(g.open_closure)) return "grade.open_closure outside null|{ date, reason: health|permit|other, later_ungraded: [dates on or after it] }";
+  if ("open_closure" in g && !isOpenClosure(g.open_closure)) return "grade.open_closure outside null|{ date, reason: health|permit|other, later_ungraded: [dates after it] }";
   if (g.open_closure && g.open_closure.date < g.date) return "grade.open_closure before the grade it follows";
   return null;
 };
@@ -211,6 +214,7 @@ for (const f of features) {
   if (!kinds.includes(p.facility_type)) note(`facility_type outside ${kinds.join("|")}`, `${label}: ${p.facility_type}`);
   if (p.council_district != null && (!Number.isInteger(p.council_district) || p.council_district < 1 || p.council_district > 9)) note("council_district outside 1 to 9 (null: outside the City)", `${label}: ${p.council_district}`);
   if (!ISO.test(p.last_visit?.date ?? "") || !VISIT_TYPES.includes(p.last_visit?.type)) note("last_visit without a date and a visit type from the contract", label);
+  else if (isObj(p.last_visit) && "county_type" in p.last_visit && countyTypeProblem(p.last_visit)) note(`last_visit ${countyTypeProblem(p.last_visit)}`, label);
   if (p.grade != null && gradeProblem(p.grade)) note(gradeProblem(p.grade), label);
   if (!Array.isArray(p.flags) || p.flags.some((k) => !FLAG_KEYS.includes(k))) note(`flags outside ${FLAG_KEYS.join("|")}`, `${label}: ${JSON.stringify(p.flags)}`);
   if (!sample && /^Sample /.test(p.name ?? "")) note("a real export contains a place named 'Sample …'", label);
@@ -260,6 +264,10 @@ for (const f of features) {
   }
   if (typeof d.business_type !== "string" || !d.business_type) note("a place file without business_type", id);
   if (!Array.isArray(d.inspections) || !d.inspections.length) note("a place file without inspections", id);
+  else if (typeof p.last_visit?.county_type === "string" && typeof d.inspections.at(-1)?.county_type === "string"
+    && p.last_visit.county_type !== d.inspections.at(-1).county_type) {
+    note("last_visit county_type that is not the County's type on the place file's last record", `${id}: ${p.last_visit.county_type}`);
+  }
   for (const i of d.inspections ?? []) {
     if (!ISO.test(i.date ?? "")) note("an inspection without a date", id);
     if (typeof i.status !== "string" || !i.status) note("an inspection without the County's status text", `${id}: ${i.date}`);
@@ -380,6 +388,18 @@ if (bands) {
 }
 
 /**
+ * A `county_type` (on a record, or on the index's `last_visit`) that is not the County's type text, or
+ * not one of the County's types for its visit type: the problem in words, or null.
+ */
+function countyTypeProblem(i) {
+  if (typeof i.county_type !== "string" || !i.county_type.trim()) return "county_type that is not the County's inspection type text";
+  if (COUNTY_TYPES[i.type] && !COUNTY_TYPES[i.type].includes(i.county_type)) {
+    return `county_type that is not one of the County's types for its visit type (${Object.entries(COUNTY_TYPES).map(([t, c]) => `${t}: ${c.join("|")}`).join("; ")})`;
+  }
+  return null;
+}
+
+/**
  * What a record's newer fields must say, where the export gives them (an
  * export from before them has none, and passes): the County's notes and type
  * verbatim, a closure only on a record that shows one, and our readings of a
@@ -394,10 +414,8 @@ function recordProblems(i) {
     out.push("notes that are not a list of the County's note texts");
   }
   if ("county_type" in i) {
-    if (typeof i.county_type !== "string" || !i.county_type.trim()) out.push("county_type that is not the County's inspection type text");
-    else if (COUNTY_TYPES[i.type] && !COUNTY_TYPES[i.type].includes(i.county_type)) {
-      out.push(`county_type that is not one of the County's types for its visit type (${Object.entries(COUNTY_TYPES).map(([t, c]) => `${t}: ${c.join("|")}`).join("; ")})`);
-    }
+    const bad = countyTypeProblem(i);
+    if (bad) out.push(bad);
   }
   if ("closure_inferred" in i && typeof i.closure_inferred !== "boolean") out.push("closure_inferred outside true|false");
   if (i.closure_inferred === true) {
@@ -420,7 +438,7 @@ function recordProblems(i) {
 
 /**
  * `theme_counts` and `violations_total` (optional): every item in the 36-month window, counted before
- * the 60-item cut, so they cannot be below what the list shows, and they add up to each other.
+ * the MAX_ITEMS cut, so they cannot be below what the list shows, and they add up to each other.
  */
 function itemCountProblems(d, vs) {
   const out = [];
@@ -578,7 +596,9 @@ function metaShapeProblems(m) {
   return out;
 }
 
-// monitor_summary.json (export_site.monitor), optional: { status, runs, alerts: [sentences], next_window_date }.
+// monitor_summary.json (export_site.monitor), optional: { status, runs, alerts: [sentences], next_window_date }, and
+// from a monitor that stamps its run, rule_version (text or null), inspections_through (YYYY-MM-DD or null) and
+// by_district (null, or { run, window_days, districts: { "<district>": { labelled, positives, ... } } }).
 const monitorPath = join(data, "monitor_summary.json");
 if (existsSync(monitorPath)) {
   let m = null;
@@ -591,6 +611,14 @@ if (existsSync(monitorPath)) {
       || m.alerts.some((a) => typeof a !== "string" || !a.trim())
       || ("next_window_date" in m && m.next_window_date !== null && !ISO.test(m.next_window_date ?? "")))) {
     fail(`monitor_summary.json is not { status: ${MONITOR_STATUS.join("|")}, runs, alerts: [sentences], next_window_date: YYYY-MM-DD|null }`);
+  }
+  const bd = isObj(m) ? m.by_district : null;
+  if (isObj(m) && (("rule_version" in m && m.rule_version !== null && typeof m.rule_version !== "string")
+      || ("inspections_through" in m && m.inspections_through !== null && !(typeof m.inspections_through === "string" && ISO.test(m.inspections_through)))
+      || (bd != null && !(isObj(bd) && typeof bd.run === "string" && isCount(bd.window_days) && isObj(bd.districts)
+          && Object.values(bd.districts).every((d) => isObj(d) && isCount(d.labelled) && isCount(d.positives) && d.positives <= d.labelled))))) {
+    fail("monitor_summary.json's rule_version, inspections_through or by_district is not text|null, YYYY-MM-DD|null, " +
+      "and null or { run, window_days, districts: { labelled, positives } }");
   }
 }
 

@@ -49,7 +49,7 @@
         "feature": "theme_temperature"
       }
     ],
-    "rule": "Places get one point for each point their average routine score in the last year fell below 100, and two points for each food-temperature citation in the last year.",
+    "rule": "Places get one point for each point their average routine score in the last year fell below 100, and two points for each food-temperature citation in the last year. A routine inspection that started a closure for a health hazard (a County closure order, the operator's own closure with a major cited, or a closure read from a later reopening) counts as 70.",
     "window": "the year before the list date",
     "trained_on": "sample: invented weights",
     "eligibility": "restaurants with a scored routine inspection in the year before the list date",
@@ -968,7 +968,9 @@
     "from_run": "sample"
   },
   "drift": {
-    "major_rate_backtest": 0.1839,
+    "major_rate_backtest": 0.1917,
+    "major_rate_backtest_n": 1575,
+    "backtest_span": "September 2025 to August 2026",
     "major_rate_recent": null,
     "recent_quarters": [],
     "band_1_share_backtest": 0.0264,
@@ -976,6 +978,9 @@
     "latest_quarter": "2026Q3",
     "latest_rate": 0.2064,
     "latest_n": 281,
+    "latest_baseline": 0.1886,
+    "latest_baseline_n": 1294,
+    "latest_baseline_span": "September 2025 to June 2026",
     "status": "not_yet_measurable",
     "refit_needed": false,
     "reasons": [],

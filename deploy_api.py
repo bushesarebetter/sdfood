@@ -26,9 +26,11 @@ Refuses, before anything is pushed, when:
   * the registry package exists and is not private (the image holds the export);
   * the built image does not serve this export on Render's port, or serves data without a key.
 Before the build it writes data/site/api_release.json (RELEASE_FILE): the approval's sunset, access_approved
-and the held ids. The image carries it, and the API serves no data past that sunset (503, as the
-staff site closes itself), and /health says so; the local check refuses an image whose /health does
-not report that sunset.
+and the held ids, and removes it once the build has read it. The image carries it (api/Dockerfile names
+it, so a build without it stops), and the API serves no data past that sunset, without access_approved,
+or without the file at all (503, as the staff site closes itself), and /health says so; the local check
+refuses an image whose /health does not report that sunset. This script is the only way to build and
+ship the image.
 After the push it checks again that the package is private, moves the `latest` tag to the new image
 and deploys it by digest, so Render runs exactly the image that was checked. The Render service's
 Image URL names `latest`: Render goes back to that for any later deploy (saving an environment
@@ -135,6 +137,14 @@ def write_release(site, release, dry=False):
           f"{len(release['held'])} held)", flush=True)
     if not dry:
         path.write_text(json.dumps(release, indent=2), encoding="utf-8")
+
+
+def clear_release(site, dry=False):
+    """Remove data/site/api_release.json once the build has read it: it is on disk only while this script
+    builds, so an image built by hand later, from a release this script checked another day, stops at the
+    Dockerfile's COPY of it instead."""
+    if not dry:
+        (site / RELEASE_FILE).unlink(missing_ok=True)
 
 
 def check_image_name(image):
@@ -363,8 +373,11 @@ def main(argv=None):
         if not (args.no_push or dry):
             ensure_private(image, pushed=False, confirmed_private=args.registry_is_private)
         write_release(SITE, release, dry)
-        sh(["docker", "build", "--platform", "linux/amd64", "--provenance=false", "--build-arg", f"SDFOOD_BUILD={build}",
-            "-f", "api/Dockerfile", "-t", ref, "."], dry)
+        try:
+            sh(["docker", "build", "--platform", "linux/amd64", "--provenance=false", "--build-arg", f"SDFOOD_BUILD={build}",
+                "-f", "api/Dockerfile", "-t", ref, "."], dry)
+        finally:
+            clear_release(SITE, dry)
         smoke_test(ref, meta, build, dry, release)
         if args.no_push:
             print(f"built and checked {ref}; not pushed")

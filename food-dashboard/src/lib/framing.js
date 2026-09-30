@@ -14,7 +14,7 @@
  */
 import { SITE, STUDENT_NOTE } from "../site.js";
 import { expiryNotice } from "./expiry.js";
-import { typePlural } from "./inspections.js";
+import { MAX_ITEMS, typePlural } from "./inspections.js";
 import { gradeView } from "./grades.js";
 import { shownBand } from "./marks.js";
 import { GROUP_NOTE, bandDefs, bandPoints, bandShare, bandSummary, estimateSentence, isOutside, ruleSentence } from "./bands.js";
@@ -69,7 +69,10 @@ export function subhead(meta) {
     const cut = shares.length ? ` ${shares.map(([b, s], i) => (i ? `band ${b} ${s}` : `Band ${b} is ${s}`)).join(", ")}.` : "";
     return `${ruleSentence(meta)}${cut} Every other fact shown is the County's published record.`;
   }
-  return "Every visit, score, grade and finding the County has published for each place since January 2023, listed by name.";
+  return "The inspection records the County has published for each place since January 2023, with each score, grade, cited item " +
+    "and County note, listed by name. Left out: visits marked No Access or Incomplete, and Self Closed or Status Verification " +
+    `records that cite no item and were not ordered closed. Each place lists up to ${MAX_ITEMS} items from the three years ` +
+    "before its last visit, majors first.";
 }
 
 /** The share of routine inspections with a major that still end with an A, with the County's rule beside it. */
@@ -86,7 +89,7 @@ export function siteDescription(meta) {
   if (siteMode(meta) === "bands") {
     return `${SITE.name} restaurants and markets whose County inspection record scores highest on the students' point rule, with each place's record. ${STUDENT_NOTE}`;
   }
-  return `The County's inspection record for ${SITE.fullName} restaurants and markets: every visit, score, grade and finding, as the County published it. ${STUDENT_NOTE}`;
+  return `The County's inspection record for ${SITE.fullName} restaurants and markets: each inspection record, score, grade and finding, as the County published it. ${STUDENT_NOTE}`;
 }
 
 /** The map key's note, which says which way darker goes in words. */

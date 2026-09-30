@@ -103,11 +103,13 @@ function sendPage(req, res, status, title, body, headers = {}) {
 
 // What the site records, said where a record is first made: the sign-in page (and its 401 and 429 answers)
 // and the Withheld page, which is all a sign-in sees before the City's request is on record.
+// Every line of it is written by login (a sign-in, and each sign-in refused, for a wrong id or token or for too
+// many tries), logout, serveFile, geocodeRoute and audit.
 const LOG_NOTICE = "This site keeps a log, under your sign-in id, of each sign-in and sign-out with your network " +
   "address; of each sign-in that is refused, with the address (and the id typed, only when it is one of this " +
-  "site's ids); and of each place or list opened, downloaded or printed. The site's operator, and anyone with " +
-  "access to its hosting account, can read that log. During a pilot it may be used, by sign-in id, in the " +
-  "pilot's analysis.";
+  "site's ids); of each place or list opened, downloaded or printed; and of each address lookup (not what you " +
+  "typed). The site's operator, and anyone with access to its hosting account, can read that log. During a " +
+  "pilot it may be used, by sign-in id, in the pilot's analysis.";
 const logNotice = () => `<p class="log">${esc(LOG_NOTICE)}</p>`;
 // The site's one disclaimer, word for word (food-dashboard/src/site.js STUDENT_NOTE): it names the City too.
 const STUDENT_NOTE = "Independent student project, not affiliated with or endorsed by the City of San Diego or the County of San Diego.";
@@ -616,21 +618,26 @@ async function login(req, res) {
   const next = safeNext(form.get("next") ?? "/");
   const ip = clientOf(req), key = `${ip}|${user}`;
   const now = Date.now();
+  // Every refused sign-in is logged, as LOG_NOTICE says. The name typed is logged only when it is one of this
+  // site's ids: a City account name or an email typed here by mistake never reaches the log.
+  const typed = USERS.has(user) ? JSON.stringify(clean(user, 100)) : "<not an id>";
   if (blocked(key, now)) {
+    console.warn(`sign-in refused user=${typed} from ${clean(ip, 64)}: too many wrong sign-ins`);
     return sendPage(req, res, 429, TITLE, loginForm({ next, user, bad: true,
       notice: "Too many wrong sign-ins for this id from here. Try again in 15 minutes." }), { "Retry-After": "900" });
   }
   const over = recentFailures(now) > GLOBAL_FAILS;
-  const busy = () => sendPage(req, res, 429, TITLE, loginForm({ next, user, bad: true,
-    notice: "Too many sign-ins at once from here. Try again in a few seconds." }), { "Retry-After": "5" });
+  const busy = () => {
+    console.warn(`sign-in refused user=${typed} from ${clean(ip, 64)}: too many at once`);
+    return sendPage(req, res, 429, TITLE, loginForm({ next, user, bad: true,
+      notice: "Too many sign-ins at once from here. Try again in a few seconds." }), { "Retry-After": "5" });
+  };
   if (over && CHECKING_BY_IP.has(ip)) return busy();       // one slowed check at a time per address
   const ok = credentialsMatch(user, password);
   if (over && !(await slowTurn(ip))) return busy();
   if (!ok) {
     failed(key, now);
-    // The name typed is logged only when it is one of this site's ids: a City account name or an email typed
-    // here by mistake never reaches the log.
-    console.warn(`sign-in failed user=${USERS.has(user) ? JSON.stringify(clean(user, 100)) : "<not an id>"} from ${clean(ip, 64)}`);
+    console.warn(`sign-in failed user=${typed} from ${clean(ip, 64)}`);
     return sendPage(req, res, 401, TITLE, loginForm({ next, user, bad: true,
       notice: "The sign-in id or access token is not right. Try again." }));
   }

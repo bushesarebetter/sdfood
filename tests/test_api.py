@@ -1,6 +1,6 @@
 """api/main.py: keys, filters, a place's record, districts, results, worklists, CSV and reload, on a
 small export in the contract's shape (docs/FOOD_DATA_CONTRACT.md); and a deployed image's release record,
-past whose sunset (or without the City's answer) no data is served."""
+past whose sunset (or without the City's answer, or without the record itself) no data is served."""
 import csv
 import io
 import json
@@ -52,6 +52,11 @@ def client(tmp_path, monkeypatch):
         w.writerow(["DEH-1", "Alpha Grill", "1 Alpha St", "Restaurant Food Facility", "2025-10-01", "88", "88", "2026-10-05", "1", "40", "lowest mean"])
         w.writerow(["DEH-3", "Gamma Market", "1 Gamma St", "Retail Market with Deli", "2025-09-01", "94", "93.5", "2026-10-09", "2", "", "not scored"])
     (tmp_path / "research.json").write_text(json.dumps({"days_sooner_within_district_month": 6.2}), encoding="utf-8")
+    # as deploy_api.py writes it into every image: without it the service serves no data
+    (site / "api_release.json").write_text(json.dumps({"sunset": "2999-12-31", "access_approved": True, "held": []}),
+                                           encoding="utf-8")
+    monkeypatch.delenv("SDFOOD_API_LOCAL", raising=False)
+    monkeypatch.delenv("SDFOOD_BUILD", raising=False)
     monkeypatch.setenv("SDFOOD_DATA_DIR", str(site))
     monkeypatch.setenv("SDFOOD_WORKLISTS_DIR", str(tmp_path / "worklists"))
     monkeypatch.setenv("SDFOOD_RESEARCH_FILE", str(tmp_path / "research.json"))
@@ -184,9 +189,57 @@ def test_an_image_without_the_citys_answer_or_a_readable_release_serves_no_data(
     api.get_store.cache_clear()
     assert client.get("/v1/facilities", headers=H).status_code == 503
     assert "cannot be read" in client.get("/health").json()["closed"]
+
+
+def test_without_a_release_record_no_data_is_served_unless_it_is_a_local_run(client, monkeypatch):
+    """An image built, or a data folder refreshed, by any path but deploy_api.py has passed none of its checks
+    (the City's request and TRUST answer, the holds, the sunset): it carries no release record, and serves nothing."""
     (client.site / "api_release.json").unlink()
     api.get_store.cache_clear()
-    assert client.get("/v1/facilities", headers=H).status_code == 200, "a local run, with no release record, is open"
+    r = client.get("/v1/facilities", headers=H)
+    assert r.status_code == 503 and "no release record" in r.json()["detail"] and "deploy_api.py" in r.json()["detail"]
+    assert "no release record" in client.get("/health").json()["closed"]
+    monkeypatch.setenv("SDFOOD_API_LOCAL", "1")                     # said so, on your own machine
+    assert client.get("/v1/facilities", headers=H).status_code == 200 and client.get("/health").json()["closed"] is None
+    monkeypatch.setenv("SDFOOD_BUILD", "forward_2026-09-20-20260924T213000Z")   # an image deploy_api.py built is never local
+    assert client.get("/v1/facilities", headers=H).status_code == 503
+    monkeypatch.setenv("SDFOOD_BUILD", "")
+    monkeypatch.setenv("SDFOOD_API_LOCAL", "yes")                   # only "1" opens it
+    assert client.get("/v1/facilities", headers=H).status_code == 503
+
+
+def test_no_doc_describes_a_path_around_deploy_api():
+    """A hand-built image or a copied data folder would skip deploy_api.py's checks: the docs never offer one."""
+    for path in ("api/Dockerfile", "docs/API.md", "docs/HOSTING.md"):
+        text = (api.ROOT / path).read_text(encoding="utf-8")
+        assert "docker build" not in text and "docker run" not in text, path
+    assert "copy the new `data/`" not in (api.ROOT / "docs" / "API.md").read_text(encoding="utf-8")
+
+
+def test_the_csv_gives_an_open_closure_and_the_last_visit_in_the_staff_sites_words(client):
+    """As the staff site's CSV (lib/format.js): a closure with no reopening beside the letter from before it,
+    and the last visit in words, our reading marked, with the County's own type."""
+    feats = json.loads((client.site / "facilities.geojson").read_text(encoding="utf-8"))
+    p = feats["features"][0]["properties"]
+    p["last_visit"] = {"date": "2026-08-21", "type": "complaint", "county_type": "Site Investigation"}
+    p["grade"]["open_closure"] = {"date": "2026-08-21", "reason": "health", "later_ungraded": [], "status": "Ordered Closed"}
+    feats["features"][1]["properties"]["last_visit"] = {"date": "2026-08-01", "type": "followup"}
+    (client.site / "facilities.geojson").write_text(json.dumps(feats), encoding="utf-8")
+    api.get_store.cache_clear()
+    rows = {r["facility_id"]: r for r in csv.DictReader(io.StringIO(client.get("/v1/export.csv", headers=H).text))}
+    assert rows["DEH-1"]["open_closure_date"] == "2026-08-21" and rows["DEH-1"]["grade"] == "A"
+    assert rows["DEH-1"]["last_visit_type"] == "complaint or other field visit (our reading; County type: Site Investigation)"
+    assert rows["DEH-2"]["last_visit_type"] == "re-grade or reopening visit (our reading)", "an export without the County's type"
+    assert rows["DEH-3"]["last_visit_type"] == "routine inspection" and rows["DEH-3"]["open_closure_date"] == ""
+    assert api.VISIT_LABELS == {"routine": "routine inspection", "reinspection": "reinspection",
+                                "followup": "re-grade or reopening visit", "complaint": "complaint or other field visit",
+                                "status_check": "status verification"}, "the site's VISIT_LABELS (lib/inspections.js)"
+    site_labels = (api.ROOT / "food-dashboard" / "src" / "lib" / "inspections.js").read_text(encoding="utf-8")
+    for kind, label in api.VISIT_LABELS.items():
+        assert f'{kind}: "{label}"' in site_labels, kind
+    items = {x["facility_id"]: x for x in client.get("/v1/facilities", headers=H).json()["items"]}
+    assert items["DEH-1"]["grade"]["open_closure"]["status"] == "Ordered Closed", "the list gives it too"
+    assert items["DEH-2"]["grade"]["open_closure"] is None
 
 
 def test_the_csv_says_what_the_band_and_points_are(client):

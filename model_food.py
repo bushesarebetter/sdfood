@@ -119,11 +119,13 @@ def load(path=DATA):
     if rt_day.any():
         raise ValueError(f"{int(rt_day.sum())} same-day duplicate routine rows in {path}: rebuild the CSV "
                          "from the saved pull (python fetch_sdfood.py --csv-only; no network), which merges them")
-    # The score the no-model rules read: a routine that ended in a health closure order counts as
-    # es.CLOSURE_SCORE, every time, as in the students' point rule (export_site.rated_score): the County
-    # usually gives no score that day, and a same-day score does not change the reading. Without this a
-    # place closed at its only routine ranked as a typical A. Model features keep real scores. A CSV
-    # from before `closure_order` marks only a closure episode's first visit (`closure`), unscored.
+    # The score the no-model rules read: a routine that started a closure for a health hazard (the
+    # CSV's closure_order "health": a County closure order, the operator's own closure with a major
+    # cited, or a closure read from a later reopening) counts as es.CLOSURE_SCORE, every time, as in
+    # the students' point rule (export_site.rated_score): the County usually gives no score that day,
+    # and a same-day score does not change the reading. Without this a place closed at its only
+    # routine ranked as a typical A. Model features keep real scores. A CSV from before
+    # `closure_order` marks only a closure episode's first visit (`closure`), unscored.
     df["rated_score"] = df["score"]
     if "closure_order" in df.columns:
         closed = (df["insp_type"].astype(str) == "Routine") & (df["closure_order"].astype(str).str.lower() == "health")

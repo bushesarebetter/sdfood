@@ -18,10 +18,15 @@
  * These facts count back from the place's last visit, so they read its own
  * record. The index's `flags` count back from the list date instead
  * (OUR_READING.flags).
+ *
+ * The theme facts are counted from the items the export lists (at most
+ * MAX_ITEMS a place, majors first). When the County's records in the 12
+ * months cite more major and minor violations than the list holds for them,
+ * the theme facts say "Showing N of M" (windowItemsNote).
  */
 import {
-  OUR_READING, THEMES, SEVERITY_LABELS, COUNTY_TYPES, closureWords, closureEnd, countyNotes, countyType, isGraded,
-  lastInspection, recordGradeText, themeCountsNote, visitPhrase, withinMonths,
+  OUR_READING, THEMES, SEVERITY_LABELS, FIELD_TYPES, closureWords, closureEnd, countyNotes, countyType, isGraded,
+  lastInspection, recordGradeText, visitPhrase, withinMonths,
 } from "./inspections.js";
 import { fmtDate, fmtMonth } from "./dates.js";
 
@@ -30,7 +35,6 @@ const MAX_QUOTES = 3;
 const MAX_LISTED = 4;
 const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 const sentenceCase = (s) => `${s.charAt(0).toUpperCase()}${s.slice(1)}`;
-const FIELD_TYPES = COUNTY_TYPES.complaint.join(" or ");
 
 const listed = (xs, fmt) => {
   const shown = xs.slice(0, MAX_LISTED).map(fmt).join("; ");
@@ -125,6 +129,22 @@ export function closureLines(p, opts = {}) {
   return closureEntries(p, opts).map((e) => `${e.title}: ${e.county.join(" ")} ${e.reading}`);
 }
 
+/**
+ * Whether the items the export lists for the window hold every major and minor violation the County's
+ * records in it count (each record's `major` and `minor`): the list is cut at MAX_ITEMS, majors first,
+ * so a place past the cut lists fewer. "Showing N of M ..." when they differ, else null. Read from the
+ * records themselves, so it holds whether or not the export gives `theme_counts`, which count the 36
+ * months, not these 12.
+ */
+function windowItemsNote(p, inWindow) {
+  const count = (x) => (Number.isInteger(x) && x > 0 ? x : 0);
+  const recorded = (p?.inspections ?? []).filter((i) => i?.date && inWindow(i.date)).reduce((a, i) => a + count(i.major) + count(i.minor), 0);
+  const listed = (p?.violations ?? []).filter((v) => inWindow(v.date) && (v.severity === "major" || v.severity === "minor")).length;
+  if (recorded <= listed) return null;
+  return `Showing ${listed} of the ${recorded} major and minor violations the County's records in these 12 months cite, majors first: ` +
+    "a theme's count of minor violations, and its latest date, may be low, and a theme with minor violations at two inspections may be left out.";
+}
+
 function themeFacts(p, inWindow) {
   const by = new Map();
   for (const v of p?.violations ?? []) {
@@ -141,8 +161,8 @@ function themeFacts(p, inWindow) {
     if (v.description) t.texts.set(v.description, (t.texts.get(v.description) ?? 0) + (v.severity === "major" ? 100 : 1));
     by.set(v.theme, t);
   }
-  // Counted from the items the export lists: when it cut them at 60, the reading says so.
-  const cut = themeCountsNote(p);
+  // Counted from the items the export lists: when they are fewer than the records count, the reading says so.
+  const cut = windowItemsNote(p, inWindow);
   const out = [];
   for (const [theme, t] of by) {
     if (!(t.majors > 0 || t.minorDates.size >= 2)) continue;
@@ -152,9 +172,11 @@ function themeFacts(p, inWindow) {
       `${parts.join(" and ")} cited in the 12 months before its last visit, most recently in ${fmtMonth(t.last)}${t.complaint ? ` (${t.complaint} found at a ${FIELD_TYPES} visit)` : ""}.`,
     ];
     if (quotes.length) county.push(`As the County wrote ${quotes.length === 1 ? "it" : "them"}: ${quotes.join("; ")}.`);
-    const reading = `Our reading: ${OUR_READING.themes}${cut && t.minors ? ` ${cut}` : ""}`;
+    const reading = `Our reading: ${OUR_READING.themes}${cut ? ` ${cut}` : ""}`;
     out.push({ key: `theme-${theme}`, title: THEMES[theme], county, reading, order: t.majors ? 1 : 4, weight: t.majors });
   }
+  // No theme to carry the line: it stands alone, so a cut list never reads as a quiet year.
+  if (cut && !out.length) out.push({ key: "theme-cut", title: "Items cited", county: [cut], reading: null, order: 4, weight: 0 });
   return out.sort((a, b) => a.order - b.order || b.weight - a.weight);
 }
 

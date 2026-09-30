@@ -5,7 +5,7 @@ import {
   estimateSentence, persistenceSentence, backtestPeriod, districtSentence, GROUP_NOTE, SAME_AS_PERSISTENCE, DRIFT_NOTE,
   scoreUsedText, scoresRead, utilityRows, frozenLine, driftLine, band1ByRoute, routeSentence, isOutside,
   CLOSURE_GROUP, DRIFT_NOT_YET, driftNote, driftLines, costLimit, costLimitSentence, districtPrecision, auditedBandsName, auditedGroup,
-  driftNotYet, curveFor, curveGroups, curveGroupFor, curveGroupRows, curveGroupSpread, pointsSpan,
+  driftNotYet, curveFor, curveGroups, curveGroupFor, curveGroupRows, curveGroupSpread, pointsSpan, groupTables, groupFloor, HEALTH_CLOSURE,
 } from "../src/lib/bands.js";
 import { bandsMeta, staffMeta } from "./fixtures/bandsMeta.mjs";
 
@@ -117,15 +117,17 @@ test("the persistence comparison follows the data; the group note says what a ba
   assert.equal(GROUP_NOTE, "A band describes what happened to a group of places; it is not a finding that this place has, or will have, a violation.");
 });
 
-test("the scores the average reads say what the County recorded for a closure and what the rule counts", () => {
+test("the scores the average reads say what the County recorded for a health closure and what the rule counts", () => {
   assert.equal(scoreUsedText({ date: "2025-02-01", score: 95, closure: false, county_score: 95 }), "February 1, 2025: 95");
   assert.equal(scoreUsedText({ date: "2026-01-15", score: 70, closure: true, county_score: null }),
-    "January 15, 2026: closed, no County score; this rule counts it as 70");
+    "January 15, 2026: a health closure (our reading), no County score; this rule counts it as 70");
   assert.equal(scoreUsedText({ date: "2026-03-03", score: 70, closure: true, county_score: 84 }),
-    "March 3, 2026: closed (the County's score that day: 84); this rule counts a closure as 70");
-  assert.equal(scoreUsedText({ date: "2026-01-15", score: 70, closure: true }), "January 15, 2026: closed; this rule counts a closure as 70", "an older export");
+    "March 3, 2026: a health closure (our reading) (the County's score that day: 84); this rule counts it as 70");
+  assert.equal(scoreUsedText({ date: "2026-01-15", score: 70, closure: true }), "January 15, 2026: a health closure (our reading); this rule counts it as 70", "an older export");
+  assert.equal(HEALTH_CLOSURE,
+    "a routine inspection that started a closure for a health hazard (a County closure order, the operator's own closure with a major cited, or a closure read from a later reopening)");
   const r = scoresRead([{ date: "2025-02-01", score: 95, closure: false }, { date: "2025-08-01", score: 94 }, { date: "2026-01-15", score: 70, closure: true, county_score: 88 }]);
-  assert.equal(r.mean, 86.3, "a closure counts as 70 whatever the County's score");
+  assert.equal(r.mean, 86.3, "a health closure counts as 70 whatever the County's score");
   assert.equal(r.lines.length, 3);
   assert.equal(scoresRead([]), null);
   assert.equal(scoresRead([{ date: "2025-01-01" }]), null);
@@ -142,22 +144,22 @@ test("the cost-ratio table, the frozen rule, drift and band 1 by route read from
   assert.equal(driftLine({ drift: { refit_needed: false, reasons: ["x"] } }), null);
   assert.equal(driftLine({}), null);
   assert.equal(routeSentence(staffMeta),
-    "In the backtest, about 45 in 100 band 1 places that were in it because of a closure counted as 70 had a major violation at their next routine inspection (likely 33 to 58), against about 36 in 100 of those in it on routine scores alone (likely 32 to 40).");
+    "In the backtest, about 45 in 100 band 1 places that were in it because of a health closure counted as 70 had a major violation at their next routine inspection (likely 33 to 58), against about 36 in 100 of those in it on routine scores alone (likely 32 to 40).");
   const list = { card: { band_1_by_route: [{ route: "no_closure", rate: 0.3 }, { route: "closure_70", rate: 0.5 }] } };
   assert.equal(band1ByRoute(list).closure.rate, 0.5);
   assert.equal(band1ByRoute(list).scores.rate, 0.3);
-  assert.match(routeSentence({ card: { band_1_by_route: { closure: { rate: 0.5 } } } }), /^In the backtest, about 50 in 100 band 1 places that were in it because of a closure/);
+  assert.match(routeSentence({ card: { band_1_by_route: { closure: { rate: 0.5 } } } }), /^In the backtest, about 50 in 100 band 1 places that were in it because of a health closure/);
   assert.equal(routeSentence(bandsMeta), null);
 });
 
-const NOTE = "In the latest quarter (2026 Q3) 20.5% of routine inspections found a major violation, against 17.5% over the backtest year, so the rates here may be low.";
+const NOTE = "In the latest quarter (2026 Q3) 20.5% of routine inspections found a major violation, against 17.5% over the backtest's label year before that quarter (September 2025 to June 2026), so the rates here may be low.";
 const calmMeta = { ...staffMeta, drift: { refit_needed: false, reasons: [] } };
 
 test("an estimate read from the closure curve says whose rate it is; one from the scores curve reads as before", () => {
-  assert.equal(CLOSURE_GROUP, "whose last two years include a routine inspection that ended in a closure");
+  assert.equal(CLOSURE_GROUP, "whose last two years include a routine inspection that started a health closure");
   assert.equal(
     estimateSentence(calmMeta, 30, { estimate: { rate: 0.28, low: 0.22, high: 0.34, group: "closure" } }),
-    "Scored restaurants with about 30 points whose last two years include a routine inspection that ended in a closure: about 28 in 100 had a major violation at their next routine inspection in the backtest of the list drawn up on September 1, 2025 (likely 22 to 34). " +
+    "Scored restaurants with about 30 points whose last two years include a routine inspection that started a health closure: about 28 in 100 had a major violation at their next routine inspection in the backtest of the list drawn up on September 1, 2025 (likely 22 to 34). " +
       "The likely range reflects sampling only, not changes since then.",
   );
   assert.equal(
@@ -166,7 +168,7 @@ test("an estimate read from the closure curve says whose rate it is; one from th
     "the scores group, and an older export's estimate without a group, read the same",
   );
   assert.match(estimateSentence(calmMeta, 30, { outside: true, estimate: { rate: 0.2, low: 0.1, high: 0.3, group: "closure" } }),
-    /^Scored restaurants outside the City with about 30 points whose last two years include a routine inspection that ended in a closure: about 20 in 100/);
+    /^Scored restaurants outside the City with about 30 points whose last two years include a routine inspection that started a health closure: about 20 in 100/);
   // without a place estimate the site reads `curve`, and says nothing about a group
   assert.doesNotMatch(estimateSentence({ ...calmMeta, card: { ...calmMeta.card, curve_closure: { rate: [0.9], low: [0.8], high: [0.95] } } }, 3), /closure/);
 });
@@ -193,8 +195,8 @@ test("the About page's drift lines: not yet comparable, the refit with its reaso
   assert.doesNotMatch(driftLines({ drift: { status: "not_yet_measurable", note: NOTE } }).join(" "), /cannot be compared/);
   assert.deepEqual(driftLines({ drift: { status: "not_yet_measurable", refit_needed: false, reasons: [], note: null } }), [DRIFT_NOT_YET]);
   assert.deepEqual(
-    driftLines({ drift: { status: "refit", refit_needed: true, reasons: ["routine major rate 26.5% in 2026Q1, 2026Q2 against 20.0% over the backtest year"], note: NOTE } }),
-    ["The County's record has changed since these rates were measured: routine major rate 26.5% in 2026Q1, 2026Q2 against 20.0% over the backtest year.", NOTE],
+    driftLines({ drift: { status: "refit", refit_needed: true, reasons: ["routine major rate 26.5% in 2026Q1, 2026Q2 against 20.0% over the backtest's label year (September 2025 to August 2026)"], note: NOTE } }),
+    ["The County's record has changed since these rates were measured: routine major rate 26.5% in 2026Q1, 2026Q2 against 20.0% over the backtest's label year (September 2025 to August 2026).", NOTE],
   );
   assert.deepEqual(driftLines({ drift: { status: "ok", refit_needed: false, reasons: [], note: null } }), []);
   assert.deepEqual(driftLines(staffMeta), [driftLine(staffMeta)], "an older export without status or note");
@@ -328,7 +330,7 @@ test("every About row's rate is the rate the estimate gives each place in its po
 
 test("the estimate names the group of points it is read from, not the place's exact points", () => {
   const closure = estimateSentence(curveMeta, 23, { estimate: { rate: 0.316, low: 0.263, high: 0.3723, group: "closure" } });
-  assert.match(closure, /^Scored restaurants with 7 to 25 points whose last two years include a routine inspection that ended in a closure: about 32 in 100 /);
+  assert.match(closure, /^Scored restaurants with 7 to 25 points whose last two years include a routine inspection that started a health closure: about 32 in 100 /);
   assert.doesNotMatch(closure, /about 23 points/);
   assert.match(estimateSentence(curveMeta, 12, { estimate: { rate: 0.4044, low: 0.3644, high: 0.4444 } }), /^Scored restaurants with 8 to 16 points: about 40 in 100 /);
   assert.match(estimateSentence(curveMeta, 7, { estimate: { rate: 0.3194, low: 0.28, high: 0.36, group: "scores" } }), /^Scored restaurants with 7 points: about 32 in 100 /,
@@ -354,4 +356,112 @@ test("where a group's finer counts run from low to high, and which curve an esti
   assert.equal(curveFor(curveMeta, { group: "closure" }), curveMeta.card.curve_closure);
   assert.equal(curveFor(curveMeta, { group: "scores" }), curveMeta.card.curve);
   assert.equal(curveFor({ card: { curve: 1, outside: { curve: 2 } } }, { outside: true }), 2);
+});
+
+// Outside the City the same shape, measured there: every place outside the City is read from these.
+const outsideSpec = [[0, 0, 0.0442], [1, 1, 0.0484], [2, 2, 0.0859], [3, 3, 0.0991], [4, 4, 0.1712], [5, 7, 0.2203], [8, 16, 0.2911]];
+const withOutside = {
+  ...curveMeta,
+  card: {
+    ...curveMeta.card,
+    outside: {
+      bands_shown: false,
+      curve: {
+        model: curveMeta.card.curve.model,
+        groups: outsideSpec.map(([lo, hi]) => [lo, hi]),
+        rate: rates(outsideSpec, 16), low: rates(outsideSpec.map(([lo, hi, r]) => [lo, hi, r - 0.03]), 16), high: rates(outsideSpec.map(([lo, hi, r]) => [lo, hi, r + 0.03]), 16),
+        group_counts: outsideSpec.map(([lo, hi], k) => ({ min_points: lo, max_points: hi, labelled: 210 + 10 * k, positives: 20 + k })),
+        labelled: 3113, positives: 517,
+      },
+      curve_closure: {
+        model: curveMeta.card.curve.model,
+        groups: [[8, 30]], rate: Array(31).fill(0.2624), low: Array(31).fill(0.2097), high: Array(31).fill(0.3234),
+        group_counts: [{ min_points: 8, max_points: 30, labelled: 202, positives: 53 }], labelled: 202, positives: 53,
+      },
+    },
+  },
+};
+
+test("each area's fitted groups are a table: the City's, and those measured outside the City", () => {
+  const city = groupTables(withOutside);
+  assert.deepEqual(city.map((t) => t.group), ["scores", "closure"]);
+  assert.deepEqual(city[0].rows, curveGroupRows(curveMeta.card.curve));
+  const outside = groupTables(withOutside, { outside: true });
+  assert.deepEqual(outside.map((t) => [t.group, t.rows.length]), [["scores", 7], ["closure", 1]]);
+  assert.deepEqual(outside[1].rows[0], { lo: 8, hi: 30, labelled: 202, positives: 53, rate: 0.2624, low: 0.2097, high: 0.3234 });
+  assert.equal(groupTables(curveMeta, { outside: true }), null, "no outside curves");
+  assert.equal(groupTables({ card: { curve: { rate: [0.1] } } }), null, "an older export's curve has no groups");
+  assert.equal(groupTables({ card: { ...curveMeta.card, curve_closure: { rate: [0.3] } } }), null, "one curve without groups: no table");
+});
+
+test("the pooling floor the About page states is one its own table bears out", () => {
+  assert.equal(groupFloor(groupTables(curveMeta)), 200, "the curve's own floor, and no group shown has fewer");
+  assert.equal(groupFloor(groupTables(withOutside, { outside: true })), 200);
+  // The sample's curves state no floor: the smallest group, since every group has a count.
+  const counted = (curve, counts) => ({ ...curve, model: "sample: isotonic rate by points on the invented backtest",
+    group_counts: curve.groups.map(([lo, hi], k) => ({ min_points: lo, max_points: hi, labelled: counts[k], positives: 1 })) });
+  const sample = { card: { curve: counted(curveMeta.card.curve, [88, 86, 212, 83, 127, 39, 75, 56, 38]), curve_closure: counted(curveMeta.card.curve_closure, [30]) } };
+  assert.equal(groupFloor(groupTables(sample)), 30);
+  // A stated floor a shown group falls below is not stated.
+  const low = { card: { curve: { ...counted(curveMeta.card.curve, [88, 86, 212, 83, 127, 39, 75, 56, 38]), model: curveMeta.card.curve.model } } };
+  assert.equal(groupFloor(groupTables(low)), 38);
+  // No floor and a group without a count: no number.
+  assert.equal(groupFloor(groupTables({ card: { curve: { ...curveMeta.card.curve, model: "isotonic" } } })), null);
+  assert.equal(groupFloor(null), null);
+});
+
+/**
+ * The About-row check, for every place: the group of points and the rate its estimate states are a
+ * row of the table for its own area (the City's, or the one measured outside it) and its own curve.
+ * `places` are { points, estimate, council_district }; returns the places that match no row.
+ */
+function unmatchedAboutRows(meta, places) {
+  const unmatched = [];
+  for (const p of places) {
+    const outside = isOutside(p, meta);
+    const s = estimateSentence(meta, p.points, { estimate: p.estimate ?? null, outside });
+    if (!s) continue;
+    const m = /with (\d+)(?: to (\d+))? points?(?: \(the group[^)]*\))?( whose last two years)?[^:]*: about (\d+) in 100/.exec(s);
+    if (!m) { unmatched.push([p, s]); continue; }
+    const [lo, hi, closure, rate] = [Number(m[1]), Number(m[2] ?? m[1]), Boolean(m[3]), Number(m[4])];
+    const tables = groupTables(meta, { outside }) ?? [];
+    const table = tables.find((t) => t.group === (closure ? "closure" : "scores"));
+    const row = table?.rows.find((r) => r.lo === lo && r.hi === hi);
+    if (!row || Math.round(row.rate * 100) !== rate) unmatched.push([p, s]);
+  }
+  return unmatched;
+}
+
+test("every place's estimate, in the City and outside it, names a group and rate a row of the About page shows", () => {
+  const places = [];
+  for (const council_district of [3, null]) {
+    const o = council_district == null ? withOutside.card.outside : withOutside.card;
+    for (let points = 0; points <= 30; points += 1) {
+      for (const group of ["scores", "closure"]) {
+        const curve = group === "closure" ? o.curve_closure : o.curve;
+        const j = Math.min(points, curve.rate.length - 1);
+        const g = curveGroupFor(curve, points);
+        places.push({ points, council_district, estimate: { rate: curve.rate[j], low: curve.low[j], high: curve.high[j], group, min_points: g.lo, max_points: g.hi } });
+      }
+    }
+  }
+  assert.equal(places.length, 124);
+  assert.deepEqual(unmatchedAboutRows(withOutside, places), []);
+  // Read from the City's rows, an outside place would be told a rate no outside row has: the check sees it.
+  const asIfCity = places.filter((p) => p.council_district == null).map((p) => ({ ...p, estimate: { ...p.estimate, rate: p.estimate.rate + 0.05 } }));
+  assert.ok(unmatchedAboutRows(withOutside, asIfCity).length > 0);
+});
+
+test("every place in the shipped sample export names a group and rate a row of its About page shows", async () => {
+  const { readFileSync, readdirSync } = await import("node:fs");
+  const { join, dirname } = await import("node:path");
+  const { fileURLToPath } = await import("node:url");
+  const data = join(dirname(fileURLToPath(import.meta.url)), "..", "public", "data");
+  const meta = JSON.parse(readFileSync(join(data, "meta.json"), "utf8"));
+  if (meta.mode !== "bands") return;
+  const places = readdirSync(join(data, "place")).filter((f) => f.endsWith(".json"))
+    .map((f) => JSON.parse(readFileSync(join(data, "place", f), "utf8")))
+    .filter((p) => typeof p.points === "number" && !p.on_hold);
+  assert.ok(places.length > 100, "the sample scores its places");
+  assert.deepEqual(unmatchedAboutRows(meta, places).map(([p, s]) => `${p.facility_id}: ${s}`), []);
 });

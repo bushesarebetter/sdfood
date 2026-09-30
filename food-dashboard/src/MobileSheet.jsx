@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { PlaceLines, PlaceStatus, CountyDisclaimer, RecordFactList, StaleBadge } from "./PlaceParts";
+import StaffActions from "./StaffActions";
 import usePlace from "./usePlace";
 import { useMeta, useMode, useExpired, useSample } from "./useMeta";
 import { typeLabel } from "./lib/inspections";
+import { copyFor } from "./lib/copy";
 import { gradeView } from "./lib/grades";
 import { recordFacts } from "./lib/recordFacts";
 import { mergePlace } from "./lib/placeData";
@@ -15,8 +17,9 @@ const DISMISS_PX = 64;
 
 /**
  * Phone detail sheet: what the place is, its grade (and band, in `bands`
- * mode), the first facts from the County's record, and a way to the full
- * record. Under half the viewport so the map stays visible above it.
+ * mode), the first facts from the County's record, a way to the full
+ * record and, on the staff site, where a question about the place goes.
+ * Under half the viewport so the map stays visible above it.
  */
 export default function MobileSheet({ feature, onClose, onNavigate }) {
   const [dragY, setDragY] = useState(0);
@@ -105,7 +108,7 @@ export default function MobileSheet({ feature, onClose, onNavigate }) {
             {place ? (
               <>
                 <p className="label mb-2">What the County&rsquo;s record shows</p>
-                <RecordFactList facts={facts} empty="No closure, major violation, B or C grade, repeat reinspection or complaint visit in the 12 months before the last visit." />
+                <RecordFactList facts={facts} empty={copyFor(false).detailNoFacts} />
               </>
             ) : (
               <PlaceStatus status={loaded.status} id={p.facility_id} onRetry={loaded.retry} />
@@ -120,6 +123,9 @@ export default function MobileSheet({ feature, onClose, onNavigate }) {
               The County&rsquo;s record
             </a>
           </div>
+
+          {/* On the staff site, where a question about this place goes (null elsewhere), as the panel shows it. */}
+          <div className="mx-5 mt-3 border-t border-rule pt-3 empty:hidden"><StaffActions /></div>
 
           {!sample && (
             <a

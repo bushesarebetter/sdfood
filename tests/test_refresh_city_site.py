@@ -86,8 +86,13 @@ def test_a_stale_partial_that_records_a_refusal_is_never_set_aside():
     run = runner({})
     assert r.main([], run=run) == 3 and run.ran == []
     assert r.PARTIAL_META.exists() and r.set_aside_partial() is False and r.PARTIAL_META.exists()
+    assert json.loads(r.REFUSED.read_text(encoding="utf-8"))["status"] == 403, "the refusal is copied into PULL_REFUSED.json"
+    r.REFUSED.unlink()
     r.PARTIAL_META.rename(r.PARTIAL_META.with_name(r.PARTIAL_META.name + ".stale-20260101T000000"))
     assert r.refusal_on_record()["status"] == 403, "nor does a copy set aside by an older version lose it"
+    r.REFUSED.write_text(json.dumps({"status": 401, "page": 1}), encoding="utf-8")
+    r.refusal_on_record()
+    assert json.loads(r.REFUSED.read_text(encoding="utf-8"))["status"] == 401, "the first refusal on record is never overwritten"
 
 
 def test_an_incomplete_listing_is_said_plainly(capsys):
