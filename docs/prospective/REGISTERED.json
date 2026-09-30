@@ -43,6 +43,28 @@
           ]
         }
       ]
+    },
+    {
+      "run": "forward_2026-09-29-7c31f713",
+      "generated": "2026-09-29",
+      "ranking_sha256": "2cc091df0715e74547843249442e1d56bf6e86c3d2698f5c1447a40f1ff384f4",
+      "meta_sha256": "c55bb0514ff00c6fdfafb107f83353afdc7cc8c143cea1cf666340ae84468eae",
+      "code_sha": "1ecc743ad3ea30dded26ebef052fb10095eef64e",
+      "pull_sha256": "974f43e29db74f1af37c5ed761be61e700f513c07ba3554b524f2567bed664ec",
+      "version": "2026-09-29-518bb149",
+      "registered": "2026-09-29",
+      "rule": "average score: 1 x avg_deficit",
+      "bands": [
+        {
+          "band": "1",
+          "min_points": 8,
+          "rate": 0.3664,
+          "interval": [
+            0.3304,
+            0.404
+          ]
+        }
+      ]
     }
   ]
 }
